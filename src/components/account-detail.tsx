@@ -14,6 +14,17 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface AccountDetailProps {
   accountId: string;
@@ -43,10 +54,6 @@ export function AccountDetail({ accountId }: AccountDetailProps) {
   };
 
   const handleDelete = async () => {
-    if (!confirm("Are you sure you want to delete this account?")) {
-      return;
-    }
-
     setIsDeleting(true);
     try {
       await api.deleteAccount(accountId);
@@ -94,7 +101,7 @@ export function AccountDetail({ accountId }: AccountDetailProps) {
                 Exchange
               </p>
               <p className="text-lg font-semibold">
-                {account.exchange.display_name}
+                {account.exchange?.display_name || "Unknown"}
               </p>
             </div>
             <div>
@@ -136,13 +143,31 @@ export function AccountDetail({ accountId }: AccountDetailProps) {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Button
-            variant="destructive"
-            onClick={handleDelete}
-            disabled={isDeleting}
-          >
-            {isDeleting ? "Deleting..." : "Delete Account"}
-          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive" disabled={isDeleting}>
+                {isDeleting ? "Deleting..." : "Delete Account"}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete Account</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Are you sure you want to delete this account? This action
+                  cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={handleDelete}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </CardContent>
       </Card>
     </div>

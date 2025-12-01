@@ -1,7 +1,7 @@
 import { Exchange, ExchangeAccount } from "./queries";
 
 // Toggle this to switch between mock and real API
-export const USE_MOCK_DATA = true;
+export const USE_MOCK_DATA = false;
 
 // Mock exchanges
 export const mockExchanges: Exchange[] = [
