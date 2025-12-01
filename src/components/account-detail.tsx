@@ -1,0 +1,150 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { api } from "@/lib/api";
+import { ExchangeAccount } from "@/lib/queries";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+
+interface AccountDetailProps {
+  accountId: string;
+}
+
+export function AccountDetail({ accountId }: AccountDetailProps) {
+  const router = useRouter();
+  const [account, setAccount] = useState<ExchangeAccount | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  useEffect(() => {
+    fetchAccount();
+  }, [accountId]);
+
+  const fetchAccount = async () => {
+    setIsLoading(true);
+    try {
+      const data = await api.getAccountById(accountId);
+      setAccount(data);
+    } catch (error) {
+      toast.error("Failed to fetch account details");
+      console.error(error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!confirm("Are you sure you want to delete this account?")) {
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      await api.deleteAccount(accountId);
+      toast.success("Account deleted successfully");
+      router.push("/accounts");
+    } catch (error) {
+      toast.error("Failed to delete account");
+      console.error(error);
+      setIsDeleting(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <p className="text-muted-foreground">Loading account details...</p>
+      </div>
+    );
+  }
+
+  if (!account) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 text-center">
+        <p className="text-muted-foreground mb-4">Account not found</p>
+        <Button onClick={() => router.push("/accounts")}>
+          Back to Accounts
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Account Information</CardTitle>
+          <CardDescription>
+            Details about this exchange account
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">
+                Exchange
+              </p>
+              <p className="text-lg font-semibold">
+                {account.exchange.display_name}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">
+                Account Type
+              </p>
+              <Badge variant="secondary" className="mt-1">
+                {account.account_type}
+              </Badge>
+            </div>
+            <div className="md:col-span-2">
+              <p className="text-sm font-medium text-muted-foreground">
+                Account Identifier
+              </p>
+              <p className="text-lg font-mono break-all">
+                {account.account_identifier}
+              </p>
+            </div>
+            {account.account_type_metadata &&
+              Object.keys(account.account_type_metadata).length > 0 && (
+                <div className="md:col-span-2">
+                  <p className="text-sm font-medium text-muted-foreground">
+                    Metadata
+                  </p>
+                  <pre className="mt-1 p-3 bg-muted rounded-md text-sm overflow-auto">
+                    {JSON.stringify(account.account_type_metadata, null, 2)}
+                  </pre>
+                </div>
+              )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-destructive">
+        <CardHeader>
+          <CardTitle className="text-destructive">Danger Zone</CardTitle>
+          <CardDescription>
+            Irreversible actions for this account
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            variant="destructive"
+            onClick={handleDelete}
+            disabled={isDeleting}
+          >
+            {isDeleting ? "Deleting..." : "Delete Account"}
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
