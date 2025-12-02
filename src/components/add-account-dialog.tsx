@@ -75,6 +75,20 @@ export function AddAccountDialog({ onSuccess }: AddAccountDialogProps) {
     }
   };
 
+  function getErrorMessage(error: unknown): string {
+    if (error && typeof error === "object" && "response" in error) {
+      const response = error as {
+        response?: { errors?: { extensions?: { code?: string } }[] };
+      };
+      const code = response.response?.errors?.[0]?.extensions?.code;
+
+      if (code === "constraint-violation") {
+        return "This account already exists for this exchange";
+      }
+    }
+    return "Failed to add account";
+  }
+
   async function onSubmit(data: AccountFormValues) {
     setIsLoading(true);
     try {
@@ -89,7 +103,7 @@ export function AddAccountDialog({ onSuccess }: AddAccountDialogProps) {
       setOpen(false);
       onSuccess?.();
     } catch (error) {
-      toast.error("Failed to add account");
+      toast.error(getErrorMessage(error));
       console.error(error);
     } finally {
       setIsLoading(false);
@@ -167,7 +181,6 @@ export function AddAccountDialog({ onSuccess }: AddAccountDialogProps) {
                     </FormControl>
                     <SelectContent>
                       <SelectItem value="main">Main</SelectItem>
-                      <SelectItem value="sub">Sub</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />

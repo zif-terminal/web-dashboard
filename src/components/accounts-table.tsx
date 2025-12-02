@@ -77,7 +77,7 @@ export function AccountsTable({ refreshKey }: AccountsTableProps) {
             onClick={() => router.push(`/accounts/${account.id}`)}
           >
             <TableCell className="font-medium">
-              {account.exchange.display_name}
+              {account.exchange?.display_name || "Unknown"}
             </TableCell>
             <TableCell className="font-mono text-sm">
               {account.account_identifier.length > 20

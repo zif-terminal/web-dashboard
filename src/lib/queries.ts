@@ -13,7 +13,7 @@ export interface ExchangeAccount {
   account_identifier: string;
   account_type: string;
   account_type_metadata: Record<string, unknown>;
-  exchange: Exchange;
+  exchange?: Exchange;
 }
 
 // Queries
@@ -35,11 +35,6 @@ export const GET_ACCOUNTS = gql`
       account_identifier
       account_type
       account_type_metadata
-      exchange {
-        id
-        name
-        display_name
-      }
     }
   }
 `;
@@ -52,11 +47,6 @@ export const GET_ACCOUNT_BY_ID = gql`
       account_identifier
       account_type
       account_type_metadata
-      exchange {
-        id
-        name
-        display_name
-      }
     }
   }
 `;
@@ -68,10 +58,6 @@ export const CREATE_ACCOUNT = gql`
       id
       account_identifier
       account_type
-      exchange {
-        name
-        display_name
-      }
     }
   }
 `;
