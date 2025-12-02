@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { ExchangeAccount } from "@/lib/queries";
@@ -131,6 +132,11 @@ export function AccountDetail({ accountId }: AccountDetailProps) {
                   </pre>
                 </div>
               )}
+          </div>
+          <div className="pt-4">
+            <Button asChild>
+              <Link href={`/accounts/${accountId}/trades`}>View Trades</Link>
+            </Button>
           </div>
         </CardContent>
       </Card>

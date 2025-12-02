@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 
 const navigation = [
   { name: "Accounts", href: "/accounts" },
+  { name: "Trades", href: "/trades" },
 ];
 
 export default function DashboardLayout({
