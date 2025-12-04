@@ -6,8 +6,13 @@ import {
   GET_ACCOUNT_BY_ID,
   CREATE_ACCOUNT,
   DELETE_ACCOUNT,
+  GET_TRADES,
+  GET_TRADES_BY_ACCOUNT,
+  GET_TRADES_COUNT,
+  GET_TRADES_COUNT_BY_ACCOUNT,
   Exchange,
   ExchangeAccount,
+  Trade,
 } from "./queries";
 import { USE_MOCK_DATA, mockApi } from "./mock-data";
 
@@ -141,6 +146,73 @@ export const api = {
         delete_exchange_accounts_by_pk: { id: string };
       }>(DELETE_ACCOUNT, { id });
       return data.delete_exchange_accounts_by_pk;
+    });
+  },
+
+  async getTrades(
+    limit: number,
+    offset: number
+  ): Promise<{ trades: Trade[]; totalCount: number }> {
+    return withAuthErrorHandling(async () => {
+      const client = getGraphQLClient();
+
+      const [tradesData, countData, accountsData, exchangesData] =
+        await Promise.all([
+          client.request<{ trades: Trade[] }>(GET_TRADES, { limit, offset }),
+          client.request<{
+            trades_aggregate: { aggregate: { count: number } };
+          }>(GET_TRADES_COUNT),
+          client.request<{ exchange_accounts: ExchangeAccount[] }>(GET_ACCOUNTS),
+          client.request<{ exchanges: Exchange[] }>(GET_EXCHANGES),
+        ]);
+
+      // Create lookup maps
+      const exchangeMap = new Map(
+        exchangesData.exchanges.map((ex) => [ex.id, ex])
+      );
+      const accountMap = new Map(
+        accountsData.exchange_accounts.map((acc) => [
+          acc.id,
+          { ...acc, exchange: exchangeMap.get(acc.exchange_id) },
+        ])
+      );
+
+      // Join account info to trades
+      const trades = tradesData.trades.map((trade) => ({
+        ...trade,
+        exchange_account: accountMap.get(trade.exchange_account_id),
+      }));
+
+      return {
+        trades,
+        totalCount: countData.trades_aggregate.aggregate.count,
+      };
+    });
+  },
+
+  async getTradesByAccount(
+    accountId: string,
+    limit: number,
+    offset: number
+  ): Promise<{ trades: Trade[]; totalCount: number }> {
+    return withAuthErrorHandling(async () => {
+      const client = getGraphQLClient();
+
+      const [tradesData, countData] = await Promise.all([
+        client.request<{ trades: Trade[] }>(GET_TRADES_BY_ACCOUNT, {
+          accountId,
+          limit,
+          offset,
+        }),
+        client.request<{
+          trades_aggregate: { aggregate: { count: number } };
+        }>(GET_TRADES_COUNT_BY_ACCOUNT, { accountId }),
+      ]);
+
+      return {
+        trades: tradesData.trades,
+        totalCount: countData.trades_aggregate.aggregate.count,
+      };
     });
   },
 };

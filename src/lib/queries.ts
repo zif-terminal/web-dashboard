@@ -69,3 +69,84 @@ export const DELETE_ACCOUNT = gql`
     }
   }
 `;
+
+// Trade types
+export interface Trade {
+  id: string;
+  base_asset: string;
+  quote_asset: string;
+  side: "buy" | "sell";
+  price: string;
+  quantity: string;
+  timestamp: string;
+  fee: string;
+  order_id: string;
+  trade_id: string;
+  exchange_account_id: string;
+  created_at: string;
+  exchange_account?: ExchangeAccount;
+}
+
+// Trade queries
+export const GET_TRADES = gql`
+  query GetTrades($limit: Int!, $offset: Int!) {
+    trades(limit: $limit, offset: $offset, order_by: { timestamp: desc }) {
+      id
+      base_asset
+      quote_asset
+      side
+      price
+      quantity
+      timestamp
+      fee
+      order_id
+      trade_id
+      exchange_account_id
+      created_at
+    }
+  }
+`;
+
+export const GET_TRADES_BY_ACCOUNT = gql`
+  query GetTradesByAccount($accountId: uuid!, $limit: Int!, $offset: Int!) {
+    trades(
+      where: { exchange_account_id: { _eq: $accountId } }
+      limit: $limit
+      offset: $offset
+      order_by: { timestamp: desc }
+    ) {
+      id
+      base_asset
+      quote_asset
+      side
+      price
+      quantity
+      timestamp
+      fee
+      order_id
+      trade_id
+      exchange_account_id
+      created_at
+    }
+  }
+`;
+
+export const GET_TRADES_COUNT = gql`
+  query GetTradesCount {
+    trades_aggregate {
+      aggregate {
+        count
+      }
+    }
+  }
+`;
+
+export const GET_TRADES_COUNT_BY_ACCOUNT = gql`
+  query GetTradesCountByAccount($accountId: uuid!) {
+    trades_aggregate(where: { exchange_account_id: { _eq: $accountId } }) {
+      aggregate {
+        count
+      }
+    }
+  }
+`;
