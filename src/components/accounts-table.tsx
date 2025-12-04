@@ -14,6 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { AccountsTableSkeleton } from "@/components/table-skeleton";
 
 interface AccountsTableProps {
   refreshKey?: number;
@@ -42,11 +43,7 @@ export function AccountsTable({ refreshKey }: AccountsTableProps) {
   }, [refreshKey]);
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-8">
-        <p className="text-muted-foreground">Loading accounts...</p>
-      </div>
-    );
+    return <AccountsTableSkeleton rows={3} />;
   }
 
   if (accounts.length === 0) {
