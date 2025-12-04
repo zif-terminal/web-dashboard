@@ -7,7 +7,9 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { ExchangeAccount } from "@/lib/queries";
 import { Button } from "@/components/ui/button";
+import { LoadingButton } from "@/components/ui/loading-button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Card,
   CardContent,
@@ -69,9 +71,28 @@ export function AccountDetail({ accountId }: AccountDetailProps) {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-8">
-        <p className="text-muted-foreground">Loading account details...</p>
-      </div>
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-6 w-48" />
+          <Skeleton className="h-4 w-64 mt-2" />
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Skeleton className="h-4 w-20 mb-2" />
+              <Skeleton className="h-6 w-32" />
+            </div>
+            <div>
+              <Skeleton className="h-4 w-24 mb-2" />
+              <Skeleton className="h-6 w-16" />
+            </div>
+            <div className="md:col-span-2">
+              <Skeleton className="h-4 w-32 mb-2" />
+              <Skeleton className="h-6 w-full max-w-md" />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     );
   }
 
@@ -151,9 +172,9 @@ export function AccountDetail({ accountId }: AccountDetailProps) {
         <CardContent>
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button variant="destructive" disabled={isDeleting}>
-                {isDeleting ? "Deleting..." : "Delete Account"}
-              </Button>
+              <LoadingButton variant="destructive" loading={isDeleting}>
+                Delete Account
+              </LoadingButton>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>

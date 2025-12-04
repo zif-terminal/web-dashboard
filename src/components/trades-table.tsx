@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { TradesTableSkeleton } from "@/components/table-skeleton";
 
 interface TradesTableProps {
   trades: Trade[];
@@ -54,11 +55,7 @@ export function TradesTable({
   const endItem = Math.min((page + 1) * pageSize, totalCount);
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-8">
-        <p className="text-muted-foreground">Loading trades...</p>
-      </div>
-    );
+    return <TradesTableSkeleton rows={5} showAccount={showAccount} />;
   }
 
   if (trades.length === 0) {

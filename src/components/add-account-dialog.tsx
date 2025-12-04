@@ -8,6 +8,8 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Exchange } from "@/lib/queries";
 import { Button } from "@/components/ui/button";
+import { LoadingButton } from "@/components/ui/loading-button";
+import { Spinner } from "@/components/ui/spinner";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -49,6 +51,7 @@ export function AddAccountDialog({ onSuccess }: AddAccountDialogProps) {
   const [open, setOpen] = useState(false);
   const [exchanges, setExchanges] = useState<Exchange[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingExchanges, setIsLoadingExchanges] = useState(false);
 
   const form = useForm<AccountFormValues>({
     resolver: zodResolver(accountSchema),
@@ -66,12 +69,15 @@ export function AddAccountDialog({ onSuccess }: AddAccountDialogProps) {
   }, [open]);
 
   const fetchExchanges = async () => {
+    setIsLoadingExchanges(true);
     try {
       const data = await api.getExchanges();
       setExchanges(data);
     } catch (error) {
       toast.error("Failed to fetch exchanges");
       console.error(error);
+    } finally {
+      setIsLoadingExchanges(false);
     }
   };
 
@@ -140,11 +146,17 @@ export function AddAccountDialog({ onSuccess }: AddAccountDialogProps) {
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {exchanges.map((exchange) => (
-                        <SelectItem key={exchange.id} value={exchange.id}>
-                          {exchange.display_name}
-                        </SelectItem>
-                      ))}
+                      {isLoadingExchanges ? (
+                        <div className="flex items-center justify-center py-2">
+                          <Spinner size="sm" />
+                        </div>
+                      ) : (
+                        exchanges.map((exchange) => (
+                          <SelectItem key={exchange.id} value={exchange.id}>
+                            {exchange.display_name}
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -195,9 +207,9 @@ export function AddAccountDialog({ onSuccess }: AddAccountDialogProps) {
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={isLoading}>
-                {isLoading ? "Adding..." : "Add Account"}
-              </Button>
+              <LoadingButton type="submit" loading={isLoading}>
+                Add Account
+              </LoadingButton>
             </div>
           </form>
         </Form>
