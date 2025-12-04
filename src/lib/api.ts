@@ -14,7 +14,6 @@ import {
   ExchangeAccount,
   Trade,
 } from "./queries";
-import { USE_MOCK_DATA, mockApi } from "./mock-data";
 
 function isAuthError(error: unknown): boolean {
   if (error && typeof error === "object" && "response" in error) {
@@ -49,10 +48,6 @@ async function withAuthErrorHandling<T>(fn: () => Promise<T>): Promise<T> {
 
 export const api = {
   async getExchanges(): Promise<Exchange[]> {
-    if (USE_MOCK_DATA) {
-      return mockApi.getExchanges();
-    }
-
     return withAuthErrorHandling(async () => {
       const client = getGraphQLClient();
       const data = await client.request<{ exchanges: Exchange[] }>(GET_EXCHANGES);
@@ -61,10 +56,6 @@ export const api = {
   },
 
   async getAccounts(): Promise<ExchangeAccount[]> {
-    if (USE_MOCK_DATA) {
-      return mockApi.getAccounts();
-    }
-
     return withAuthErrorHandling(async () => {
       const client = getGraphQLClient();
 
@@ -88,10 +79,6 @@ export const api = {
   },
 
   async getAccountById(id: string): Promise<ExchangeAccount | null> {
-    if (USE_MOCK_DATA) {
-      return mockApi.getAccountById(id);
-    }
-
     return withAuthErrorHandling(async () => {
       const client = getGraphQLClient();
 
@@ -122,10 +109,6 @@ export const api = {
     account_type: string;
     account_type_metadata: Record<string, unknown>;
   }): Promise<ExchangeAccount> {
-    if (USE_MOCK_DATA) {
-      return mockApi.createAccount(input);
-    }
-
     return withAuthErrorHandling(async () => {
       const client = getGraphQLClient();
       const data = await client.request<{
@@ -136,10 +119,6 @@ export const api = {
   },
 
   async deleteAccount(id: string): Promise<{ id: string }> {
-    if (USE_MOCK_DATA) {
-      return mockApi.deleteAccount(id);
-    }
-
     return withAuthErrorHandling(async () => {
       const client = getGraphQLClient();
       const data = await client.request<{
