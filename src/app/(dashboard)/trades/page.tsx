@@ -3,9 +3,16 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { Trade } from "@/lib/queries";
+import { Trade, ExchangeAccount } from "@/lib/queries";
 import { TradesTable } from "@/components/trades-table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const PAGE_SIZE = 100;
 
@@ -14,11 +21,25 @@ export default function TradesPage() {
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState<string>("all");
 
-  const fetchTrades = async (pageNum: number) => {
+  const fetchAccounts = async () => {
+    try {
+      const data = await api.getAccounts();
+      setAccounts(data);
+    } catch (error) {
+      console.error("Failed to fetch accounts:", error);
+    }
+  };
+
+  const fetchTrades = async (pageNum: number, accountId: string) => {
     setIsLoading(true);
     try {
-      const data = await api.getTrades(PAGE_SIZE, pageNum * PAGE_SIZE);
+      const data = accountId === "all"
+        ? await api.getTrades(PAGE_SIZE, pageNum * PAGE_SIZE)
+        : await api.getTradesByAccount(accountId, PAGE_SIZE, pageNum * PAGE_SIZE);
+
       setTrades(data.trades);
       setTotalCount(data.totalCount);
     } catch (error) {
@@ -30,11 +51,20 @@ export default function TradesPage() {
   };
 
   useEffect(() => {
-    fetchTrades(page);
-  }, [page]);
+    fetchAccounts();
+  }, []);
+
+  useEffect(() => {
+    fetchTrades(page, selectedAccountId);
+  }, [page, selectedAccountId]);
 
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
+  };
+
+  const handleAccountChange = (accountId: string) => {
+    setSelectedAccountId(accountId);
+    setPage(0); // Reset to first page when filter changes
   };
 
   return (
@@ -46,8 +76,23 @@ export default function TradesPage() {
         </p>
       </div>
       <Card>
-        <CardHeader>
-          <CardTitle>All Trades</CardTitle>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+          <CardTitle>
+            {selectedAccountId === "all" ? "All Trades" : "Filtered Trades"}
+          </CardTitle>
+          <Select value={selectedAccountId} onValueChange={handleAccountChange}>
+            <SelectTrigger className="w-[280px]">
+              <SelectValue placeholder="Filter by account" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Accounts</SelectItem>
+              {accounts.map((account) => (
+                <SelectItem key={account.id} value={account.id}>
+                  {account.exchange?.display_name || "Unknown"} - {account.account_identifier.slice(0, 10)}...
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </CardHeader>
         <CardContent>
           <TradesTable
