@@ -2,6 +2,7 @@ import Cookies from "js-cookie";
 import { getGraphQLClient, TOKEN_COOKIE_NAME } from "../graphql-client";
 import {
   GET_EXCHANGES,
+  GET_ACCOUNT_TYPES,
   GET_ACCOUNTS,
   GET_ACCOUNT_BY_ID,
   CREATE_ACCOUNT,
@@ -12,6 +13,7 @@ import {
   GET_TRADES_COUNT_BY_ACCOUNT,
   Exchange,
   ExchangeAccount,
+  ExchangeAccountType,
   Trade,
 } from "../queries";
 import { ApiClient, CreateAccountInput, TradesResult } from "./types";
@@ -53,6 +55,14 @@ export const graphqlApi: ApiClient = {
       const client = getGraphQLClient();
       const data = await client.request<{ exchanges: Exchange[] }>(GET_EXCHANGES);
       return data.exchanges;
+    });
+  },
+
+  async getAccountTypes(): Promise<ExchangeAccountType[]> {
+    return withAuthErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{ exchange_account_types: ExchangeAccountType[] }>(GET_ACCOUNT_TYPES);
+      return data.exchange_account_types;
     });
   },
 

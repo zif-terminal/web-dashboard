@@ -1,4 +1,4 @@
-import { Exchange, ExchangeAccount, Trade } from "../queries";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade } from "../queries";
 import { ApiClient, CreateAccountInput, TradesResult } from "./types";
 
 // Mock exchanges
@@ -6,6 +6,13 @@ const mockExchanges: Exchange[] = [
   { id: "hyperliquid", name: "hyperliquid", display_name: "Hyperliquid" },
   { id: "lighter", name: "lighter", display_name: "Lighter" },
   { id: "drift", name: "drift", display_name: "Drift" },
+];
+
+// Mock account types
+const mockAccountTypes: ExchangeAccountType[] = [
+  { code: "main" },
+  { code: "sub_account" },
+  { code: "vault" },
 ];
 
 // Mock accounts (mutable for add/delete operations)
@@ -122,6 +129,11 @@ export const mockApi: ApiClient = {
   async getExchanges(): Promise<Exchange[]> {
     await delay(200);
     return [...mockExchanges];
+  },
+
+  async getAccountTypes(): Promise<ExchangeAccountType[]> {
+    await delay(200);
+    return [...mockAccountTypes];
   },
 
   async getAccounts(): Promise<ExchangeAccount[]> {

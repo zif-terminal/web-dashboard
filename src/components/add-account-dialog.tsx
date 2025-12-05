@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { Exchange } from "@/lib/queries";
+import { Exchange, ExchangeAccountType } from "@/lib/queries";
 import { Button } from "@/components/ui/button";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { Spinner } from "@/components/ui/spinner";
@@ -50,21 +50,24 @@ interface AddAccountDialogProps {
 export function AddAccountDialog({ onSuccess }: AddAccountDialogProps) {
   const [open, setOpen] = useState(false);
   const [exchanges, setExchanges] = useState<Exchange[]>([]);
+  const [accountTypes, setAccountTypes] = useState<ExchangeAccountType[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingExchanges, setIsLoadingExchanges] = useState(false);
+  const [isLoadingAccountTypes, setIsLoadingAccountTypes] = useState(false);
 
   const form = useForm<AccountFormValues>({
     resolver: zodResolver(accountSchema),
     defaultValues: {
       exchange_id: "",
       account_identifier: "",
-      account_type: "main",
+      account_type: "",
     },
   });
 
   useEffect(() => {
     if (open) {
       fetchExchanges();
+      fetchAccountTypes();
     }
   }, [open]);
 
@@ -79,6 +82,27 @@ export function AddAccountDialog({ onSuccess }: AddAccountDialogProps) {
     } finally {
       setIsLoadingExchanges(false);
     }
+  };
+
+  const fetchAccountTypes = async () => {
+    setIsLoadingAccountTypes(true);
+    try {
+      const data = await api.getAccountTypes();
+      setAccountTypes(data);
+    } catch (error) {
+      toast.error("Failed to fetch account types");
+      console.error(error);
+    } finally {
+      setIsLoadingAccountTypes(false);
+    }
+  };
+
+  // Helper to format account type code for display
+  const formatAccountTypeLabel = (code: string): string => {
+    return code
+      .split("_")
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
   };
 
   function getErrorMessage(error: unknown): string {
@@ -192,7 +216,17 @@ export function AddAccountDialog({ onSuccess }: AddAccountDialogProps) {
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value="main">Main</SelectItem>
+                      {isLoadingAccountTypes ? (
+                        <div className="flex items-center justify-center py-2">
+                          <Spinner size="sm" />
+                        </div>
+                      ) : (
+                        accountTypes.map((type) => (
+                          <SelectItem key={type.code} value={type.code}>
+                            {formatAccountTypeLabel(type.code)}
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
                   <FormMessage />

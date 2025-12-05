@@ -1,4 +1,4 @@
-import { Exchange, ExchangeAccount, Trade } from "../queries";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade } from "../queries";
 
 export interface CreateAccountInput {
   exchange_id: string;
@@ -14,6 +14,7 @@ export interface TradesResult {
 
 export interface ApiClient {
   getExchanges(): Promise<Exchange[]>;
+  getAccountTypes(): Promise<ExchangeAccountType[]>;
   getAccounts(): Promise<ExchangeAccount[]>;
   getAccountById(id: string): Promise<ExchangeAccount | null>;
   createAccount(input: CreateAccountInput): Promise<ExchangeAccount>;
