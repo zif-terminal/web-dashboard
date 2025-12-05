@@ -18,23 +18,28 @@ import { AccountsTableSkeleton } from "@/components/table-skeleton";
 
 interface AccountsTableProps {
   refreshKey?: number;
+  onLoadingChange?: (isLoading: boolean) => void;
+  onRefreshComplete?: () => void;
 }
 
-export function AccountsTable({ refreshKey }: AccountsTableProps) {
+export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }: AccountsTableProps) {
   const router = useRouter();
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchAccounts = async () => {
     setIsLoading(true);
+    onLoadingChange?.(true);
     try {
       const data = await api.getAccounts();
       setAccounts(data);
+      onRefreshComplete?.();
     } catch (error) {
       toast.error("Failed to fetch accounts");
       console.error(error);
     } finally {
       setIsLoading(false);
+      onLoadingChange?.(false);
     }
   };
 
