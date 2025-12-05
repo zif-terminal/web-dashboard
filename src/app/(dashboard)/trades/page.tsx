@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Trade, ExchangeAccount } from "@/lib/queries";
 import { TradesTable } from "@/components/trades-table";
+import { SyncButton } from "@/components/sync-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
@@ -23,6 +24,7 @@ export default function TradesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>("all");
+  const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
 
   const fetchAccounts = async () => {
     try {
@@ -33,7 +35,7 @@ export default function TradesPage() {
     }
   };
 
-  const fetchTrades = async (pageNum: number, accountId: string) => {
+  const fetchTrades = useCallback(async (pageNum: number, accountId: string) => {
     setIsLoading(true);
     try {
       const data = accountId === "all"
@@ -42,13 +44,14 @@ export default function TradesPage() {
 
       setTrades(data.trades);
       setTotalCount(data.totalCount);
+      setLastRefreshTime(new Date());
     } catch (error) {
       toast.error("Failed to fetch trades");
       console.error(error);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchAccounts();
@@ -56,7 +59,7 @@ export default function TradesPage() {
 
   useEffect(() => {
     fetchTrades(page, selectedAccountId);
-  }, [page, selectedAccountId]);
+  }, [page, selectedAccountId, fetchTrades]);
 
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
@@ -64,16 +67,27 @@ export default function TradesPage() {
 
   const handleAccountChange = (accountId: string) => {
     setSelectedAccountId(accountId);
-    setPage(0); // Reset to first page when filter changes
+    setPage(0);
+  };
+
+  const handleRefresh = () => {
+    fetchTrades(page, selectedAccountId);
   };
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Trade History</h1>
-        <p className="text-muted-foreground">
-          View all trades across your exchange accounts
-        </p>
+      <div className="flex items-center gap-2">
+        <div>
+          <h1 className="text-3xl font-bold">Trade History</h1>
+          <p className="text-muted-foreground">
+            View all trades across your exchange accounts
+          </p>
+        </div>
+        <SyncButton
+          lastRefreshTime={lastRefreshTime}
+          onRefresh={handleRefresh}
+          isLoading={isLoading}
+        />
       </div>
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0">

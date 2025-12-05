@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SyncButton } from "@/components/sync-button";
 import {
   Card,
   CardContent,
@@ -38,6 +39,7 @@ export function AccountDetail({ accountId }: AccountDetailProps) {
   const [account, setAccount] = useState<ExchangeAccount | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
 
   useEffect(() => {
     fetchAccount();
@@ -48,6 +50,7 @@ export function AccountDetail({ accountId }: AccountDetailProps) {
     try {
       const data = await api.getAccountById(accountId);
       setAccount(data);
+      setLastRefreshTime(new Date());
     } catch (error) {
       toast.error("Failed to fetch account details");
       console.error(error);
@@ -111,7 +114,14 @@ export function AccountDetail({ accountId }: AccountDetailProps) {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Account Information</CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle>Account Information</CardTitle>
+            <SyncButton
+              lastRefreshTime={lastRefreshTime}
+              onRefresh={fetchAccount}
+              isLoading={isLoading}
+            />
+          </div>
           <CardDescription>
             Details about this exchange account
           </CardDescription>
