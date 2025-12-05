@@ -7,6 +7,10 @@ export interface Exchange {
   display_name: string;
 }
 
+export interface ExchangeAccountType {
+  code: string;
+}
+
 export interface ExchangeAccount {
   id: string;
   exchange_id: string;
@@ -23,6 +27,14 @@ export const GET_EXCHANGES = gql`
       id
       name
       display_name
+    }
+  }
+`;
+
+export const GET_ACCOUNT_TYPES = gql`
+  query GetAccountTypes {
+    exchange_account_types {
+      code
     }
   }
 `;
