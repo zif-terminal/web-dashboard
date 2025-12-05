@@ -69,43 +69,19 @@ export const graphqlApi: ApiClient = {
   async getAccounts(): Promise<ExchangeAccount[]> {
     return withAuthErrorHandling(async () => {
       const client = getGraphQLClient();
-
-      const [accountsData, exchangesData] = await Promise.all([
-        client.request<{ exchange_accounts: ExchangeAccount[] }>(GET_ACCOUNTS),
-        client.request<{ exchanges: Exchange[] }>(GET_EXCHANGES),
-      ]);
-
-      const exchangeMap = new Map(
-        exchangesData.exchanges.map((ex) => [ex.id, ex])
-      );
-
-      return accountsData.exchange_accounts.map((account) => ({
-        ...account,
-        exchange: exchangeMap.get(account.exchange_id),
-      }));
+      const data = await client.request<{ exchange_accounts: ExchangeAccount[] }>(GET_ACCOUNTS);
+      return data.exchange_accounts;
     });
   },
 
   async getAccountById(id: string): Promise<ExchangeAccount | null> {
     return withAuthErrorHandling(async () => {
       const client = getGraphQLClient();
-
-      const [accountData, exchangesData] = await Promise.all([
-        client.request<{ exchange_accounts_by_pk: ExchangeAccount | null }>(
-          GET_ACCOUNT_BY_ID,
-          { id }
-        ),
-        client.request<{ exchanges: Exchange[] }>(GET_EXCHANGES),
-      ]);
-
-      const account = accountData.exchange_accounts_by_pk;
-      if (!account) return null;
-
-      const exchange = exchangesData.exchanges.find(
-        (ex) => ex.id === account.exchange_id
+      const data = await client.request<{ exchange_accounts_by_pk: ExchangeAccount | null }>(
+        GET_ACCOUNT_BY_ID,
+        { id }
       );
-
-      return { ...account, exchange };
+      return data.exchange_accounts_by_pk;
     });
   },
 
@@ -133,33 +109,15 @@ export const graphqlApi: ApiClient = {
     return withAuthErrorHandling(async () => {
       const client = getGraphQLClient();
 
-      const [tradesData, countData, accountsData, exchangesData] =
-        await Promise.all([
-          client.request<{ trades: Trade[] }>(GET_TRADES, { limit, offset }),
-          client.request<{
-            trades_aggregate: { aggregate: { count: number } };
-          }>(GET_TRADES_COUNT),
-          client.request<{ exchange_accounts: ExchangeAccount[] }>(GET_ACCOUNTS),
-          client.request<{ exchanges: Exchange[] }>(GET_EXCHANGES),
-        ]);
-
-      const exchangeMap = new Map(
-        exchangesData.exchanges.map((ex) => [ex.id, ex])
-      );
-      const accountMap = new Map(
-        accountsData.exchange_accounts.map((acc) => [
-          acc.id,
-          { ...acc, exchange: exchangeMap.get(acc.exchange_id) },
-        ])
-      );
-
-      const trades = tradesData.trades.map((trade) => ({
-        ...trade,
-        exchange_account: accountMap.get(trade.exchange_account_id),
-      }));
+      const [tradesData, countData] = await Promise.all([
+        client.request<{ trades: Trade[] }>(GET_TRADES, { limit, offset }),
+        client.request<{
+          trades_aggregate: { aggregate: { count: number } };
+        }>(GET_TRADES_COUNT),
+      ]);
 
       return {
-        trades,
+        trades: tradesData.trades,
         totalCount: countData.trades_aggregate.aggregate.count,
       };
     });

@@ -47,6 +47,11 @@ export const GET_ACCOUNTS = gql`
       account_identifier
       account_type
       account_type_metadata
+      exchange {
+        id
+        name
+        display_name
+      }
     }
   }
 `;
@@ -59,6 +64,11 @@ export const GET_ACCOUNT_BY_ID = gql`
       account_identifier
       account_type
       account_type_metadata
+      exchange {
+        id
+        name
+        display_name
+      }
     }
   }
 `;
@@ -115,6 +125,16 @@ export const GET_TRADES = gql`
       trade_id
       exchange_account_id
       created_at
+      exchange_account {
+        id
+        account_identifier
+        account_type
+        exchange {
+          id
+          name
+          display_name
+        }
+      }
     }
   }
 `;
@@ -139,6 +159,16 @@ export const GET_TRADES_BY_ACCOUNT = gql`
       trade_id
       exchange_account_id
       created_at
+      exchange_account {
+        id
+        account_identifier
+        account_type
+        exchange {
+          id
+          name
+          display_name
+        }
+      }
     }
   }
 `;
