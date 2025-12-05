@@ -1,4 +1,4 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade } from "../queries";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates } from "../queries";
 import { ApiClient, CreateAccountInput, TradesResult } from "./types";
 
 // Mock exchanges
@@ -209,6 +209,35 @@ export const mockApi: ApiClient = {
     return {
       trades: paginatedTrades,
       totalCount: accountTrades.length,
+    };
+  },
+
+  async getTradesAggregates(): Promise<TradesAggregates> {
+    await delay(200);
+    const totalFees = mockTrades.reduce(
+      (sum, trade) => sum + parseFloat(trade.fee),
+      0
+    );
+    return {
+      totalFees: totalFees.toString(),
+      totalVolume: "0",
+      count: mockTrades.length,
+    };
+  },
+
+  async getTradesAggregatesByAccount(accountId: string): Promise<TradesAggregates> {
+    await delay(200);
+    const accountTrades = mockTrades.filter(
+      (trade) => trade.exchange_account_id === accountId
+    );
+    const totalFees = accountTrades.reduce(
+      (sum, trade) => sum + parseFloat(trade.fee),
+      0
+    );
+    return {
+      totalFees: totalFees.toString(),
+      totalVolume: "0",
+      count: accountTrades.length,
     };
   },
 };

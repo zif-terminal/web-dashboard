@@ -192,3 +192,37 @@ export const GET_TRADES_COUNT_BY_ACCOUNT = gql`
     }
   }
 `;
+
+// Trades aggregates interface
+export interface TradesAggregates {
+  totalFees: string;
+  totalVolume: string;
+  count: number;
+}
+
+// Trades aggregate queries
+export const GET_TRADES_AGGREGATES = gql`
+  query GetTradesAggregates {
+    trades_aggregate {
+      aggregate {
+        count
+        sum {
+          fee
+        }
+      }
+    }
+  }
+`;
+
+export const GET_TRADES_AGGREGATES_BY_ACCOUNT = gql`
+  query GetTradesAggregatesByAccount($accountId: uuid!) {
+    trades_aggregate(where: { exchange_account_id: { _eq: $accountId } }) {
+      aggregate {
+        count
+        sum {
+          fee
+        }
+      }
+    }
+  }
+`;

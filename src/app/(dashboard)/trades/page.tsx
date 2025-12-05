@@ -3,10 +3,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { Trade, ExchangeAccount } from "@/lib/queries";
+import { Trade, ExchangeAccount, TradesAggregates } from "@/lib/queries";
 import { TradesTable } from "@/components/trades-table";
 import { SyncButton } from "@/components/sync-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -25,6 +26,8 @@ export default function TradesPage() {
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>("all");
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
+  const [aggregates, setAggregates] = useState<TradesAggregates | null>(null);
+  const [isLoadingAggregates, setIsLoadingAggregates] = useState(true);
 
   const fetchAccounts = async () => {
     try {
@@ -34,6 +37,20 @@ export default function TradesPage() {
       console.error("Failed to fetch accounts:", error);
     }
   };
+
+  const fetchAggregates = useCallback(async (accountId: string) => {
+    setIsLoadingAggregates(true);
+    try {
+      const data = accountId === "all"
+        ? await api.getTradesAggregates()
+        : await api.getTradesAggregatesByAccount(accountId);
+      setAggregates(data);
+    } catch (error) {
+      console.error("Failed to fetch aggregates:", error);
+    } finally {
+      setIsLoadingAggregates(false);
+    }
+  }, []);
 
   const fetchTrades = useCallback(async (pageNum: number, accountId: string) => {
     setIsLoading(true);
@@ -59,7 +76,8 @@ export default function TradesPage() {
 
   useEffect(() => {
     fetchTrades(page, selectedAccountId);
-  }, [page, selectedAccountId, fetchTrades]);
+    fetchAggregates(selectedAccountId);
+  }, [page, selectedAccountId, fetchTrades, fetchAggregates]);
 
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
@@ -72,6 +90,12 @@ export default function TradesPage() {
 
   const handleRefresh = () => {
     fetchTrades(page, selectedAccountId);
+    fetchAggregates(selectedAccountId);
+  };
+
+  const formatFees = (value: string) => {
+    const num = parseFloat(value);
+    return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
   };
 
   return (
@@ -89,6 +113,43 @@ export default function TradesPage() {
           isLoading={isLoading}
         />
       </div>
+
+      {/* Aggregate Stats Cards */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Total Fees Paid
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoadingAggregates ? (
+              <Skeleton className="h-8 w-24" />
+            ) : (
+              <div className="text-2xl font-bold text-red-500">
+                {aggregates ? formatFees(aggregates.totalFees) : "0"}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Total Trades
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoadingAggregates ? (
+              <Skeleton className="h-8 w-24" />
+            ) : (
+              <div className="text-2xl font-bold">
+                {aggregates?.count.toLocaleString() || "0"}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle>

@@ -4,10 +4,11 @@ import { useState, useEffect, use } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { Trade, ExchangeAccount } from "@/lib/queries";
+import { Trade, ExchangeAccount, TradesAggregates } from "@/lib/queries";
 import { TradesTable } from "@/components/trades-table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const PAGE_SIZE = 100;
 
@@ -22,6 +23,8 @@ export default function AccountTradesPage({ params }: AccountTradesPageProps) {
   const [page, setPage] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [account, setAccount] = useState<ExchangeAccount | null>(null);
+  const [aggregates, setAggregates] = useState<TradesAggregates | null>(null);
+  const [isLoadingAggregates, setIsLoadingAggregates] = useState(true);
 
   const fetchAccount = async () => {
     try {
@@ -29,6 +32,18 @@ export default function AccountTradesPage({ params }: AccountTradesPageProps) {
       setAccount(data);
     } catch (error) {
       console.error(error);
+    }
+  };
+
+  const fetchAggregates = async () => {
+    setIsLoadingAggregates(true);
+    try {
+      const data = await api.getTradesAggregatesByAccount(id);
+      setAggregates(data);
+    } catch (error) {
+      console.error("Failed to fetch aggregates:", error);
+    } finally {
+      setIsLoadingAggregates(false);
     }
   };
 
@@ -48,11 +63,17 @@ export default function AccountTradesPage({ params }: AccountTradesPageProps) {
 
   useEffect(() => {
     fetchAccount();
+    fetchAggregates();
   }, [id]);
 
   useEffect(() => {
     fetchTrades(page);
   }, [id, page]);
+
+  const formatFees = (value: string) => {
+    const num = parseFloat(value);
+    return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+  };
 
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
@@ -73,6 +94,43 @@ export default function AccountTradesPage({ params }: AccountTradesPageProps) {
           <p className="text-muted-foreground">{accountTitle}</p>
         </div>
       </div>
+
+      {/* Aggregate Stats Cards */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Total Fees Paid
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoadingAggregates ? (
+              <Skeleton className="h-8 w-24" />
+            ) : (
+              <div className="text-2xl font-bold text-red-500">
+                {aggregates ? formatFees(aggregates.totalFees) : "0"}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Total Trades
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoadingAggregates ? (
+              <Skeleton className="h-8 w-24" />
+            ) : (
+              <div className="text-2xl font-bold">
+                {aggregates?.count.toLocaleString() || "0"}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle>Trades</CardTitle>
