@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,6 +41,14 @@ export function SyncButton({
   isLoading = false,
   className,
 }: SyncButtonProps) {
+  // Force re-render every second to update relative time display
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <TooltipProvider>
       <Tooltip>

@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, useCallback, useRef, use } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Trade, ExchangeAccount, TradesAggregates } from "@/lib/queries";
 import { TradesTable } from "@/components/trades-table";
+import { SyncButton } from "@/components/sync-button";
+import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatCard, StatsGrid } from "@/components/stat-card";
@@ -26,6 +28,13 @@ export default function AccountTradesPage({ params }: AccountTradesPageProps) {
   const [aggregates, setAggregates] = useState<TradesAggregates | null>(null);
   const [isLoadingAggregates, setIsLoadingAggregates] = useState(true);
 
+  // Use ref to track current page for auto-refresh
+  const pageRef = useRef(page);
+
+  useEffect(() => {
+    pageRef.current = page;
+  }, [page]);
+
   const fetchAccount = async () => {
     try {
       const data = await api.getAccountById(id);
@@ -35,7 +44,7 @@ export default function AccountTradesPage({ params }: AccountTradesPageProps) {
     }
   };
 
-  const fetchAggregates = async () => {
+  const fetchAggregates = useCallback(async () => {
     setIsLoadingAggregates(true);
     try {
       const data = await api.getTradesAggregatesByAccount(id);
@@ -45,9 +54,9 @@ export default function AccountTradesPage({ params }: AccountTradesPageProps) {
     } finally {
       setIsLoadingAggregates(false);
     }
-  };
+  }, [id]);
 
-  const fetchTrades = async (pageNum: number) => {
+  const fetchTrades = useCallback(async (pageNum: number) => {
     setIsLoading(true);
     try {
       const data = await api.getTradesByAccount(id, PAGE_SIZE, pageNum * PAGE_SIZE);
@@ -59,16 +68,29 @@ export default function AccountTradesPage({ params }: AccountTradesPageProps) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [id]);
+
+  // Fetch function for auto-refresh
+  const fetchAllData = useCallback(async () => {
+    await Promise.all([
+      fetchTrades(pageRef.current),
+      fetchAggregates(),
+    ]);
+  }, [fetchTrades, fetchAggregates]);
+
+  const { lastRefreshTime, refresh } = useAutoRefresh(fetchAllData, {
+    interval: 30000,
+  });
 
   useEffect(() => {
     fetchAccount();
-    fetchAggregates();
+    refresh(); // Initial fetch through auto-refresh to set lastRefreshTime
   }, [id]);
 
+  // Refetch when page changes
   useEffect(() => {
-    fetchTrades(page);
-  }, [id, page]);
+    refresh();
+  }, [page]);
 
   const formatFees = (value: string) => {
     const num = parseFloat(value);
@@ -93,6 +115,11 @@ export default function AccountTradesPage({ params }: AccountTradesPageProps) {
           <h1 className="text-3xl font-bold">Trade History</h1>
           <p className="text-muted-foreground">{accountTitle}</p>
         </div>
+        <SyncButton
+          lastRefreshTime={lastRefreshTime}
+          onRefresh={refresh}
+          isLoading={isLoading}
+        />
       </div>
 
       <StatsGrid>
