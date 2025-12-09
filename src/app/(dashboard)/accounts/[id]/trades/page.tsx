@@ -8,7 +8,7 @@ import { Trade, ExchangeAccount, TradesAggregates } from "@/lib/queries";
 import { TradesTable } from "@/components/trades-table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import { StatCard, StatsGrid } from "@/components/stat-card";
 
 const PAGE_SIZE = 100;
 
@@ -95,41 +95,19 @@ export default function AccountTradesPage({ params }: AccountTradesPageProps) {
         </div>
       </div>
 
-      {/* Aggregate Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Fees Paid
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoadingAggregates ? (
-              <Skeleton className="h-8 w-24" />
-            ) : (
-              <div className="text-2xl font-bold text-red-500">
-                {aggregates ? formatFees(aggregates.totalFees) : "0"}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Trades
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoadingAggregates ? (
-              <Skeleton className="h-8 w-24" />
-            ) : (
-              <div className="text-2xl font-bold">
-                {aggregates?.count.toLocaleString() || "0"}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      <StatsGrid>
+        <StatCard
+          title="Total Fees Paid"
+          value={aggregates ? formatFees(aggregates.totalFees) : "0"}
+          isLoading={isLoadingAggregates}
+          valueClassName="text-red-500"
+        />
+        <StatCard
+          title="Total Trades"
+          value={aggregates?.count.toLocaleString() || "0"}
+          isLoading={isLoadingAggregates}
+        />
+      </StatsGrid>
 
       <Card>
         <CardHeader>
