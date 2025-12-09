@@ -11,10 +11,13 @@ import {
   GET_TRADES_BY_ACCOUNT,
   GET_TRADES_COUNT,
   GET_TRADES_COUNT_BY_ACCOUNT,
+  GET_TRADES_AGGREGATES,
+  GET_TRADES_AGGREGATES_BY_ACCOUNT,
   Exchange,
   ExchangeAccount,
   ExchangeAccountType,
   Trade,
+  TradesAggregates,
 } from "../queries";
 import { ApiClient, CreateAccountInput, TradesResult } from "./types";
 
@@ -145,6 +148,46 @@ export const graphqlApi: ApiClient = {
       return {
         trades: tradesData.trades,
         totalCount: countData.trades_aggregate.aggregate.count,
+      };
+    });
+  },
+
+  async getTradesAggregates(): Promise<TradesAggregates> {
+    return withAuthErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        trades_aggregate: {
+          aggregate: {
+            count: number;
+            sum: { fee: string | null };
+          };
+        };
+      }>(GET_TRADES_AGGREGATES);
+
+      return {
+        totalFees: data.trades_aggregate.aggregate.sum.fee || "0",
+        totalVolume: "0",
+        count: data.trades_aggregate.aggregate.count,
+      };
+    });
+  },
+
+  async getTradesAggregatesByAccount(accountId: string): Promise<TradesAggregates> {
+    return withAuthErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        trades_aggregate: {
+          aggregate: {
+            count: number;
+            sum: { fee: string | null };
+          };
+        };
+      }>(GET_TRADES_AGGREGATES_BY_ACCOUNT, { accountId });
+
+      return {
+        totalFees: data.trades_aggregate.aggregate.sum.fee || "0",
+        totalVolume: "0",
+        count: data.trades_aggregate.aggregate.count,
       };
     });
   },

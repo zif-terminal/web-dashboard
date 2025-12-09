@@ -1,4 +1,4 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade } from "../queries";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates } from "../queries";
 
 export interface CreateAccountInput {
   exchange_id: string;
@@ -25,4 +25,6 @@ export interface ApiClient {
     limit: number,
     offset: number
   ): Promise<TradesResult>;
+  getTradesAggregates(): Promise<TradesAggregates>;
+  getTradesAggregatesByAccount(accountId: string): Promise<TradesAggregates>;
 }
