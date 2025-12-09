@@ -12,6 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { TradesTableSkeleton } from "@/components/table-skeleton";
+import { cn } from "@/lib/utils";
 
 interface TradesTableProps {
   trades: Trade[];
@@ -21,6 +22,8 @@ interface TradesTableProps {
   onPageChange: (page: number) => void;
   showAccount?: boolean;
   isLoading?: boolean;
+  /** Function to check if a trade is new (for highlighting) */
+  isNewItem?: (id: string) => boolean;
 }
 
 function formatTimestamp(timestamp: string): string {
@@ -49,12 +52,14 @@ export function TradesTable({
   onPageChange,
   showAccount = false,
   isLoading = false,
+  isNewItem,
 }: TradesTableProps) {
   const totalPages = Math.ceil(totalCount / pageSize);
   const startItem = page * pageSize + 1;
   const endItem = Math.min((page + 1) * pageSize, totalCount);
 
-  if (isLoading) {
+  // Only show skeleton on initial load (when there's no data yet)
+  if (isLoading && trades.length === 0) {
     return <TradesTableSkeleton rows={5} showAccount={showAccount} />;
   }
 
@@ -86,7 +91,10 @@ export function TradesTable({
         </TableHeader>
         <TableBody>
           {trades.map((trade) => (
-            <TableRow key={trade.id}>
+            <TableRow
+              key={trade.id}
+              className={cn(isNewItem?.(trade.id) && "animate-highlight-new")}
+            >
               <TableCell className="text-sm text-muted-foreground">
                 {formatTimestamp(trade.timestamp)}
               </TableCell>
