@@ -7,6 +7,7 @@ import { Trade, ExchangeAccount, TradesAggregates } from "@/lib/queries";
 import { TradesTable } from "@/components/trades-table";
 import { SyncButton } from "@/components/sync-button";
 import { useAutoRefresh } from "@/hooks/use-auto-refresh";
+import { useNewItems } from "@/hooks/use-new-items";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard, StatsGrid } from "@/components/stat-card";
 import {
@@ -28,6 +29,9 @@ export default function TradesPage() {
   const [selectedAccountId, setSelectedAccountId] = useState<string>("all");
   const [aggregates, setAggregates] = useState<TradesAggregates | null>(null);
   const [isLoadingAggregates, setIsLoadingAggregates] = useState(true);
+
+  // Track new items for highlighting
+  const { updateItems: updateNewItems, isNew } = useNewItems<Trade>();
 
   // Use refs to track current values for auto-refresh
   const pageRef = useRef(page);
@@ -70,6 +74,7 @@ export default function TradesPage() {
 
       setTrades(data.trades);
       setTotalCount(data.totalCount);
+      updateNewItems(data.trades);
     } catch (error) {
       toast.error("Failed to fetch trades");
       console.error(error);
@@ -176,6 +181,7 @@ export default function TradesPage() {
             onPageChange={handlePageChange}
             showAccount={true}
             isLoading={isLoading}
+            isNewItem={isNew}
           />
         </CardContent>
       </Card>

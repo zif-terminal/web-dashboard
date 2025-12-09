@@ -8,6 +8,7 @@ import { Trade, ExchangeAccount, TradesAggregates } from "@/lib/queries";
 import { TradesTable } from "@/components/trades-table";
 import { SyncButton } from "@/components/sync-button";
 import { useAutoRefresh } from "@/hooks/use-auto-refresh";
+import { useNewItems } from "@/hooks/use-new-items";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatCard, StatsGrid } from "@/components/stat-card";
@@ -27,6 +28,9 @@ export default function AccountTradesPage({ params }: AccountTradesPageProps) {
   const [account, setAccount] = useState<ExchangeAccount | null>(null);
   const [aggregates, setAggregates] = useState<TradesAggregates | null>(null);
   const [isLoadingAggregates, setIsLoadingAggregates] = useState(true);
+
+  // Track new items for highlighting
+  const { updateItems: updateNewItems, isNew } = useNewItems<Trade>();
 
   // Use ref to track current page for auto-refresh
   const pageRef = useRef(page);
@@ -62,6 +66,7 @@ export default function AccountTradesPage({ params }: AccountTradesPageProps) {
       const data = await api.getTradesByAccount(id, PAGE_SIZE, pageNum * PAGE_SIZE);
       setTrades(data.trades);
       setTotalCount(data.totalCount);
+      updateNewItems(data.trades);
     } catch (error) {
       toast.error("Failed to fetch trades");
       console.error(error);
@@ -149,6 +154,7 @@ export default function AccountTradesPage({ params }: AccountTradesPageProps) {
             onPageChange={handlePageChange}
             showAccount={false}
             isLoading={isLoading}
+            isNewItem={isNew}
           />
         </CardContent>
       </Card>

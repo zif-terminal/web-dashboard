@@ -120,3 +120,30 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Row highlight animation for new items */
+@keyframes highlight-new-light {
+  0% {
+    background-color: oklch(0.85 0.15 145); /* Light green */
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+@keyframes highlight-new-dark {
+  0% {
+    background-color: oklch(0.35 0.12 145); /* Dark mode green */
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.animate-highlight-new {
+  animation: highlight-new-light 3s ease-out forwards;
+}
+
+.dark .animate-highlight-new {
+  animation: highlight-new-dark 3s ease-out forwards;
+}
