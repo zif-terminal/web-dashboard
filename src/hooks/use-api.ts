@@ -1,12 +1,14 @@
 "use client";
 
 import { useCallback } from "react";
-import { useError } from "@/contexts/error-context";
+import { toast } from "sonner";
+import { useError, isStickyError } from "@/contexts/error-context";
 import { ApiError } from "@/lib/api/errors";
 
 /**
- * Hook that wraps API calls and automatically reports sticky errors
- * (server_unavailable, network_error) to the global error banner.
+ * Hook that wraps API calls and automatically handles errors:
+ * - Sticky errors (server_unavailable, network_error) -> global error banner
+ * - Non-sticky errors (request_error, auth_error, unknown) -> toast notification
  */
 export function useApi() {
   const { setError, clearError } = useError();
@@ -19,12 +21,14 @@ export function useApi() {
         clearError();
         return result;
       } catch (error) {
-        if (error instanceof ApiError) {
-          setError(error);
-        } else {
-          // Convert to ApiError and report
-          const apiError = ApiError.fromError(error);
+        const apiError = error instanceof ApiError ? error : ApiError.fromError(error);
+
+        if (isStickyError(apiError.type)) {
+          // Sticky errors go to the global error banner
           setError(apiError);
+        } else {
+          // Non-sticky errors show as toast notifications
+          toast.error(apiError.message);
         }
         throw error;
       }

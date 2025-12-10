@@ -40,6 +40,6 @@ export function useError() {
   return context;
 }
 
-function isStickyError(type: ApiErrorType): boolean {
+export function isStickyError(type: ApiErrorType): boolean {
   return type === "server_unavailable" || type === "network_error";
 }
