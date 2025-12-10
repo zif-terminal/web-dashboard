@@ -105,7 +105,6 @@ export interface Trade {
   order_id: string;
   trade_id: string;
   exchange_account_id: string;
-  created_at: string;
   exchange_account?: ExchangeAccount;
 }
 
@@ -124,7 +123,6 @@ export const GET_TRADES = gql`
       order_id
       trade_id
       exchange_account_id
-      created_at
       exchange_account {
         id
         account_identifier
@@ -158,7 +156,6 @@ export const GET_TRADES_BY_ACCOUNT = gql`
       order_id
       trade_id
       exchange_account_id
-      created_at
       exchange_account {
         id
         account_identifier
