@@ -58,7 +58,7 @@ export function AccountsTableSkeleton({ rows = 5 }: { rows?: number }) {
   );
 }
 
-// Pre-configured skeleton for trades table (8 columns with account, 7 without)
+// Pre-configured skeleton for trades table (6 columns - Order ID removed, account merged with time)
 export function TradesTableSkeleton({
   rows = 5,
   showAccount = false,
@@ -66,10 +66,10 @@ export function TradesTableSkeleton({
   rows?: number;
   showAccount?: boolean;
 }) {
-  const columns = showAccount ? 8 : 7;
+  // Time column is wider when showing account info underneath
   const widths = showAccount
-    ? ["w-32", "w-28", "w-20", "w-14", "w-20", "w-20", "w-16", "w-20"]
-    : ["w-32", "w-20", "w-14", "w-20", "w-20", "w-16", "w-20"];
+    ? ["w-40", "w-20", "w-14", "w-20", "w-20", "w-16"]
+    : ["w-32", "w-20", "w-14", "w-20", "w-20", "w-16"];
 
-  return <TableSkeleton rows={rows} columns={columns} columnWidths={widths} />;
+  return <TableSkeleton rows={rows} columns={6} columnWidths={widths} />;
 }
