@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { ExchangeAccount } from "@/lib/queries";
+import { useApi } from "@/hooks/use-api";
 import {
   Table,
   TableBody,
@@ -24,6 +24,7 @@ interface AccountsTableProps {
 
 export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }: AccountsTableProps) {
   const router = useRouter();
+  const { withErrorReporting } = useApi();
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -31,12 +32,11 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
     setIsLoading(true);
     onLoadingChange?.(true);
     try {
-      const data = await api.getAccounts();
+      const data = await withErrorReporting(() => api.getAccounts());
       setAccounts(data);
       onRefreshComplete?.();
-    } catch (error) {
-      toast.error("Failed to fetch accounts");
-      console.error(error);
+    } catch (err) {
+      console.error(err);
     } finally {
       setIsLoading(false);
       onLoadingChange?.(false);

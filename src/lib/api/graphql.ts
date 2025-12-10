@@ -20,10 +20,16 @@ import {
   TradesAggregates,
 } from "../queries";
 import { ApiClient, CreateAccountInput, TradesResult } from "./types";
+import { ApiError } from "./errors";
 
 function isAuthError(error: unknown): boolean {
   if (error && typeof error === "object" && "response" in error) {
-    const response = (error as { response: { errors?: { extensions?: { code?: string } }[] } }).response;
+    const response = (error as { response: { status?: number; errors?: { extensions?: { code?: string } }[] } }).response;
+    // Check for HTTP 401/403
+    if (response?.status === 401 || response?.status === 403) {
+      return true;
+    }
+    // Check for Hasura access-denied error
     if (response?.errors) {
       return response.errors.some(
         (e) => e.extensions?.code === "access-denied"
@@ -38,23 +44,24 @@ function handleAuthError(): never {
   if (typeof window !== "undefined") {
     window.location.href = "/login";
   }
-  throw new Error("Authentication required");
+  throw new ApiError("auth_error", "Authentication required", 401, false);
 }
 
-async function withAuthErrorHandling<T>(fn: () => Promise<T>): Promise<T> {
+async function withErrorHandling<T>(fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (error) {
     if (isAuthError(error)) {
       handleAuthError();
     }
-    throw error;
+    // Convert to typed ApiError
+    throw ApiError.fromError(error);
   }
 }
 
 export const graphqlApi: ApiClient = {
   async getExchanges(): Promise<Exchange[]> {
-    return withAuthErrorHandling(async () => {
+    return withErrorHandling(async () => {
       const client = getGraphQLClient();
       const data = await client.request<{ exchanges: Exchange[] }>(GET_EXCHANGES);
       return data.exchanges;
@@ -62,7 +69,7 @@ export const graphqlApi: ApiClient = {
   },
 
   async getAccountTypes(): Promise<ExchangeAccountType[]> {
-    return withAuthErrorHandling(async () => {
+    return withErrorHandling(async () => {
       const client = getGraphQLClient();
       const data = await client.request<{ exchange_account_types: ExchangeAccountType[] }>(GET_ACCOUNT_TYPES);
       return data.exchange_account_types;
@@ -70,7 +77,7 @@ export const graphqlApi: ApiClient = {
   },
 
   async getAccounts(): Promise<ExchangeAccount[]> {
-    return withAuthErrorHandling(async () => {
+    return withErrorHandling(async () => {
       const client = getGraphQLClient();
       const data = await client.request<{ exchange_accounts: ExchangeAccount[] }>(GET_ACCOUNTS);
       return data.exchange_accounts;
@@ -78,7 +85,7 @@ export const graphqlApi: ApiClient = {
   },
 
   async getAccountById(id: string): Promise<ExchangeAccount | null> {
-    return withAuthErrorHandling(async () => {
+    return withErrorHandling(async () => {
       const client = getGraphQLClient();
       const data = await client.request<{ exchange_accounts_by_pk: ExchangeAccount | null }>(
         GET_ACCOUNT_BY_ID,
@@ -89,7 +96,7 @@ export const graphqlApi: ApiClient = {
   },
 
   async createAccount(input: CreateAccountInput): Promise<ExchangeAccount> {
-    return withAuthErrorHandling(async () => {
+    return withErrorHandling(async () => {
       const client = getGraphQLClient();
       const data = await client.request<{
         insert_exchange_accounts_one: ExchangeAccount;
@@ -99,7 +106,7 @@ export const graphqlApi: ApiClient = {
   },
 
   async deleteAccount(id: string): Promise<{ id: string }> {
-    return withAuthErrorHandling(async () => {
+    return withErrorHandling(async () => {
       const client = getGraphQLClient();
       const data = await client.request<{
         delete_exchange_accounts_by_pk: { id: string };
@@ -109,7 +116,7 @@ export const graphqlApi: ApiClient = {
   },
 
   async getTrades(limit: number, offset: number): Promise<TradesResult> {
-    return withAuthErrorHandling(async () => {
+    return withErrorHandling(async () => {
       const client = getGraphQLClient();
 
       const [tradesData, countData] = await Promise.all([
@@ -131,7 +138,7 @@ export const graphqlApi: ApiClient = {
     limit: number,
     offset: number
   ): Promise<TradesResult> {
-    return withAuthErrorHandling(async () => {
+    return withErrorHandling(async () => {
       const client = getGraphQLClient();
 
       const [tradesData, countData] = await Promise.all([
@@ -153,7 +160,7 @@ export const graphqlApi: ApiClient = {
   },
 
   async getTradesAggregates(): Promise<TradesAggregates> {
-    return withAuthErrorHandling(async () => {
+    return withErrorHandling(async () => {
       const client = getGraphQLClient();
       const data = await client.request<{
         trades_aggregate: {
@@ -173,7 +180,7 @@ export const graphqlApi: ApiClient = {
   },
 
   async getTradesAggregatesByAccount(accountId: string): Promise<TradesAggregates> {
-    return withAuthErrorHandling(async () => {
+    return withErrorHandling(async () => {
       const client = getGraphQLClient();
       const data = await client.request<{
         trades_aggregate: {

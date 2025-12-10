@@ -2,13 +2,13 @@
 
 import { useState, useEffect, useCallback, useRef, use } from "react";
 import Link from "next/link";
-import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Trade, ExchangeAccount, TradesAggregates } from "@/lib/queries";
 import { TradesTable } from "@/components/trades-table";
 import { SyncButton } from "@/components/sync-button";
 import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { useNewItems } from "@/hooks/use-new-items";
+import { useApi } from "@/hooks/use-api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatCard, StatsGrid } from "@/components/stat-card";
@@ -21,6 +21,7 @@ interface AccountTradesPageProps {
 
 export default function AccountTradesPage({ params }: AccountTradesPageProps) {
   const { id } = use(params);
+  const { withErrorReporting } = useApi();
   const [trades, setTrades] = useState<Trade[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(0);
@@ -51,29 +52,28 @@ export default function AccountTradesPage({ params }: AccountTradesPageProps) {
   const fetchAggregates = useCallback(async () => {
     setIsLoadingAggregates(true);
     try {
-      const data = await api.getTradesAggregatesByAccount(id);
+      const data = await withErrorReporting(() => api.getTradesAggregatesByAccount(id));
       setAggregates(data);
     } catch (error) {
       console.error("Failed to fetch aggregates:", error);
     } finally {
       setIsLoadingAggregates(false);
     }
-  }, [id]);
+  }, [id, withErrorReporting]);
 
   const fetchTrades = useCallback(async (pageNum: number) => {
     setIsLoading(true);
     try {
-      const data = await api.getTradesByAccount(id, PAGE_SIZE, pageNum * PAGE_SIZE);
+      const data = await withErrorReporting(() => api.getTradesByAccount(id, PAGE_SIZE, pageNum * PAGE_SIZE));
       setTrades(data.trades);
       setTotalCount(data.totalCount);
       updateNewItems(data.trades);
-    } catch (error) {
-      toast.error("Failed to fetch trades");
-      console.error(error);
+    } catch (err) {
+      console.error(err);
     } finally {
       setIsLoading(false);
     }
-  }, [id]);
+  }, [id, withErrorReporting]);
 
   // Fetch function for auto-refresh
   const fetchAllData = useCallback(async () => {

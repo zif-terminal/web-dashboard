@@ -6,6 +6,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { ExchangeAccount } from "@/lib/queries";
+import { useApi } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +37,7 @@ interface AccountDetailProps {
 
 export function AccountDetail({ accountId }: AccountDetailProps) {
   const router = useRouter();
+  const { withErrorReporting } = useApi();
   const [account, setAccount] = useState<ExchangeAccount | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -48,12 +50,11 @@ export function AccountDetail({ accountId }: AccountDetailProps) {
   const fetchAccount = async () => {
     setIsLoading(true);
     try {
-      const data = await api.getAccountById(accountId);
+      const data = await withErrorReporting(() => api.getAccountById(accountId));
       setAccount(data);
       setLastRefreshTime(new Date());
-    } catch (error) {
-      toast.error("Failed to fetch account details");
-      console.error(error);
+    } catch (err) {
+      console.error(err);
     } finally {
       setIsLoading(false);
     }

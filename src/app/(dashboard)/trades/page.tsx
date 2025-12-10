@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Trade, ExchangeAccount, TradesAggregates } from "@/lib/queries";
 import { TradesTable } from "@/components/trades-table";
 import { SyncButton } from "@/components/sync-button";
 import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { useNewItems } from "@/hooks/use-new-items";
+import { useApi } from "@/hooks/use-api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard, StatsGrid } from "@/components/stat-card";
 import {
@@ -21,6 +21,7 @@ import {
 const PAGE_SIZE = 100;
 
 export default function TradesPage() {
+  const { withErrorReporting } = useApi();
   const [trades, setTrades] = useState<Trade[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(0);
@@ -54,34 +55,37 @@ export default function TradesPage() {
   const fetchAggregates = useCallback(async (accountId: string) => {
     setIsLoadingAggregates(true);
     try {
-      const data = accountId === "all"
-        ? await api.getTradesAggregates()
-        : await api.getTradesAggregatesByAccount(accountId);
+      const data = await withErrorReporting(() =>
+        accountId === "all"
+          ? api.getTradesAggregates()
+          : api.getTradesAggregatesByAccount(accountId)
+      );
       setAggregates(data);
     } catch (error) {
       console.error("Failed to fetch aggregates:", error);
     } finally {
       setIsLoadingAggregates(false);
     }
-  }, []);
+  }, [withErrorReporting]);
 
   const fetchTrades = useCallback(async (pageNum: number, accountId: string) => {
     setIsLoading(true);
     try {
-      const data = accountId === "all"
-        ? await api.getTrades(PAGE_SIZE, pageNum * PAGE_SIZE)
-        : await api.getTradesByAccount(accountId, PAGE_SIZE, pageNum * PAGE_SIZE);
+      const data = await withErrorReporting(() =>
+        accountId === "all"
+          ? api.getTrades(PAGE_SIZE, pageNum * PAGE_SIZE)
+          : api.getTradesByAccount(accountId, PAGE_SIZE, pageNum * PAGE_SIZE)
+      );
 
       setTrades(data.trades);
       setTotalCount(data.totalCount);
       updateNewItems(data.trades);
-    } catch (error) {
-      toast.error("Failed to fetch trades");
-      console.error(error);
+    } catch (err) {
+      console.error(err);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [withErrorReporting]);
 
   // Fetch function for auto-refresh (uses refs for current values)
   const fetchAllData = useCallback(async () => {
