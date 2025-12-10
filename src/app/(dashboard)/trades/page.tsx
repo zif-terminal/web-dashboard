@@ -5,9 +5,9 @@ import { api } from "@/lib/api";
 import { Trade, ExchangeAccount, TradesAggregates } from "@/lib/queries";
 import { TradesTable } from "@/components/trades-table";
 import { SyncButton } from "@/components/sync-button";
-import { ErrorDisplay } from "@/components/error-display";
 import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { useNewItems } from "@/hooks/use-new-items";
+import { useApi } from "@/hooks/use-api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard, StatsGrid } from "@/components/stat-card";
 import {
@@ -21,11 +21,11 @@ import {
 const PAGE_SIZE = 100;
 
 export default function TradesPage() {
+  const { withErrorReporting } = useApi();
   const [trades, setTrades] = useState<Trade[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>("all");
   const [aggregates, setAggregates] = useState<TradesAggregates | null>(null);
@@ -55,35 +55,37 @@ export default function TradesPage() {
   const fetchAggregates = useCallback(async (accountId: string) => {
     setIsLoadingAggregates(true);
     try {
-      const data = accountId === "all"
-        ? await api.getTradesAggregates()
-        : await api.getTradesAggregatesByAccount(accountId);
+      const data = await withErrorReporting(() =>
+        accountId === "all"
+          ? api.getTradesAggregates()
+          : api.getTradesAggregatesByAccount(accountId)
+      );
       setAggregates(data);
     } catch (error) {
       console.error("Failed to fetch aggregates:", error);
     } finally {
       setIsLoadingAggregates(false);
     }
-  }, []);
+  }, [withErrorReporting]);
 
   const fetchTrades = useCallback(async (pageNum: number, accountId: string) => {
     setIsLoading(true);
-    setError(null);
     try {
-      const data = accountId === "all"
-        ? await api.getTrades(PAGE_SIZE, pageNum * PAGE_SIZE)
-        : await api.getTradesByAccount(accountId, PAGE_SIZE, pageNum * PAGE_SIZE);
+      const data = await withErrorReporting(() =>
+        accountId === "all"
+          ? api.getTrades(PAGE_SIZE, pageNum * PAGE_SIZE)
+          : api.getTradesByAccount(accountId, PAGE_SIZE, pageNum * PAGE_SIZE)
+      );
 
       setTrades(data.trades);
       setTotalCount(data.totalCount);
       updateNewItems(data.trades);
     } catch (err) {
-      setError(err instanceof Error ? err : new Error("Failed to fetch trades"));
       console.error(err);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [withErrorReporting]);
 
   // Fetch function for auto-refresh (uses refs for current values)
   const fetchAllData = useCallback(async () => {
@@ -124,20 +126,6 @@ export default function TradesPage() {
     const num = parseFloat(value);
     return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
   };
-
-  if (error && !isLoading) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold">Trade History</h1>
-          <p className="text-muted-foreground">
-            View all trades across your exchange accounts
-          </p>
-        </div>
-        <ErrorDisplay error={error} onRetry={refresh} />
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { ExchangeAccount } from "@/lib/queries";
+import { useApi } from "@/hooks/use-api";
 import {
   Table,
   TableBody,
@@ -14,7 +15,6 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { AccountsTableSkeleton } from "@/components/table-skeleton";
-import { ErrorDisplay } from "@/components/error-display";
 
 interface AccountsTableProps {
   refreshKey?: number;
@@ -24,20 +24,18 @@ interface AccountsTableProps {
 
 export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }: AccountsTableProps) {
   const router = useRouter();
+  const { withErrorReporting } = useApi();
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
 
   const fetchAccounts = async () => {
     setIsLoading(true);
-    setError(null);
     onLoadingChange?.(true);
     try {
-      const data = await api.getAccounts();
+      const data = await withErrorReporting(() => api.getAccounts());
       setAccounts(data);
       onRefreshComplete?.();
     } catch (err) {
-      setError(err instanceof Error ? err : new Error("Failed to fetch accounts"));
       console.error(err);
     } finally {
       setIsLoading(false);
@@ -51,10 +49,6 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
 
   if (isLoading) {
     return <AccountsTableSkeleton rows={3} />;
-  }
-
-  if (error) {
-    return <ErrorDisplay error={error} onRetry={fetchAccounts} />;
   }
 
   if (accounts.length === 0) {
