@@ -19,21 +19,44 @@ Open http://localhost:3000
 
 ## Environment Variables
 
-Create `.env.local` with:
+Create `.env.local` from the example:
 
-```env
-NEXT_PUBLIC_API_BASE_URL=http://167.99.145.4
-NEXT_PUBLIC_GRAPHQL_ENDPOINT=/api/graphql
-NEXT_PUBLIC_AUTH_ENDPOINT=/api/auth
-NEXT_PUBLIC_USE_MOCK_API=false
+```bash
+cp .env.example .env.local
 ```
 
-| Variable | Description |
-|----------|-------------|
-| `NEXT_PUBLIC_API_BASE_URL` | Backend server URL |
-| `NEXT_PUBLIC_GRAPHQL_ENDPOINT` | GraphQL endpoint path |
-| `NEXT_PUBLIC_AUTH_ENDPOINT` | Auth endpoint path |
-| `NEXT_PUBLIC_USE_MOCK_API` | Set to `true` to use mock data |
+### Backend Configuration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `HASURA_URL` | Hasura GraphQL server URL | `http://167.99.145.4` |
+| `AUTH_URL` | Auth service URL | `http://167.99.145.4` |
+| `NEXT_PUBLIC_USE_MOCK_API` | Set to `true` to use mock data | `false` |
+
+### Switching Between Local and Remote Backend
+
+**Remote backend** (default):
+```env
+# Leave HASURA_URL and AUTH_URL unset, or explicitly set:
+HASURA_URL=http://167.99.145.4
+AUTH_URL=http://167.99.145.4
+```
+
+**Local backend**:
+```env
+HASURA_URL=http://localhost:8080
+AUTH_URL=http://localhost:8081
+```
+
+> **Note**: Restart the dev server after changing backend URLs.
+
+### Service URLs Reference
+
+| Service | Local URL | Remote URL |
+|---------|-----------|------------|
+| Hasura GraphQL | http://localhost:8080/v1/graphql | http://167.99.145.4/v1/graphql |
+| Hasura Console | http://localhost:8080/console | http://167.99.145.4/console |
+| Auth Service | http://localhost:8081 | http://167.99.145.4/auth |
 
 ## Mock API Mode
 

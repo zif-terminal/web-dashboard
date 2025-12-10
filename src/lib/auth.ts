@@ -1,8 +1,8 @@
 import Cookies from "js-cookie";
 import { TOKEN_COOKIE_NAME } from "./graphql-client";
 
-const AUTH_ENDPOINT =
-  process.env.NEXT_PUBLIC_AUTH_ENDPOINT || "http://167.99.145.4/auth";
+// Auth endpoint - uses the Next.js rewrite proxy by default
+const AUTH_ENDPOINT = process.env.NEXT_PUBLIC_AUTH_ENDPOINT || "/api/auth";
 
 export interface LoginResponse {
   token: string;
