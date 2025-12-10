@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Trade, ExchangeAccount, TradesAggregates } from "@/lib/queries";
 import { TradesTable } from "@/components/trades-table";
 import { SyncButton } from "@/components/sync-button";
+import { ErrorDisplay } from "@/components/error-display";
 import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { useNewItems } from "@/hooks/use-new-items";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,6 +25,7 @@ export default function TradesPage() {
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>("all");
   const [aggregates, setAggregates] = useState<TradesAggregates | null>(null);
@@ -67,6 +68,7 @@ export default function TradesPage() {
 
   const fetchTrades = useCallback(async (pageNum: number, accountId: string) => {
     setIsLoading(true);
+    setError(null);
     try {
       const data = accountId === "all"
         ? await api.getTrades(PAGE_SIZE, pageNum * PAGE_SIZE)
@@ -75,9 +77,9 @@ export default function TradesPage() {
       setTrades(data.trades);
       setTotalCount(data.totalCount);
       updateNewItems(data.trades);
-    } catch (error) {
-      toast.error("Failed to fetch trades");
-      console.error(error);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Failed to fetch trades"));
+      console.error(err);
     } finally {
       setIsLoading(false);
     }
@@ -122,6 +124,20 @@ export default function TradesPage() {
     const num = parseFloat(value);
     return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
   };
+
+  if (error && !isLoading) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold">Trade History</h1>
+          <p className="text-muted-foreground">
+            View all trades across your exchange accounts
+          </p>
+        </div>
+        <ErrorDisplay error={error} onRetry={refresh} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

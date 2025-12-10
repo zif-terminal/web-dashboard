@@ -11,6 +11,7 @@ import { LoadingButton } from "@/components/ui/loading-button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SyncButton } from "@/components/sync-button";
+import { ErrorDisplay } from "@/components/error-display";
 import {
   Card,
   CardContent,
@@ -39,6 +40,7 @@ export function AccountDetail({ accountId }: AccountDetailProps) {
   const [account, setAccount] = useState<ExchangeAccount | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -47,13 +49,14 @@ export function AccountDetail({ accountId }: AccountDetailProps) {
 
   const fetchAccount = async () => {
     setIsLoading(true);
+    setError(null);
     try {
       const data = await api.getAccountById(accountId);
       setAccount(data);
       setLastRefreshTime(new Date());
-    } catch (error) {
-      toast.error("Failed to fetch account details");
-      console.error(error);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Failed to fetch account details"));
+      console.error(err);
     } finally {
       setIsLoading(false);
     }
@@ -97,6 +100,10 @@ export function AccountDetail({ accountId }: AccountDetailProps) {
         </CardContent>
       </Card>
     );
+  }
+
+  if (error) {
+    return <ErrorDisplay error={error} onRetry={fetchAccount} />;
   }
 
   if (!account) {

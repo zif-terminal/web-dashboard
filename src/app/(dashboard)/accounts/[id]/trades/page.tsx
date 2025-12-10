@@ -2,11 +2,11 @@
 
 import { useState, useEffect, useCallback, useRef, use } from "react";
 import Link from "next/link";
-import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Trade, ExchangeAccount, TradesAggregates } from "@/lib/queries";
 import { TradesTable } from "@/components/trades-table";
 import { SyncButton } from "@/components/sync-button";
+import { ErrorDisplay } from "@/components/error-display";
 import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { useNewItems } from "@/hooks/use-new-items";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,6 +25,7 @@ export default function AccountTradesPage({ params }: AccountTradesPageProps) {
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
   const [account, setAccount] = useState<ExchangeAccount | null>(null);
   const [aggregates, setAggregates] = useState<TradesAggregates | null>(null);
   const [isLoadingAggregates, setIsLoadingAggregates] = useState(true);
@@ -62,14 +63,15 @@ export default function AccountTradesPage({ params }: AccountTradesPageProps) {
 
   const fetchTrades = useCallback(async (pageNum: number) => {
     setIsLoading(true);
+    setError(null);
     try {
       const data = await api.getTradesByAccount(id, PAGE_SIZE, pageNum * PAGE_SIZE);
       setTrades(data.trades);
       setTotalCount(data.totalCount);
       updateNewItems(data.trades);
-    } catch (error) {
-      toast.error("Failed to fetch trades");
-      console.error(error);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Failed to fetch trades"));
+      console.error(err);
     } finally {
       setIsLoading(false);
     }
@@ -109,6 +111,23 @@ export default function AccountTradesPage({ params }: AccountTradesPageProps) {
   const accountTitle = account
     ? `${account.exchange?.display_name || "Unknown"} - ${account.account_identifier.slice(0, 10)}...`
     : "Account";
+
+  if (error && !isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-4">
+          <Button variant="outline" asChild>
+            <Link href={`/accounts/${id}`}>Back</Link>
+          </Button>
+          <div>
+            <h1 className="text-3xl font-bold">Trade History</h1>
+            <p className="text-muted-foreground">{accountTitle}</p>
+          </div>
+        </div>
+        <ErrorDisplay error={error} onRetry={refresh} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
