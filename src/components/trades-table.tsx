@@ -9,7 +9,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { TradesTableSkeleton } from "@/components/table-skeleton";
 import { cn } from "@/lib/utils";
@@ -37,11 +36,6 @@ function formatNumber(value: string, decimals: number = 4): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: decimals,
   });
-}
-
-function truncateId(id: string, chars: number = 8): string {
-  if (id.length <= chars) return id;
-  return `${id.slice(0, chars)}...`;
 }
 
 export function TradesTable({
@@ -80,65 +74,67 @@ export function TradesTable({
         <TableHeader>
           <TableRow>
             <TableHead>Time</TableHead>
-            {showAccount && <TableHead>Account</TableHead>}
             <TableHead>Pair</TableHead>
             <TableHead>Side</TableHead>
             <TableHead className="text-right">Price</TableHead>
             <TableHead className="text-right">Quantity</TableHead>
             <TableHead className="text-right">Fee</TableHead>
-            <TableHead>Order ID</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {trades.map((trade) => (
             <TableRow
               key={trade.id}
-              className={cn(isNewItem?.(trade.id) && "animate-highlight-new")}
-            >
-              <TableCell className="text-sm text-muted-foreground">
-                {formatTimestamp(trade.timestamp)}
-              </TableCell>
-              {showAccount && (
-                <TableCell>
-                  <div className="flex flex-col">
-                    <span className="font-medium text-sm">
-                      {trade.exchange_account?.exchange?.display_name || "Unknown"}
-                    </span>
-                    <span className="text-xs text-muted-foreground font-mono">
-                      {truncateId(
-                        trade.exchange_account?.account_identifier || trade.exchange_account_id,
-                        10
-                      )}
-                    </span>
-                  </div>
-                </TableCell>
+              className={cn(
+                isNewItem?.(trade.id) && "animate-highlight-new"
               )}
-              <TableCell className="font-medium">
+            >
+              <TableCell className="py-3 pl-0">
+                <div className="flex">
+                  <div
+                    className={cn(
+                      "w-1 self-stretch rounded-full mr-3 flex-shrink-0",
+                      trade.side === "buy" ? "bg-green-500" : "bg-red-500"
+                    )}
+                  />
+                  <div className="flex flex-col">
+                    <span className="text-sm">
+                      {formatTimestamp(trade.timestamp)}
+                    </span>
+                    {showAccount && (
+                      <div className="flex items-center gap-1 mt-0.5 text-muted-foreground">
+                        <span className="text-xs">
+                          {trade.exchange_account?.exchange?.display_name || "Unknown"}
+                        </span>
+                        <span className="text-xs font-mono">
+                          ({trade.exchange_account?.account_identifier || trade.exchange_account_id})
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </TableCell>
+              <TableCell className="py-3 font-medium">
                 {trade.base_asset}/{trade.quote_asset}
               </TableCell>
-              <TableCell>
-                <Badge
-                  variant={trade.side === "buy" ? "default" : "destructive"}
-                  className={
-                    trade.side === "buy"
-                      ? "bg-green-600 hover:bg-green-700"
-                      : ""
-                  }
+              <TableCell className="py-3">
+                <span
+                  className={cn(
+                    "font-medium",
+                    trade.side === "buy" ? "text-green-600" : "text-red-600"
+                  )}
                 >
                   {trade.side.toUpperCase()}
-                </Badge>
+                </span>
               </TableCell>
-              <TableCell className="text-right font-mono">
+              <TableCell className="py-3 text-right font-mono">
                 {formatNumber(trade.price)}
               </TableCell>
-              <TableCell className="text-right font-mono">
+              <TableCell className="py-3 text-right font-mono">
                 {formatNumber(trade.quantity)}
               </TableCell>
-              <TableCell className="text-right font-mono text-muted-foreground">
+              <TableCell className="py-3 text-right font-mono">
                 {formatNumber(trade.fee, 6)}
-              </TableCell>
-              <TableCell className="font-mono text-xs text-muted-foreground">
-                {truncateId(trade.order_id)}
               </TableCell>
             </TableRow>
           ))}
