@@ -65,13 +65,34 @@ export class ApiError extends Error {
     // Handle graphql-request errors
     if (error && typeof error === "object") {
       const err = error as {
-        response?: { status?: number; errors?: unknown[] };
+        response?: {
+          status?: number;
+          errors?: Array<{
+            message?: string;
+            extensions?: { code?: string };
+          }>;
+        };
         message?: string;
       };
 
-      // Check for HTTP status in response
-      if (err.response?.status) {
+      // Check for HTTP error status (only for actual errors, not 2xx)
+      if (err.response?.status && err.response.status >= 400) {
         return ApiError.fromHttpStatus(err.response.status);
+      }
+
+      // Check for GraphQL errors in the response (these come with HTTP 200)
+      if (err.response?.errors && err.response.errors.length > 0) {
+        const gqlError = err.response.errors[0];
+        const code = gqlError.extensions?.code;
+        const message = gqlError.message || "GraphQL request failed";
+
+        // Map Hasura error codes to ApiError types
+        if (code === "access-denied" || code === "invalid-jwt" || code === "jwt-expired") {
+          return new ApiError("auth_error", message, undefined, false);
+        }
+
+        // For other GraphQL errors, return as request_error with the actual message
+        return new ApiError("request_error", message, undefined, false);
       }
 
       // Check for network errors
