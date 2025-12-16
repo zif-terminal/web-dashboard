@@ -165,9 +165,12 @@ export function AccountDetail({ accountId }: AccountDetailProps) {
                 </div>
               )}
           </div>
-          <div className="pt-4">
+          <div className="pt-4 flex gap-2">
             <Button asChild>
               <Link href={`/accounts/${accountId}/trades`}>View Trades</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href={`/accounts/${accountId}/funding`}>View Funding</Link>
             </Button>
           </div>
         </CardContent>
