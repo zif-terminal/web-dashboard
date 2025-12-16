@@ -73,3 +73,19 @@ export function TradesTableSkeleton({
 
   return <TableSkeleton rows={rows} columns={6} columnWidths={widths} />;
 }
+
+// Pre-configured skeleton for funding payments table (3 columns: Time, Asset Pair, Amount)
+export function FundingTableSkeleton({
+  rows = 5,
+  showAccount = false,
+}: {
+  rows?: number;
+  showAccount?: boolean;
+}) {
+  // Time column is wider when showing account info underneath
+  const widths = showAccount
+    ? ["w-40", "w-24", "w-20"]
+    : ["w-32", "w-24", "w-20"];
+
+  return <TableSkeleton rows={rows} columns={3} columnWidths={widths} />;
+}

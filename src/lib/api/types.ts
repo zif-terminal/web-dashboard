@@ -1,4 +1,4 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates } from "../queries";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates } from "../queries";
 
 export interface CreateAccountInput {
   exchange_id: string;
@@ -9,6 +9,11 @@ export interface CreateAccountInput {
 
 export interface TradesResult {
   trades: Trade[];
+  totalCount: number;
+}
+
+export interface FundingPaymentsResult {
+  fundingPayments: FundingPayment[];
   totalCount: number;
 }
 
@@ -27,4 +32,12 @@ export interface ApiClient {
   ): Promise<TradesResult>;
   getTradesAggregates(): Promise<TradesAggregates>;
   getTradesAggregatesByAccount(accountId: string): Promise<TradesAggregates>;
+  getFundingPayments(limit: number, offset: number): Promise<FundingPaymentsResult>;
+  getFundingPaymentsByAccount(
+    accountId: string,
+    limit: number,
+    offset: number
+  ): Promise<FundingPaymentsResult>;
+  getFundingAggregates(): Promise<FundingAggregates>;
+  getFundingAggregatesByAccount(accountId: string): Promise<FundingAggregates>;
 }

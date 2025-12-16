@@ -223,3 +223,122 @@ export const GET_TRADES_AGGREGATES_BY_ACCOUNT = gql`
     }
   }
 `;
+
+// Funding payment types
+export interface FundingPayment {
+  id: string;
+  base_asset: string;
+  quote_asset: string;
+  amount: string;
+  timestamp: number; // Unix milliseconds (BIGINT)
+  payment_id: string;
+  exchange_account_id: string;
+  exchange_account?: ExchangeAccount;
+}
+
+// Funding payment queries
+export const GET_FUNDING_PAYMENTS = gql`
+  query GetFundingPayments($limit: Int!, $offset: Int!) {
+    funding_payments(limit: $limit, offset: $offset, order_by: { timestamp: desc }) {
+      id
+      base_asset
+      quote_asset
+      amount
+      timestamp
+      payment_id
+      exchange_account_id
+      exchange_account {
+        id
+        account_identifier
+        account_type
+        exchange {
+          id
+          name
+          display_name
+        }
+      }
+    }
+  }
+`;
+
+export const GET_FUNDING_PAYMENTS_BY_ACCOUNT = gql`
+  query GetFundingPaymentsByAccount($accountId: uuid!, $limit: Int!, $offset: Int!) {
+    funding_payments(
+      where: { exchange_account_id: { _eq: $accountId } }
+      limit: $limit
+      offset: $offset
+      order_by: { timestamp: desc }
+    ) {
+      id
+      base_asset
+      quote_asset
+      amount
+      timestamp
+      payment_id
+      exchange_account_id
+      exchange_account {
+        id
+        account_identifier
+        account_type
+        exchange {
+          id
+          name
+          display_name
+        }
+      }
+    }
+  }
+`;
+
+export const GET_FUNDING_PAYMENTS_COUNT = gql`
+  query GetFundingPaymentsCount {
+    funding_payments_aggregate {
+      aggregate {
+        count
+      }
+    }
+  }
+`;
+
+export const GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT = gql`
+  query GetFundingPaymentsCountByAccount($accountId: uuid!) {
+    funding_payments_aggregate(where: { exchange_account_id: { _eq: $accountId } }) {
+      aggregate {
+        count
+      }
+    }
+  }
+`;
+
+// Funding aggregates interface
+export interface FundingAggregates {
+  totalAmount: string;
+  count: number;
+}
+
+// Funding aggregate queries
+export const GET_FUNDING_AGGREGATES = gql`
+  query GetFundingAggregates {
+    funding_payments_aggregate {
+      aggregate {
+        count
+        sum {
+          amount
+        }
+      }
+    }
+  }
+`;
+
+export const GET_FUNDING_AGGREGATES_BY_ACCOUNT = gql`
+  query GetFundingAggregatesByAccount($accountId: uuid!) {
+    funding_payments_aggregate(where: { exchange_account_id: { _eq: $accountId } }) {
+      aggregate {
+        count
+        sum {
+          amount
+        }
+      }
+    }
+  }
+`;

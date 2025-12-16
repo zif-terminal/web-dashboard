@@ -1,5 +1,5 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates } from "../queries";
-import { ApiClient, CreateAccountInput, TradesResult } from "./types";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates } from "../queries";
+import { ApiClient, CreateAccountInput, TradesResult, FundingPaymentsResult } from "./types";
 
 // Mock exchanges
 const mockExchanges: Exchange[] = [
@@ -114,6 +114,70 @@ const mockTrades: Trade[] = [
     trade_id: "trd-005",
     exchange_account_id: "mock-acc-001",
     exchange_account: mockAccounts[0],
+  },
+];
+
+// Mock funding payments (timestamp is Unix milliseconds)
+const mockFundingPayments: FundingPayment[] = [
+  {
+    id: "mock-funding-001",
+    base_asset: "ETH",
+    quote_asset: "USDC",
+    amount: "12.50",
+    timestamp: Date.now() - 1000 * 60 * 60 * 8,
+    payment_id: "funding-payment-001",
+    exchange_account_id: "mock-acc-001",
+    exchange_account: mockAccounts[0],
+  },
+  {
+    id: "mock-funding-002",
+    base_asset: "BTC",
+    quote_asset: "USDC",
+    amount: "-8.75",
+    timestamp: Date.now() - 1000 * 60 * 60 * 16,
+    payment_id: "funding-payment-002",
+    exchange_account_id: "mock-acc-001",
+    exchange_account: mockAccounts[0],
+  },
+  {
+    id: "mock-funding-003",
+    base_asset: "SOL",
+    quote_asset: "USDC",
+    amount: "5.25",
+    timestamp: Date.now() - 1000 * 60 * 60 * 24,
+    payment_id: "funding-payment-003",
+    exchange_account_id: "mock-acc-002",
+    exchange_account: mockAccounts[1],
+  },
+  {
+    id: "mock-funding-004",
+    base_asset: "ETH",
+    quote_asset: "USDT",
+    amount: "-3.10",
+    timestamp: Date.now() - 1000 * 60 * 60 * 32,
+    payment_id: "funding-payment-004",
+    exchange_account_id: "mock-acc-003",
+    exchange_account: mockAccounts[2],
+  },
+  {
+    id: "mock-funding-005",
+    base_asset: "BTC",
+    quote_asset: "USDC",
+    amount: "22.00",
+    timestamp: Date.now() - 1000 * 60 * 60 * 40,
+    payment_id: "funding-payment-005",
+    exchange_account_id: "mock-acc-001",
+    exchange_account: mockAccounts[0],
+  },
+  {
+    id: "mock-funding-006",
+    base_asset: "ARB",
+    quote_asset: "USDC",
+    amount: "1.50",
+    timestamp: Date.now() - 1000 * 60 * 60 * 48,
+    payment_id: "funding-payment-006",
+    exchange_account_id: "mock-acc-002",
+    exchange_account: mockAccounts[1],
   },
 ];
 
@@ -233,6 +297,58 @@ export const mockApi: ApiClient = {
       totalFees: totalFees.toString(),
       totalVolume: "0",
       count: accountTrades.length,
+    };
+  },
+
+  async getFundingPayments(limit: number, offset: number): Promise<FundingPaymentsResult> {
+    await delay(300);
+    const paginatedPayments = mockFundingPayments.slice(offset, offset + limit);
+    return {
+      fundingPayments: paginatedPayments,
+      totalCount: mockFundingPayments.length,
+    };
+  },
+
+  async getFundingPaymentsByAccount(
+    accountId: string,
+    limit: number,
+    offset: number
+  ): Promise<FundingPaymentsResult> {
+    await delay(300);
+    const accountPayments = mockFundingPayments.filter(
+      (payment) => payment.exchange_account_id === accountId
+    );
+    const paginatedPayments = accountPayments.slice(offset, offset + limit);
+    return {
+      fundingPayments: paginatedPayments,
+      totalCount: accountPayments.length,
+    };
+  },
+
+  async getFundingAggregates(): Promise<FundingAggregates> {
+    await delay(200);
+    const totalAmount = mockFundingPayments.reduce(
+      (sum, payment) => sum + parseFloat(payment.amount),
+      0
+    );
+    return {
+      totalAmount: totalAmount.toString(),
+      count: mockFundingPayments.length,
+    };
+  },
+
+  async getFundingAggregatesByAccount(accountId: string): Promise<FundingAggregates> {
+    await delay(200);
+    const accountPayments = mockFundingPayments.filter(
+      (payment) => payment.exchange_account_id === accountId
+    );
+    const totalAmount = accountPayments.reduce(
+      (sum, payment) => sum + parseFloat(payment.amount),
+      0
+    );
+    return {
+      totalAmount: totalAmount.toString(),
+      count: accountPayments.length,
     };
   },
 };

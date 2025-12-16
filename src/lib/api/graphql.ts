@@ -13,13 +13,21 @@ import {
   GET_TRADES_COUNT_BY_ACCOUNT,
   GET_TRADES_AGGREGATES,
   GET_TRADES_AGGREGATES_BY_ACCOUNT,
+  GET_FUNDING_PAYMENTS,
+  GET_FUNDING_PAYMENTS_BY_ACCOUNT,
+  GET_FUNDING_PAYMENTS_COUNT,
+  GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT,
+  GET_FUNDING_AGGREGATES,
+  GET_FUNDING_AGGREGATES_BY_ACCOUNT,
   Exchange,
   ExchangeAccount,
   ExchangeAccountType,
   Trade,
   TradesAggregates,
+  FundingPayment,
+  FundingAggregates,
 } from "../queries";
-import { ApiClient, CreateAccountInput, TradesResult } from "./types";
+import { ApiClient, CreateAccountInput, TradesResult, FundingPaymentsResult } from "./types";
 import { ApiError } from "./errors";
 
 function isAuthError(error: unknown): boolean {
@@ -195,6 +203,88 @@ export const graphqlApi: ApiClient = {
         totalFees: data.trades_aggregate.aggregate.sum.fee || "0",
         totalVolume: "0",
         count: data.trades_aggregate.aggregate.count,
+      };
+    });
+  },
+
+  async getFundingPayments(limit: number, offset: number): Promise<FundingPaymentsResult> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+
+      const [fundingData, countData] = await Promise.all([
+        client.request<{ funding_payments: FundingPayment[] }>(GET_FUNDING_PAYMENTS, { limit, offset }),
+        client.request<{
+          funding_payments_aggregate: { aggregate: { count: number } };
+        }>(GET_FUNDING_PAYMENTS_COUNT),
+      ]);
+
+      return {
+        fundingPayments: fundingData.funding_payments,
+        totalCount: countData.funding_payments_aggregate.aggregate.count,
+      };
+    });
+  },
+
+  async getFundingPaymentsByAccount(
+    accountId: string,
+    limit: number,
+    offset: number
+  ): Promise<FundingPaymentsResult> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+
+      const [fundingData, countData] = await Promise.all([
+        client.request<{ funding_payments: FundingPayment[] }>(GET_FUNDING_PAYMENTS_BY_ACCOUNT, {
+          accountId,
+          limit,
+          offset,
+        }),
+        client.request<{
+          funding_payments_aggregate: { aggregate: { count: number } };
+        }>(GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT, { accountId }),
+      ]);
+
+      return {
+        fundingPayments: fundingData.funding_payments,
+        totalCount: countData.funding_payments_aggregate.aggregate.count,
+      };
+    });
+  },
+
+  async getFundingAggregates(): Promise<FundingAggregates> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        funding_payments_aggregate: {
+          aggregate: {
+            count: number;
+            sum: { amount: string | null };
+          };
+        };
+      }>(GET_FUNDING_AGGREGATES);
+
+      return {
+        totalAmount: data.funding_payments_aggregate.aggregate.sum.amount || "0",
+        count: data.funding_payments_aggregate.aggregate.count,
+      };
+    });
+  },
+
+  async getFundingAggregatesByAccount(accountId: string): Promise<FundingAggregates> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        funding_payments_aggregate: {
+          aggregate: {
+            count: number;
+            sum: { amount: string | null };
+          };
+        };
+      }>(GET_FUNDING_AGGREGATES_BY_ACCOUNT, { accountId });
+
+      return {
+        totalAmount: data.funding_payments_aggregate.aggregate.sum.amount || "0",
+        count: data.funding_payments_aggregate.aggregate.count,
       };
     });
   },
