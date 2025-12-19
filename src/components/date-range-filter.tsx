@@ -66,16 +66,6 @@ export function getTimestampsFromDateRange(value: DateRangeValue): DateRangeTime
   return { since: now - hours[value.preset] * 60 * 60 * 1000 };
 }
 
-// Legacy function for backwards compatibility
-export function getTimestampFromDateRange(value: DateRangeValue): number | undefined {
-  return getTimestampsFromDateRange(value).since;
-}
-
-// Legacy function for backwards compatibility
-export function getTimestampFromPreset(preset: DateRangePreset): number | undefined {
-  return getTimestampFromDateRange({ preset });
-}
-
 export function DateRangeFilter({
   value,
   onChange,
