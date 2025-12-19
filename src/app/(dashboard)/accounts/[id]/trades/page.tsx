@@ -1,20 +1,40 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, use } from "react";
+import { useState, useEffect, use } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { Trade, ExchangeAccount, TradesAggregates } from "@/lib/queries";
 import { TradesTable } from "@/components/trades-table";
 import { SyncButton } from "@/components/sync-button";
-import { useAutoRefresh } from "@/hooks/use-auto-refresh";
-import { useNewItems } from "@/hooks/use-new-items";
-import { useApi } from "@/hooks/use-api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatCard, StatsGrid } from "@/components/stat-card";
-import { DateRangeFilter, DateRangeValue, getTimestampFromDateRange } from "@/components/date-range-filter";
+import { DateRangeFilter } from "@/components/date-range-filter";
+import { usePaginatedData } from "@/hooks/use-paginated-data";
 
 const PAGE_SIZE = 100;
+
+async function fetchTrades(
+  limit: number,
+  offset: number,
+  accountId: string | undefined,
+  since: number | undefined
+) {
+  const data = accountId
+    ? await api.getTradesByAccount(accountId, limit, offset, since)
+    : await api.getTrades(limit, offset, since);
+
+  return { items: data.trades, totalCount: data.totalCount };
+}
+
+async function fetchTradesAggregates(
+  accountId: string | undefined,
+  since: number | undefined
+) {
+  return accountId
+    ? api.getTradesAggregatesByAccount(accountId, since)
+    : api.getTradesAggregates(since);
+}
 
 interface AccountTradesPageProps {
   params: Promise<{ id: string }>;
@@ -22,99 +42,43 @@ interface AccountTradesPageProps {
 
 export default function AccountTradesPage({ params }: AccountTradesPageProps) {
   const { id } = use(params);
-  const { withErrorReporting } = useApi();
-  const [trades, setTrades] = useState<Trade[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [page, setPage] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
   const [account, setAccount] = useState<ExchangeAccount | null>(null);
-  const [aggregates, setAggregates] = useState<TradesAggregates | null>(null);
-  const [isLoadingAggregates, setIsLoadingAggregates] = useState(true);
-  const [dateRange, setDateRange] = useState<DateRangeValue>({ preset: "all" });
 
-  // Track new items for highlighting
-  const { updateItems: updateNewItems, isNew } = useNewItems<Trade>();
-
-  // Use refs to track current values for auto-refresh
-  const pageRef = useRef(page);
-  const dateRangeRef = useRef(dateRange);
-
-  useEffect(() => {
-    pageRef.current = page;
-    dateRangeRef.current = dateRange;
-  }, [page, dateRange]);
-
-  const fetchAccount = async () => {
-    try {
-      const data = await api.getAccountById(id);
-      setAccount(data);
-    } catch (error) {
-      console.error(error);
-    }
-  };
-
-  const fetchAggregates = useCallback(async (dateRangeValue: DateRangeValue) => {
-    setIsLoadingAggregates(true);
-    const since = getTimestampFromDateRange(dateRangeValue);
-    try {
-      const data = await withErrorReporting(() => api.getTradesAggregatesByAccount(id, since));
-      setAggregates(data);
-    } catch (error) {
-      console.error("Failed to fetch aggregates:", error);
-    } finally {
-      setIsLoadingAggregates(false);
-    }
-  }, [id, withErrorReporting]);
-
-  const fetchTrades = useCallback(async (pageNum: number, dateRangeValue: DateRangeValue) => {
-    setIsLoading(true);
-    const since = getTimestampFromDateRange(dateRangeValue);
-    try {
-      const data = await withErrorReporting(() => api.getTradesByAccount(id, PAGE_SIZE, pageNum * PAGE_SIZE, since));
-      setTrades(data.trades);
-      setTotalCount(data.totalCount);
-      updateNewItems(data.trades);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [id, withErrorReporting]);
-
-  // Fetch function for auto-refresh
-  const fetchAllData = useCallback(async () => {
-    await Promise.all([
-      fetchTrades(pageRef.current, dateRangeRef.current),
-      fetchAggregates(dateRangeRef.current),
-    ]);
-  }, [fetchTrades, fetchAggregates]);
-
-  const { lastRefreshTime, refresh } = useAutoRefresh(fetchAllData, {
-    interval: 30000,
+  const {
+    items: trades,
+    totalCount,
+    aggregates,
+    isLoading,
+    isLoadingAggregates,
+    page,
+    dateRange,
+    isNew,
+    handlePageChange,
+    handleDateRangeChange,
+    refresh,
+    lastRefreshTime,
+  } = usePaginatedData<Trade, TradesAggregates>({
+    fetchItems: fetchTrades,
+    fetchAggregates: fetchTradesAggregates,
+    accountId: id,
+    pageSize: PAGE_SIZE,
   });
 
   useEffect(() => {
+    const fetchAccount = async () => {
+      try {
+        const data = await api.getAccountById(id);
+        setAccount(data);
+      } catch (error) {
+        console.error(error);
+      }
+    };
     fetchAccount();
-    refresh(); // Initial fetch through auto-refresh to set lastRefreshTime
   }, [id]);
-
-  // Refetch when page or date range changes
-  useEffect(() => {
-    refresh();
-  }, [page, dateRange]);
 
   const formatFees = (value: string) => {
     const num = parseFloat(value);
     return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
-  };
-
-  const handlePageChange = (newPage: number) => {
-    setPage(newPage);
-  };
-
-  const handleDateRangeChange = (newRange: DateRangeValue) => {
-    setDateRange(newRange);
-    setPage(0);
   };
 
   const accountTitle = account

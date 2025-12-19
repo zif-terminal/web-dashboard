@@ -1,128 +1,76 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import { FundingPayment, ExchangeAccount, FundingAggregates } from "@/lib/queries";
 import { FundingTable } from "@/components/funding-table";
 import { AccountFilter } from "@/components/account-filter";
 import { SyncButton } from "@/components/sync-button";
-import { useAutoRefresh } from "@/hooks/use-auto-refresh";
-import { useNewItems } from "@/hooks/use-new-items";
-import { useApi } from "@/hooks/use-api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard, StatsGrid } from "@/components/stat-card";
 import { formatSignedNumber } from "@/lib/format";
-import { DateRangeFilter, DateRangeValue, getTimestampFromDateRange } from "@/components/date-range-filter";
+import { DateRangeFilter } from "@/components/date-range-filter";
+import { usePaginatedData } from "@/hooks/use-paginated-data";
 
 const PAGE_SIZE = 100;
 
+async function fetchFundingPayments(
+  limit: number,
+  offset: number,
+  accountId: string | undefined,
+  since: number | undefined
+) {
+  const data = accountId
+    ? await api.getFundingPaymentsByAccount(accountId, limit, offset, since)
+    : await api.getFundingPayments(limit, offset, since);
+
+  return { items: data.fundingPayments, totalCount: data.totalCount };
+}
+
+async function fetchFundingAggregates(
+  accountId: string | undefined,
+  since: number | undefined
+) {
+  return accountId
+    ? api.getFundingAggregatesByAccount(accountId, since)
+    : api.getFundingAggregates(since);
+}
+
 export default function FundingPage() {
-  const { withErrorReporting } = useApi();
-  const [fundingPayments, setFundingPayments] = useState<FundingPayment[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [page, setPage] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
-  const [selectedAccountId, setSelectedAccountId] = useState<string>("all");
-  const [aggregates, setAggregates] = useState<FundingAggregates | null>(null);
-  const [isLoadingAggregates, setIsLoadingAggregates] = useState(true);
-  const [dateRange, setDateRange] = useState<DateRangeValue>({ preset: "all" });
 
-  const { updateItems: updateNewItems, isNew } = useNewItems<FundingPayment>();
-
-  const pageRef = useRef(page);
-  const selectedAccountIdRef = useRef(selectedAccountId);
-  const dateRangeRef = useRef(dateRange);
-
-  useEffect(() => {
-    pageRef.current = page;
-    selectedAccountIdRef.current = selectedAccountId;
-    dateRangeRef.current = dateRange;
-  }, [page, selectedAccountId, dateRange]);
-
-  const fetchAccounts = async () => {
-    try {
-      const data = await api.getAccounts();
-      setAccounts(data);
-    } catch (error) {
-      console.error("Failed to fetch accounts:", error);
-    }
-  };
-
-  const fetchAggregates = useCallback(async (accountId: string, dateRangeValue: DateRangeValue) => {
-    setIsLoadingAggregates(true);
-    const since = getTimestampFromDateRange(dateRangeValue);
-    try {
-      const data = await withErrorReporting(() =>
-        accountId === "all"
-          ? api.getFundingAggregates(since)
-          : api.getFundingAggregatesByAccount(accountId, since)
-      );
-      setAggregates(data);
-    } catch (error) {
-      console.error("Failed to fetch aggregates:", error);
-    } finally {
-      setIsLoadingAggregates(false);
-    }
-  }, [withErrorReporting]);
-
-  const fetchFundingPayments = useCallback(async (pageNum: number, accountId: string, dateRangeValue: DateRangeValue) => {
-    setIsLoading(true);
-    const since = getTimestampFromDateRange(dateRangeValue);
-    try {
-      const data = await withErrorReporting(() =>
-        accountId === "all"
-          ? api.getFundingPayments(PAGE_SIZE, pageNum * PAGE_SIZE, since)
-          : api.getFundingPaymentsByAccount(accountId, PAGE_SIZE, pageNum * PAGE_SIZE, since)
-      );
-
-      setFundingPayments(data.fundingPayments);
-      setTotalCount(data.totalCount);
-      updateNewItems(data.fundingPayments);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [withErrorReporting]);
-
-  const fetchAllData = useCallback(async () => {
-    await Promise.all([
-      fetchFundingPayments(pageRef.current, selectedAccountIdRef.current, dateRangeRef.current),
-      fetchAggregates(selectedAccountIdRef.current, dateRangeRef.current),
-    ]);
-  }, [fetchFundingPayments, fetchAggregates]);
-
-  const { lastRefreshTime, refresh } = useAutoRefresh(fetchAllData, {
-    interval: 30000,
+  const {
+    items: fundingPayments,
+    totalCount,
+    aggregates,
+    isLoading,
+    isLoadingAggregates,
+    page,
+    selectedAccountId,
+    dateRange,
+    isNew,
+    handlePageChange,
+    handleAccountChange,
+    handleDateRangeChange,
+    refresh,
+    lastRefreshTime,
+  } = usePaginatedData<FundingPayment, FundingAggregates>({
+    fetchItems: fetchFundingPayments,
+    fetchAggregates: fetchFundingAggregates,
+    pageSize: PAGE_SIZE,
   });
 
   useEffect(() => {
+    const fetchAccounts = async () => {
+      try {
+        const data = await api.getAccounts();
+        setAccounts(data);
+      } catch (error) {
+        console.error("Failed to fetch accounts:", error);
+      }
+    };
     fetchAccounts();
-    refresh();
   }, []);
-
-  useEffect(() => {
-    refresh();
-  }, [page, selectedAccountId, dateRange]);
-
-  const handlePageChange = (newPage: number) => {
-    setPage(newPage);
-  };
-
-  const handleAccountChange = (accountId: string) => {
-    setSelectedAccountId(accountId);
-    setPage(0);
-  };
-
-  const handleDateRangeChange = (newRange: DateRangeValue) => {
-    setDateRange(newRange);
-    setPage(0);
-  };
-
-  const handleRefresh = () => {
-    refresh();
-  };
 
   const totalAmount = aggregates ? parseFloat(aggregates.totalAmount) : 0;
   const isPositive = totalAmount >= 0;
@@ -138,7 +86,7 @@ export default function FundingPage() {
         </div>
         <SyncButton
           lastRefreshTime={lastRefreshTime}
-          onRefresh={handleRefresh}
+          onRefresh={refresh}
           isLoading={isLoading}
         />
       </div>
