@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { useNewItems } from "@/hooks/use-new-items";
 import { useApi } from "@/hooks/use-api";
-import { DateRangeValue, getTimestampFromDateRange } from "@/components/date-range-filter";
+import { DateRangeValue, getTimestampsFromDateRange } from "@/components/date-range-filter";
 
 export interface PaginatedResult<T> {
   items: T[];
@@ -17,13 +17,15 @@ export interface UsePaginatedDataConfig<TItem, TAggregates> {
     limit: number,
     offset: number,
     accountId: string | undefined,
-    since: number | undefined
+    since: number | undefined,
+    until: number | undefined
   ) => Promise<PaginatedResult<TItem>>;
 
   /** Fetch aggregates for the given account and date range */
   fetchAggregates: (
     accountId: string | undefined,
-    since: number | undefined
+    since: number | undefined,
+    until: number | undefined
   ) => Promise<TAggregates>;
 
   /** Fixed account ID for account-specific pages (undefined for global pages) */
@@ -115,12 +117,12 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
   const doFetchAggregates = useCallback(
     async (accId: string, dateRangeValue: DateRangeValue) => {
       setIsLoadingAggregates(true);
-      const since = getTimestampFromDateRange(dateRangeValue);
+      const { since, until } = getTimestampsFromDateRange(dateRangeValue);
       const effectiveAccountId = accId === "all" ? undefined : accId;
 
       try {
         const data = await withErrorReporting(() =>
-          fetchAggregates(effectiveAccountId, since)
+          fetchAggregates(effectiveAccountId, since, until)
         );
         setAggregates(data);
       } catch (error) {
@@ -136,12 +138,12 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
   const doFetchItems = useCallback(
     async (pageNum: number, accId: string, dateRangeValue: DateRangeValue) => {
       setIsLoading(true);
-      const since = getTimestampFromDateRange(dateRangeValue);
+      const { since, until } = getTimestampsFromDateRange(dateRangeValue);
       const effectiveAccountId = accId === "all" ? undefined : accId;
 
       try {
         const data = await withErrorReporting(() =>
-          fetchItems(pageSize, pageNum * pageSize, effectiveAccountId, since)
+          fetchItems(pageSize, pageNum * pageSize, effectiveAccountId, since, until)
         );
         setItems(data.items);
         setTotalCount(data.totalCount);

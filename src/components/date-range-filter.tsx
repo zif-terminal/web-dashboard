@@ -34,12 +34,24 @@ const presets: { value: DateRangePreset; label: string }[] = [
   { value: "all", label: "All" },
 ];
 
-export function getTimestampFromDateRange(value: DateRangeValue): number | undefined {
-  if (value.preset === "all") return undefined;
+export interface DateRangeTimestamps {
+  since?: number;
+  until?: number;
+}
+
+export function getTimestampsFromDateRange(value: DateRangeValue): DateRangeTimestamps {
+  if (value.preset === "all") return {};
 
   if (value.preset === "custom" && value.customRange) {
-    // Return the start of the custom range
-    return value.customRange.from.getTime();
+    // For custom range, return both start and end timestamps
+    // Set end of day for the 'to' date (23:59:59.999)
+    const endOfDay = new Date(value.customRange.to);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    return {
+      since: value.customRange.from.getTime(),
+      until: endOfDay.getTime(),
+    };
   }
 
   const now = Date.now();
@@ -50,7 +62,13 @@ export function getTimestampFromDateRange(value: DateRangeValue): number | undef
     "90d": 24 * 90,
   };
 
-  return now - hours[value.preset] * 60 * 60 * 1000;
+  // For presets, only return since (no until needed)
+  return { since: now - hours[value.preset] * 60 * 60 * 1000 };
+}
+
+// Legacy function for backwards compatibility
+export function getTimestampFromDateRange(value: DateRangeValue): number | undefined {
+  return getTimestampsFromDateRange(value).since;
 }
 
 // Legacy function for backwards compatibility

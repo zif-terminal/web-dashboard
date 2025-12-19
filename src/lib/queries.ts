@@ -176,6 +176,39 @@ export const GET_TRADES_WITH_FILTER = gql`
   }
 `;
 
+export const GET_TRADES_WITH_RANGE_FILTER = gql`
+  query GetTradesWithRangeFilter($limit: Int!, $offset: Int!, $since: bigint!, $until: bigint!) {
+    trades(
+      limit: $limit
+      offset: $offset
+      order_by: { timestamp: desc }
+      where: { timestamp: { _gte: $since, _lte: $until } }
+    ) {
+      id
+      base_asset
+      quote_asset
+      side
+      price
+      quantity
+      timestamp
+      fee
+      order_id
+      trade_id
+      exchange_account_id
+      exchange_account {
+        id
+        account_identifier
+        account_type
+        exchange {
+          id
+          name
+          display_name
+        }
+      }
+    }
+  }
+`;
+
 export const GET_TRADES_BY_ACCOUNT = gql`
   query GetTradesByAccount($accountId: uuid!, $limit: Int!, $offset: Int!) {
     trades(
@@ -242,6 +275,39 @@ export const GET_TRADES_BY_ACCOUNT_WITH_FILTER = gql`
   }
 `;
 
+export const GET_TRADES_BY_ACCOUNT_WITH_RANGE_FILTER = gql`
+  query GetTradesByAccountWithRangeFilter($accountId: uuid!, $limit: Int!, $offset: Int!, $since: bigint!, $until: bigint!) {
+    trades(
+      where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since, _lte: $until } }
+      limit: $limit
+      offset: $offset
+      order_by: { timestamp: desc }
+    ) {
+      id
+      base_asset
+      quote_asset
+      side
+      price
+      quantity
+      timestamp
+      fee
+      order_id
+      trade_id
+      exchange_account_id
+      exchange_account {
+        id
+        account_identifier
+        account_type
+        exchange {
+          id
+          name
+          display_name
+        }
+      }
+    }
+  }
+`;
+
 export const GET_TRADES_COUNT = gql`
   query GetTradesCount {
     trades_aggregate {
@@ -262,6 +328,16 @@ export const GET_TRADES_COUNT_WITH_FILTER = gql`
   }
 `;
 
+export const GET_TRADES_COUNT_WITH_RANGE_FILTER = gql`
+  query GetTradesCountWithRangeFilter($since: bigint!, $until: bigint!) {
+    trades_aggregate(where: { timestamp: { _gte: $since, _lte: $until } }) {
+      aggregate {
+        count
+      }
+    }
+  }
+`;
+
 export const GET_TRADES_COUNT_BY_ACCOUNT = gql`
   query GetTradesCountByAccount($accountId: uuid!) {
     trades_aggregate(where: { exchange_account_id: { _eq: $accountId } }) {
@@ -275,6 +351,16 @@ export const GET_TRADES_COUNT_BY_ACCOUNT = gql`
 export const GET_TRADES_COUNT_BY_ACCOUNT_WITH_FILTER = gql`
   query GetTradesCountByAccountWithFilter($accountId: uuid!, $since: bigint!) {
     trades_aggregate(where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since } }) {
+      aggregate {
+        count
+      }
+    }
+  }
+`;
+
+export const GET_TRADES_COUNT_BY_ACCOUNT_WITH_RANGE_FILTER = gql`
+  query GetTradesCountByAccountWithRangeFilter($accountId: uuid!, $since: bigint!, $until: bigint!) {
+    trades_aggregate(where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since, _lte: $until } }) {
       aggregate {
         count
       }
@@ -316,6 +402,19 @@ export const GET_TRADES_AGGREGATES_WITH_FILTER = gql`
   }
 `;
 
+export const GET_TRADES_AGGREGATES_WITH_RANGE_FILTER = gql`
+  query GetTradesAggregatesWithRangeFilter($since: bigint!, $until: bigint!) {
+    trades_aggregate(where: { timestamp: { _gte: $since, _lte: $until } }) {
+      aggregate {
+        count
+        sum {
+          fee
+        }
+      }
+    }
+  }
+`;
+
 export const GET_TRADES_AGGREGATES_BY_ACCOUNT = gql`
   query GetTradesAggregatesByAccount($accountId: uuid!) {
     trades_aggregate(where: { exchange_account_id: { _eq: $accountId } }) {
@@ -332,6 +431,19 @@ export const GET_TRADES_AGGREGATES_BY_ACCOUNT = gql`
 export const GET_TRADES_AGGREGATES_BY_ACCOUNT_WITH_FILTER = gql`
   query GetTradesAggregatesByAccountWithFilter($accountId: uuid!, $since: bigint!) {
     trades_aggregate(where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since } }) {
+      aggregate {
+        count
+        sum {
+          fee
+        }
+      }
+    }
+  }
+`;
+
+export const GET_TRADES_AGGREGATES_BY_ACCOUNT_WITH_RANGE_FILTER = gql`
+  query GetTradesAggregatesByAccountWithRangeFilter($accountId: uuid!, $since: bigint!, $until: bigint!) {
+    trades_aggregate(where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since, _lte: $until } }) {
       aggregate {
         count
         sum {
@@ -414,6 +526,35 @@ export const GET_FUNDING_PAYMENTS_WITH_FILTER = gql`
   }
 `;
 
+export const GET_FUNDING_PAYMENTS_WITH_RANGE_FILTER = gql`
+  query GetFundingPaymentsWithRangeFilter($limit: Int!, $offset: Int!, $since: bigint!, $until: bigint!) {
+    funding_payments(
+      limit: $limit
+      offset: $offset
+      order_by: { timestamp: desc }
+      where: { timestamp: { _gte: $since, _lte: $until } }
+    ) {
+      id
+      base_asset
+      quote_asset
+      amount
+      timestamp
+      payment_id
+      exchange_account_id
+      exchange_account {
+        id
+        account_identifier
+        account_type
+        exchange {
+          id
+          name
+          display_name
+        }
+      }
+    }
+  }
+`;
+
 export const GET_FUNDING_PAYMENTS_BY_ACCOUNT = gql`
   query GetFundingPaymentsByAccount($accountId: uuid!, $limit: Int!, $offset: Int!) {
     funding_payments(
@@ -472,6 +613,35 @@ export const GET_FUNDING_PAYMENTS_BY_ACCOUNT_WITH_FILTER = gql`
   }
 `;
 
+export const GET_FUNDING_PAYMENTS_BY_ACCOUNT_WITH_RANGE_FILTER = gql`
+  query GetFundingPaymentsByAccountWithRangeFilter($accountId: uuid!, $limit: Int!, $offset: Int!, $since: bigint!, $until: bigint!) {
+    funding_payments(
+      where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since, _lte: $until } }
+      limit: $limit
+      offset: $offset
+      order_by: { timestamp: desc }
+    ) {
+      id
+      base_asset
+      quote_asset
+      amount
+      timestamp
+      payment_id
+      exchange_account_id
+      exchange_account {
+        id
+        account_identifier
+        account_type
+        exchange {
+          id
+          name
+          display_name
+        }
+      }
+    }
+  }
+`;
+
 export const GET_FUNDING_PAYMENTS_COUNT = gql`
   query GetFundingPaymentsCount {
     funding_payments_aggregate {
@@ -492,6 +662,16 @@ export const GET_FUNDING_PAYMENTS_COUNT_WITH_FILTER = gql`
   }
 `;
 
+export const GET_FUNDING_PAYMENTS_COUNT_WITH_RANGE_FILTER = gql`
+  query GetFundingPaymentsCountWithRangeFilter($since: bigint!, $until: bigint!) {
+    funding_payments_aggregate(where: { timestamp: { _gte: $since, _lte: $until } }) {
+      aggregate {
+        count
+      }
+    }
+  }
+`;
+
 export const GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT = gql`
   query GetFundingPaymentsCountByAccount($accountId: uuid!) {
     funding_payments_aggregate(where: { exchange_account_id: { _eq: $accountId } }) {
@@ -505,6 +685,16 @@ export const GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT = gql`
 export const GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT_WITH_FILTER = gql`
   query GetFundingPaymentsCountByAccountWithFilter($accountId: uuid!, $since: bigint!) {
     funding_payments_aggregate(where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since } }) {
+      aggregate {
+        count
+      }
+    }
+  }
+`;
+
+export const GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT_WITH_RANGE_FILTER = gql`
+  query GetFundingPaymentsCountByAccountWithRangeFilter($accountId: uuid!, $since: bigint!, $until: bigint!) {
+    funding_payments_aggregate(where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since, _lte: $until } }) {
       aggregate {
         count
       }
@@ -545,6 +735,19 @@ export const GET_FUNDING_AGGREGATES_WITH_FILTER = gql`
   }
 `;
 
+export const GET_FUNDING_AGGREGATES_WITH_RANGE_FILTER = gql`
+  query GetFundingAggregatesWithRangeFilter($since: bigint!, $until: bigint!) {
+    funding_payments_aggregate(where: { timestamp: { _gte: $since, _lte: $until } }) {
+      aggregate {
+        count
+        sum {
+          amount
+        }
+      }
+    }
+  }
+`;
+
 export const GET_FUNDING_AGGREGATES_BY_ACCOUNT = gql`
   query GetFundingAggregatesByAccount($accountId: uuid!) {
     funding_payments_aggregate(where: { exchange_account_id: { _eq: $accountId } }) {
@@ -561,6 +764,19 @@ export const GET_FUNDING_AGGREGATES_BY_ACCOUNT = gql`
 export const GET_FUNDING_AGGREGATES_BY_ACCOUNT_WITH_FILTER = gql`
   query GetFundingAggregatesByAccountWithFilter($accountId: uuid!, $since: bigint!) {
     funding_payments_aggregate(where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since } }) {
+      aggregate {
+        count
+        sum {
+          amount
+        }
+      }
+    }
+  }
+`;
+
+export const GET_FUNDING_AGGREGATES_BY_ACCOUNT_WITH_RANGE_FILTER = gql`
+  query GetFundingAggregatesByAccountWithRangeFilter($accountId: uuid!, $since: bigint!, $until: bigint!) {
+    funding_payments_aggregate(where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since, _lte: $until } }) {
       aggregate {
         count
         sum {

@@ -23,22 +23,24 @@ async function fetchTrades(
   limit: number,
   offset: number,
   accountId: string | undefined,
-  since: number | undefined
+  since: number | undefined,
+  until: number | undefined
 ) {
   const data = accountId
-    ? await api.getTradesByAccount(accountId, limit, offset, since)
-    : await api.getTrades(limit, offset, since);
+    ? await api.getTradesByAccount(accountId, limit, offset, since, until)
+    : await api.getTrades(limit, offset, since, until);
 
   return { items: data.trades, totalCount: data.totalCount };
 }
 
 async function fetchTradesAggregates(
   accountId: string | undefined,
-  since: number | undefined
+  since: number | undefined,
+  until: number | undefined
 ) {
   return accountId
-    ? api.getTradesAggregatesByAccount(accountId, since)
-    : api.getTradesAggregates(since);
+    ? api.getTradesAggregatesByAccount(accountId, since, until)
+    : api.getTradesAggregates(since, until);
 }
 
 export default function TradesPage() {
