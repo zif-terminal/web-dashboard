@@ -2,7 +2,7 @@
 
 import { useState, useEffect, use } from "react";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { api, DataFilters } from "@/lib/api";
 import { Trade, ExchangeAccount, TradesAggregates } from "@/lib/queries";
 import { TradesTable } from "@/components/trades-table";
 import { SyncButton } from "@/components/sync-button";
@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatCard, StatsGrid } from "@/components/stat-card";
 import { DateRangeFilter } from "@/components/date-range-filter";
+import { AssetFilter } from "@/components/asset-filter";
 import { usePaginatedData } from "@/hooks/use-paginated-data";
 
 const PAGE_SIZE = 100;
@@ -17,25 +18,14 @@ const PAGE_SIZE = 100;
 async function fetchTrades(
   limit: number,
   offset: number,
-  accountId: string | undefined,
-  since: number | undefined,
-  until: number | undefined
+  filters: DataFilters
 ) {
-  const data = accountId
-    ? await api.getTradesByAccount(accountId, limit, offset, since, until)
-    : await api.getTrades(limit, offset, since, until);
-
+  const data = await api.getTrades(limit, offset, filters);
   return { items: data.trades, totalCount: data.totalCount };
 }
 
-async function fetchTradesAggregates(
-  accountId: string | undefined,
-  since: number | undefined,
-  until: number | undefined
-) {
-  return accountId
-    ? api.getTradesAggregatesByAccount(accountId, since, until)
-    : api.getTradesAggregates(since, until);
+async function fetchTradesAggregates(filters: DataFilters) {
+  return api.getTradesAggregates(filters);
 }
 
 interface AccountTradesPageProps {
@@ -45,6 +35,8 @@ interface AccountTradesPageProps {
 export default function AccountTradesPage({ params }: AccountTradesPageProps) {
   const { id } = use(params);
   const [account, setAccount] = useState<ExchangeAccount | null>(null);
+  const [availableAssets, setAvailableAssets] = useState<string[]>([]);
+  const [isLoadingAssets, setIsLoadingAssets] = useState(true);
 
   const {
     items: trades,
@@ -54,9 +46,11 @@ export default function AccountTradesPage({ params }: AccountTradesPageProps) {
     isLoadingAggregates,
     page,
     dateRange,
+    selectedAssets,
     isNew,
     handlePageChange,
     handleDateRangeChange,
+    handleAssetChange,
     refresh,
     lastRefreshTime,
   } = usePaginatedData<Trade, TradesAggregates>({
@@ -77,6 +71,21 @@ export default function AccountTradesPage({ params }: AccountTradesPageProps) {
     };
     fetchAccount();
   }, [id]);
+
+  useEffect(() => {
+    const fetchAssets = async () => {
+      setIsLoadingAssets(true);
+      try {
+        const assets = await api.getDistinctBaseAssets("trades");
+        setAvailableAssets(assets);
+      } catch (error) {
+        console.error("Failed to fetch assets:", error);
+      } finally {
+        setIsLoadingAssets(false);
+      }
+    };
+    fetchAssets();
+  }, []);
 
   const formatFees = (value: string) => {
     const num = parseFloat(value);
@@ -121,7 +130,15 @@ export default function AccountTradesPage({ params }: AccountTradesPageProps) {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle>Trades</CardTitle>
-          <DateRangeFilter value={dateRange} onChange={handleDateRangeChange} />
+          <div className="flex items-center gap-4">
+            <AssetFilter
+              assets={availableAssets}
+              selectedAssets={selectedAssets}
+              onSelectionChange={handleAssetChange}
+              isLoading={isLoadingAssets}
+            />
+            <DateRangeFilter value={dateRange} onChange={handleDateRangeChange} />
+          </div>
         </CardHeader>
         <CardContent>
           <TradesTable

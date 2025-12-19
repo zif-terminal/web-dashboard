@@ -5,6 +5,7 @@ import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { useNewItems } from "@/hooks/use-new-items";
 import { useApi } from "@/hooks/use-api";
 import { DateRangeValue, getTimestampsFromDateRange } from "@/components/date-range-filter";
+import { DataFilters } from "@/lib/api";
 
 export interface PaginatedResult<T> {
   items: T[];
@@ -12,21 +13,15 @@ export interface PaginatedResult<T> {
 }
 
 export interface UsePaginatedDataConfig<TItem, TAggregates> {
-  /** Fetch items for the given page, account, and date range */
+  /** Fetch items for the given page and filters */
   fetchItems: (
     limit: number,
     offset: number,
-    accountId: string | undefined,
-    since: number | undefined,
-    until: number | undefined
+    filters: DataFilters
   ) => Promise<PaginatedResult<TItem>>;
 
-  /** Fetch aggregates for the given account and date range */
-  fetchAggregates: (
-    accountId: string | undefined,
-    since: number | undefined,
-    until: number | undefined
-  ) => Promise<TAggregates>;
+  /** Fetch aggregates for the given filters */
+  fetchAggregates: (filters: DataFilters) => Promise<TAggregates>;
 
   /** Fixed account ID for account-specific pages (undefined for global pages) */
   accountId?: string;
@@ -55,6 +50,7 @@ export interface UsePaginatedDataResult<TItem, TAggregates> {
   // Filters
   selectedAccountId: string;
   dateRange: DateRangeValue;
+  selectedAssets: string[];
 
   // New item tracking
   isNew: (id: string) => boolean;
@@ -63,6 +59,7 @@ export interface UsePaginatedDataResult<TItem, TAggregates> {
   handlePageChange: (newPage: number) => void;
   handleAccountChange: (accountId: string) => void;
   handleDateRangeChange: (newRange: DateRangeValue) => void;
+  handleAssetChange: (assets: string[]) => void;
 
   // Refresh
   refresh: () => void;
@@ -98,6 +95,7 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
   const [page, setPage] = useState(0);
   const [selectedAccountId, setSelectedAccountId] = useState<string>(accountId ?? "all");
   const [dateRange, setDateRange] = useState<DateRangeValue>({ preset: "all" });
+  const [selectedAssets, setSelectedAssets] = useState<string[]>([]);
 
   // New item tracking
   const { updateItems: updateNewItems, isNew } = useNewItems<TItem>();
@@ -106,24 +104,37 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
   const pageRef = useRef(page);
   const selectedAccountIdRef = useRef(selectedAccountId);
   const dateRangeRef = useRef(dateRange);
+  const selectedAssetsRef = useRef(selectedAssets);
 
   useEffect(() => {
     pageRef.current = page;
     selectedAccountIdRef.current = selectedAccountId;
     dateRangeRef.current = dateRange;
-  }, [page, selectedAccountId, dateRange]);
+    selectedAssetsRef.current = selectedAssets;
+  }, [page, selectedAccountId, dateRange, selectedAssets]);
+
+  // Build filters object from current state
+  const buildFilters = useCallback(
+    (accId: string, dateRangeValue: DateRangeValue, assets: string[]): DataFilters => {
+      const { since, until } = getTimestampsFromDateRange(dateRangeValue);
+      return {
+        accountId: accId === "all" ? undefined : accId,
+        since,
+        until,
+        baseAssets: assets.length > 0 ? assets : undefined,
+      };
+    },
+    []
+  );
 
   // Fetch aggregates
   const doFetchAggregates = useCallback(
-    async (accId: string, dateRangeValue: DateRangeValue) => {
+    async (accId: string, dateRangeValue: DateRangeValue, assets: string[]) => {
       setIsLoadingAggregates(true);
-      const { since, until } = getTimestampsFromDateRange(dateRangeValue);
-      const effectiveAccountId = accId === "all" ? undefined : accId;
+      const filters = buildFilters(accId, dateRangeValue, assets);
 
       try {
-        const data = await withErrorReporting(() =>
-          fetchAggregates(effectiveAccountId, since, until)
-        );
+        const data = await withErrorReporting(() => fetchAggregates(filters));
         setAggregates(data);
       } catch (error) {
         console.error("Failed to fetch aggregates:", error);
@@ -131,19 +142,18 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
         setIsLoadingAggregates(false);
       }
     },
-    [fetchAggregates, withErrorReporting]
+    [fetchAggregates, withErrorReporting, buildFilters]
   );
 
   // Fetch items
   const doFetchItems = useCallback(
-    async (pageNum: number, accId: string, dateRangeValue: DateRangeValue) => {
+    async (pageNum: number, accId: string, dateRangeValue: DateRangeValue, assets: string[]) => {
       setIsLoading(true);
-      const { since, until } = getTimestampsFromDateRange(dateRangeValue);
-      const effectiveAccountId = accId === "all" ? undefined : accId;
+      const filters = buildFilters(accId, dateRangeValue, assets);
 
       try {
         const data = await withErrorReporting(() =>
-          fetchItems(pageSize, pageNum * pageSize, effectiveAccountId, since, until)
+          fetchItems(pageSize, pageNum * pageSize, filters)
         );
         setItems(data.items);
         setTotalCount(data.totalCount);
@@ -154,14 +164,23 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
         setIsLoading(false);
       }
     },
-    [fetchItems, pageSize, withErrorReporting, updateNewItems]
+    [fetchItems, pageSize, withErrorReporting, updateNewItems, buildFilters]
   );
 
   // Combined fetch for auto-refresh
   const fetchAllData = useCallback(async () => {
     await Promise.all([
-      doFetchItems(pageRef.current, selectedAccountIdRef.current, dateRangeRef.current),
-      doFetchAggregates(selectedAccountIdRef.current, dateRangeRef.current),
+      doFetchItems(
+        pageRef.current,
+        selectedAccountIdRef.current,
+        dateRangeRef.current,
+        selectedAssetsRef.current
+      ),
+      doFetchAggregates(
+        selectedAccountIdRef.current,
+        dateRangeRef.current,
+        selectedAssetsRef.current
+      ),
     ]);
   }, [doFetchItems, doFetchAggregates]);
 
@@ -178,7 +197,7 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
   // Refetch when filters change
   useEffect(() => {
     refresh();
-  }, [page, selectedAccountId, dateRange]);
+  }, [page, selectedAccountId, dateRange, selectedAssets]);
 
   // If accountId prop changes (for account-specific pages), update filter
   useEffect(() => {
@@ -202,6 +221,11 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
     setPage(0);
   }, []);
 
+  const handleAssetChange = useCallback((assets: string[]) => {
+    setSelectedAssets(assets);
+    setPage(0);
+  }, []);
+
   return {
     // Data
     items,
@@ -219,6 +243,7 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
     // Filters
     selectedAccountId,
     dateRange,
+    selectedAssets,
 
     // New item tracking
     isNew,
@@ -227,6 +252,7 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
     handlePageChange,
     handleAccountChange,
     handleDateRangeChange,
+    handleAssetChange,
 
     // Refresh
     refresh,

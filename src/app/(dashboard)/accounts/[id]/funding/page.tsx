@@ -2,7 +2,7 @@
 
 import { useState, useEffect, use } from "react";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { api, DataFilters } from "@/lib/api";
 import { FundingPayment, ExchangeAccount, FundingAggregates } from "@/lib/queries";
 import { FundingTable } from "@/components/funding-table";
 import { SyncButton } from "@/components/sync-button";
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { StatCard, StatsGrid } from "@/components/stat-card";
 import { formatSignedNumber } from "@/lib/format";
 import { DateRangeFilter } from "@/components/date-range-filter";
+import { AssetFilter } from "@/components/asset-filter";
 import { usePaginatedData } from "@/hooks/use-paginated-data";
 
 const PAGE_SIZE = 100;
@@ -18,25 +19,14 @@ const PAGE_SIZE = 100;
 async function fetchFundingPayments(
   limit: number,
   offset: number,
-  accountId: string | undefined,
-  since: number | undefined,
-  until: number | undefined
+  filters: DataFilters
 ) {
-  const data = accountId
-    ? await api.getFundingPaymentsByAccount(accountId, limit, offset, since, until)
-    : await api.getFundingPayments(limit, offset, since, until);
-
+  const data = await api.getFundingPayments(limit, offset, filters);
   return { items: data.fundingPayments, totalCount: data.totalCount };
 }
 
-async function fetchFundingAggregates(
-  accountId: string | undefined,
-  since: number | undefined,
-  until: number | undefined
-) {
-  return accountId
-    ? api.getFundingAggregatesByAccount(accountId, since, until)
-    : api.getFundingAggregates(since, until);
+async function fetchFundingAggregates(filters: DataFilters) {
+  return api.getFundingAggregates(filters);
 }
 
 interface AccountFundingPageProps {
@@ -46,6 +36,8 @@ interface AccountFundingPageProps {
 export default function AccountFundingPage({ params }: AccountFundingPageProps) {
   const { id } = use(params);
   const [account, setAccount] = useState<ExchangeAccount | null>(null);
+  const [availableAssets, setAvailableAssets] = useState<string[]>([]);
+  const [isLoadingAssets, setIsLoadingAssets] = useState(true);
 
   const {
     items: fundingPayments,
@@ -55,9 +47,11 @@ export default function AccountFundingPage({ params }: AccountFundingPageProps) 
     isLoadingAggregates,
     page,
     dateRange,
+    selectedAssets,
     isNew,
     handlePageChange,
     handleDateRangeChange,
+    handleAssetChange,
     refresh,
     lastRefreshTime,
   } = usePaginatedData<FundingPayment, FundingAggregates>({
@@ -78,6 +72,21 @@ export default function AccountFundingPage({ params }: AccountFundingPageProps) 
     };
     fetchAccount();
   }, [id]);
+
+  useEffect(() => {
+    const fetchAssets = async () => {
+      setIsLoadingAssets(true);
+      try {
+        const assets = await api.getDistinctBaseAssets("funding");
+        setAvailableAssets(assets);
+      } catch (error) {
+        console.error("Failed to fetch assets:", error);
+      } finally {
+        setIsLoadingAssets(false);
+      }
+    };
+    fetchAssets();
+  }, []);
 
   const accountTitle = account
     ? `${account.exchange?.display_name || "Unknown"} - ${account.account_identifier.slice(0, 10)}...`
@@ -120,7 +129,15 @@ export default function AccountFundingPage({ params }: AccountFundingPageProps) 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle>Funding Payments</CardTitle>
-          <DateRangeFilter value={dateRange} onChange={handleDateRangeChange} />
+          <div className="flex items-center gap-4">
+            <AssetFilter
+              assets={availableAssets}
+              selectedAssets={selectedAssets}
+              onSelectionChange={handleAssetChange}
+              isLoading={isLoadingAssets}
+            />
+            <DateRangeFilter value={dateRange} onChange={handleDateRangeChange} />
+          </div>
         </CardHeader>
         <CardContent>
           <FundingTable

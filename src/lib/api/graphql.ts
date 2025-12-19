@@ -7,42 +7,12 @@ import {
   GET_ACCOUNT_BY_ID,
   CREATE_ACCOUNT,
   DELETE_ACCOUNT,
-  GET_TRADES,
-  GET_TRADES_WITH_FILTER,
-  GET_TRADES_WITH_RANGE_FILTER,
-  GET_TRADES_BY_ACCOUNT,
-  GET_TRADES_BY_ACCOUNT_WITH_FILTER,
-  GET_TRADES_BY_ACCOUNT_WITH_RANGE_FILTER,
-  GET_TRADES_COUNT,
-  GET_TRADES_COUNT_WITH_FILTER,
-  GET_TRADES_COUNT_WITH_RANGE_FILTER,
-  GET_TRADES_COUNT_BY_ACCOUNT,
-  GET_TRADES_COUNT_BY_ACCOUNT_WITH_FILTER,
-  GET_TRADES_COUNT_BY_ACCOUNT_WITH_RANGE_FILTER,
-  GET_TRADES_AGGREGATES,
-  GET_TRADES_AGGREGATES_WITH_FILTER,
-  GET_TRADES_AGGREGATES_WITH_RANGE_FILTER,
-  GET_TRADES_AGGREGATES_BY_ACCOUNT,
-  GET_TRADES_AGGREGATES_BY_ACCOUNT_WITH_FILTER,
-  GET_TRADES_AGGREGATES_BY_ACCOUNT_WITH_RANGE_FILTER,
-  GET_FUNDING_PAYMENTS,
-  GET_FUNDING_PAYMENTS_WITH_FILTER,
-  GET_FUNDING_PAYMENTS_WITH_RANGE_FILTER,
-  GET_FUNDING_PAYMENTS_BY_ACCOUNT,
-  GET_FUNDING_PAYMENTS_BY_ACCOUNT_WITH_FILTER,
-  GET_FUNDING_PAYMENTS_BY_ACCOUNT_WITH_RANGE_FILTER,
-  GET_FUNDING_PAYMENTS_COUNT,
-  GET_FUNDING_PAYMENTS_COUNT_WITH_FILTER,
-  GET_FUNDING_PAYMENTS_COUNT_WITH_RANGE_FILTER,
-  GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT,
-  GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT_WITH_FILTER,
-  GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT_WITH_RANGE_FILTER,
-  GET_FUNDING_AGGREGATES,
-  GET_FUNDING_AGGREGATES_WITH_FILTER,
-  GET_FUNDING_AGGREGATES_WITH_RANGE_FILTER,
-  GET_FUNDING_AGGREGATES_BY_ACCOUNT,
-  GET_FUNDING_AGGREGATES_BY_ACCOUNT_WITH_FILTER,
-  GET_FUNDING_AGGREGATES_BY_ACCOUNT_WITH_RANGE_FILTER,
+  GET_DISTINCT_TRADE_ASSETS,
+  GET_DISTINCT_FUNDING_ASSETS,
+  GET_TRADES_DYNAMIC,
+  GET_TRADES_AGGREGATES_DYNAMIC,
+  GET_FUNDING_PAYMENTS_DYNAMIC,
+  GET_FUNDING_AGGREGATES_DYNAMIC,
   Exchange,
   ExchangeAccount,
   ExchangeAccountType,
@@ -51,17 +21,15 @@ import {
   FundingPayment,
   FundingAggregates,
 } from "../queries";
-import { ApiClient, CreateAccountInput, TradesResult, FundingPaymentsResult } from "./types";
+import { ApiClient, CreateAccountInput, TradesResult, FundingPaymentsResult, DataFilters } from "./types";
 import { ApiError } from "./errors";
 
 function isAuthError(error: unknown): boolean {
   if (error && typeof error === "object" && "response" in error) {
     const response = (error as { response: { status?: number; errors?: { extensions?: { code?: string } }[] } }).response;
-    // Check for HTTP 401/403
     if (response?.status === 401 || response?.status === 403) {
       return true;
     }
-    // Check for Hasura access-denied error
     if (response?.errors) {
       return response.errors.some(
         (e) => e.extensions?.code === "access-denied"
@@ -86,9 +54,66 @@ async function withErrorHandling<T>(fn: () => Promise<T>): Promise<T> {
     if (isAuthError(error)) {
       handleAuthError();
     }
-    // Convert to typed ApiError
     throw ApiError.fromError(error);
   }
+}
+
+// Build where clause for trades based on filters
+function buildTradesWhereClause(filters?: DataFilters): Record<string, unknown> {
+  const conditions: Record<string, unknown>[] = [];
+
+  if (filters?.accountId) {
+    conditions.push({ exchange_account_id: { _eq: filters.accountId } });
+  }
+
+  if (filters?.since !== undefined && filters?.until !== undefined) {
+    conditions.push({ timestamp: { _gte: String(filters.since), _lte: String(filters.until) } });
+  } else if (filters?.since !== undefined) {
+    conditions.push({ timestamp: { _gte: String(filters.since) } });
+  }
+
+  if (filters?.baseAssets && filters.baseAssets.length > 0) {
+    conditions.push({ base_asset: { _in: filters.baseAssets } });
+  }
+
+  if (conditions.length === 0) {
+    return {};
+  }
+
+  if (conditions.length === 1) {
+    return conditions[0];
+  }
+
+  return { _and: conditions };
+}
+
+// Build where clause for funding payments based on filters
+function buildFundingWhereClause(filters?: DataFilters): Record<string, unknown> {
+  const conditions: Record<string, unknown>[] = [];
+
+  if (filters?.accountId) {
+    conditions.push({ exchange_account_id: { _eq: filters.accountId } });
+  }
+
+  if (filters?.since !== undefined && filters?.until !== undefined) {
+    conditions.push({ timestamp: { _gte: String(filters.since), _lte: String(filters.until) } });
+  } else if (filters?.since !== undefined) {
+    conditions.push({ timestamp: { _gte: String(filters.since) } });
+  }
+
+  if (filters?.baseAssets && filters.baseAssets.length > 0) {
+    conditions.push({ base_asset: { _in: filters.baseAssets } });
+  }
+
+  if (conditions.length === 0) {
+    return {};
+  }
+
+  if (conditions.length === 1) {
+    return conditions[0];
+  }
+
+  return { _and: conditions };
 }
 
 export const graphqlApi: ApiClient = {
@@ -147,138 +172,40 @@ export const graphqlApi: ApiClient = {
     });
   },
 
-  async getTrades(limit: number, offset: number, since?: number, until?: number): Promise<TradesResult> {
+  async getDistinctBaseAssets(type: "trades" | "funding"): Promise<string[]> {
     return withErrorHandling(async () => {
       const client = getGraphQLClient();
-
-      // Use different queries based on whether filter is provided
-      // Hasura doesn't handle null properly in _gte/_lte comparisons
-      if (since !== undefined && until !== undefined) {
-        // Range filter (custom date range)
-        const sinceBigint = String(since);
-        const untilBigint = String(until);
-        const [tradesData, countData] = await Promise.all([
-          client.request<{ trades: Trade[] }>(GET_TRADES_WITH_RANGE_FILTER, { limit, offset, since: sinceBigint, until: untilBigint }),
-          client.request<{
-            trades_aggregate: { aggregate: { count: number } };
-          }>(GET_TRADES_COUNT_WITH_RANGE_FILTER, { since: sinceBigint, until: untilBigint }),
-        ]);
-        return {
-          trades: tradesData.trades,
-          totalCount: countData.trades_aggregate.aggregate.count,
-        };
-      } else if (since !== undefined) {
-        // Since-only filter (presets like 24h, 7d, etc.)
-        const sinceBigint = String(since);
-        const [tradesData, countData] = await Promise.all([
-          client.request<{ trades: Trade[] }>(GET_TRADES_WITH_FILTER, { limit, offset, since: sinceBigint }),
-          client.request<{
-            trades_aggregate: { aggregate: { count: number } };
-          }>(GET_TRADES_COUNT_WITH_FILTER, { since: sinceBigint }),
-        ]);
-        return {
-          trades: tradesData.trades,
-          totalCount: countData.trades_aggregate.aggregate.count,
-        };
+      if (type === "trades") {
+        const data = await client.request<{ trades: { base_asset: string }[] }>(GET_DISTINCT_TRADE_ASSETS);
+        return data.trades.map((t) => t.base_asset);
       } else {
-        // No filter
-        const [tradesData, countData] = await Promise.all([
-          client.request<{ trades: Trade[] }>(GET_TRADES, { limit, offset }),
-          client.request<{
-            trades_aggregate: { aggregate: { count: number } };
-          }>(GET_TRADES_COUNT, {}),
-        ]);
-        return {
-          trades: tradesData.trades,
-          totalCount: countData.trades_aggregate.aggregate.count,
-        };
+        const data = await client.request<{ funding_payments: { base_asset: string }[] }>(GET_DISTINCT_FUNDING_ASSETS);
+        return data.funding_payments.map((f) => f.base_asset);
       }
     });
   },
 
-  async getTradesByAccount(
-    accountId: string,
-    limit: number,
-    offset: number,
-    since?: number,
-    until?: number
-  ): Promise<TradesResult> {
+  async getTrades(limit: number, offset: number, filters?: DataFilters): Promise<TradesResult> {
     return withErrorHandling(async () => {
       const client = getGraphQLClient();
+      const where = buildTradesWhereClause(filters);
 
-      // Use different queries based on whether filter is provided
-      if (since !== undefined && until !== undefined) {
-        const sinceBigint = String(since);
-        const untilBigint = String(until);
-        const [tradesData, countData] = await Promise.all([
-          client.request<{ trades: Trade[] }>(GET_TRADES_BY_ACCOUNT_WITH_RANGE_FILTER, {
-            accountId,
-            limit,
-            offset,
-            since: sinceBigint,
-            until: untilBigint,
-          }),
-          client.request<{
-            trades_aggregate: { aggregate: { count: number } };
-          }>(GET_TRADES_COUNT_BY_ACCOUNT_WITH_RANGE_FILTER, { accountId, since: sinceBigint, until: untilBigint }),
-        ]);
-        return {
-          trades: tradesData.trades,
-          totalCount: countData.trades_aggregate.aggregate.count,
-        };
-      } else if (since !== undefined) {
-        const sinceBigint = String(since);
-        const [tradesData, countData] = await Promise.all([
-          client.request<{ trades: Trade[] }>(GET_TRADES_BY_ACCOUNT_WITH_FILTER, {
-            accountId,
-            limit,
-            offset,
-            since: sinceBigint,
-          }),
-          client.request<{
-            trades_aggregate: { aggregate: { count: number } };
-          }>(GET_TRADES_COUNT_BY_ACCOUNT_WITH_FILTER, { accountId, since: sinceBigint }),
-        ]);
-        return {
-          trades: tradesData.trades,
-          totalCount: countData.trades_aggregate.aggregate.count,
-        };
-      } else {
-        const [tradesData, countData] = await Promise.all([
-          client.request<{ trades: Trade[] }>(GET_TRADES_BY_ACCOUNT, {
-            accountId,
-            limit,
-            offset,
-          }),
-          client.request<{
-            trades_aggregate: { aggregate: { count: number } };
-          }>(GET_TRADES_COUNT_BY_ACCOUNT, { accountId }),
-        ]);
-        return {
-          trades: tradesData.trades,
-          totalCount: countData.trades_aggregate.aggregate.count,
-        };
-      }
+      const data = await client.request<{
+        trades: Trade[];
+        trades_aggregate: { aggregate: { count: number } };
+      }>(GET_TRADES_DYNAMIC, { limit, offset, where });
+
+      return {
+        trades: data.trades,
+        totalCount: data.trades_aggregate.aggregate.count,
+      };
     });
   },
 
-  async getTradesAggregates(since?: number, until?: number): Promise<TradesAggregates> {
+  async getTradesAggregates(filters?: DataFilters): Promise<TradesAggregates> {
     return withErrorHandling(async () => {
       const client = getGraphQLClient();
-
-      // Use different queries based on whether filter is provided
-      let query;
-      let variables: Record<string, string> = {};
-
-      if (since !== undefined && until !== undefined) {
-        query = GET_TRADES_AGGREGATES_WITH_RANGE_FILTER;
-        variables = { since: String(since), until: String(until) };
-      } else if (since !== undefined) {
-        query = GET_TRADES_AGGREGATES_WITH_FILTER;
-        variables = { since: String(since) };
-      } else {
-        query = GET_TRADES_AGGREGATES;
-      }
+      const where = buildTradesWhereClause(filters);
 
       const data = await client.request<{
         trades_aggregate: {
@@ -287,7 +214,7 @@ export const graphqlApi: ApiClient = {
             sum: { fee: string | null };
           };
         };
-      }>(query, variables);
+      }>(GET_TRADES_AGGREGATES_DYNAMIC, { where });
 
       return {
         totalFees: data.trades_aggregate.aggregate.sum.fee || "0",
@@ -297,170 +224,27 @@ export const graphqlApi: ApiClient = {
     });
   },
 
-  async getTradesAggregatesByAccount(accountId: string, since?: number, until?: number): Promise<TradesAggregates> {
+  async getFundingPayments(limit: number, offset: number, filters?: DataFilters): Promise<FundingPaymentsResult> {
     return withErrorHandling(async () => {
       const client = getGraphQLClient();
-
-      // Use different queries based on whether filter is provided
-      let query;
-      let variables: Record<string, string> = { accountId };
-
-      if (since !== undefined && until !== undefined) {
-        query = GET_TRADES_AGGREGATES_BY_ACCOUNT_WITH_RANGE_FILTER;
-        variables = { accountId, since: String(since), until: String(until) };
-      } else if (since !== undefined) {
-        query = GET_TRADES_AGGREGATES_BY_ACCOUNT_WITH_FILTER;
-        variables = { accountId, since: String(since) };
-      } else {
-        query = GET_TRADES_AGGREGATES_BY_ACCOUNT;
-      }
+      const where = buildFundingWhereClause(filters);
 
       const data = await client.request<{
-        trades_aggregate: {
-          aggregate: {
-            count: number;
-            sum: { fee: string | null };
-          };
-        };
-      }>(query, variables);
+        funding_payments: FundingPayment[];
+        funding_payments_aggregate: { aggregate: { count: number } };
+      }>(GET_FUNDING_PAYMENTS_DYNAMIC, { limit, offset, where });
 
       return {
-        totalFees: data.trades_aggregate.aggregate.sum.fee || "0",
-        totalVolume: "0",
-        count: data.trades_aggregate.aggregate.count,
+        fundingPayments: data.funding_payments,
+        totalCount: data.funding_payments_aggregate.aggregate.count,
       };
     });
   },
 
-  async getFundingPayments(limit: number, offset: number, since?: number, until?: number): Promise<FundingPaymentsResult> {
+  async getFundingAggregates(filters?: DataFilters): Promise<FundingAggregates> {
     return withErrorHandling(async () => {
       const client = getGraphQLClient();
-
-      // Use different queries based on whether filter is provided
-      // Hasura doesn't accept null for bigint _gte/_lte comparisons
-      if (since !== undefined && until !== undefined) {
-        const sinceBigint = String(since);
-        const untilBigint = String(until);
-        const [fundingData, countData] = await Promise.all([
-          client.request<{ funding_payments: FundingPayment[] }>(GET_FUNDING_PAYMENTS_WITH_RANGE_FILTER, { limit, offset, since: sinceBigint, until: untilBigint }),
-          client.request<{
-            funding_payments_aggregate: { aggregate: { count: number } };
-          }>(GET_FUNDING_PAYMENTS_COUNT_WITH_RANGE_FILTER, { since: sinceBigint, until: untilBigint }),
-        ]);
-        return {
-          fundingPayments: fundingData.funding_payments,
-          totalCount: countData.funding_payments_aggregate.aggregate.count,
-        };
-      } else if (since !== undefined) {
-        const sinceBigint = String(since);
-        const [fundingData, countData] = await Promise.all([
-          client.request<{ funding_payments: FundingPayment[] }>(GET_FUNDING_PAYMENTS_WITH_FILTER, { limit, offset, since: sinceBigint }),
-          client.request<{
-            funding_payments_aggregate: { aggregate: { count: number } };
-          }>(GET_FUNDING_PAYMENTS_COUNT_WITH_FILTER, { since: sinceBigint }),
-        ]);
-        return {
-          fundingPayments: fundingData.funding_payments,
-          totalCount: countData.funding_payments_aggregate.aggregate.count,
-        };
-      } else {
-        const [fundingData, countData] = await Promise.all([
-          client.request<{ funding_payments: FundingPayment[] }>(GET_FUNDING_PAYMENTS, { limit, offset }),
-          client.request<{
-            funding_payments_aggregate: { aggregate: { count: number } };
-          }>(GET_FUNDING_PAYMENTS_COUNT, {}),
-        ]);
-        return {
-          fundingPayments: fundingData.funding_payments,
-          totalCount: countData.funding_payments_aggregate.aggregate.count,
-        };
-      }
-    });
-  },
-
-  async getFundingPaymentsByAccount(
-    accountId: string,
-    limit: number,
-    offset: number,
-    since?: number,
-    until?: number
-  ): Promise<FundingPaymentsResult> {
-    return withErrorHandling(async () => {
-      const client = getGraphQLClient();
-
-      // Use different queries based on whether filter is provided
-      if (since !== undefined && until !== undefined) {
-        const sinceBigint = String(since);
-        const untilBigint = String(until);
-        const [fundingData, countData] = await Promise.all([
-          client.request<{ funding_payments: FundingPayment[] }>(GET_FUNDING_PAYMENTS_BY_ACCOUNT_WITH_RANGE_FILTER, {
-            accountId,
-            limit,
-            offset,
-            since: sinceBigint,
-            until: untilBigint,
-          }),
-          client.request<{
-            funding_payments_aggregate: { aggregate: { count: number } };
-          }>(GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT_WITH_RANGE_FILTER, { accountId, since: sinceBigint, until: untilBigint }),
-        ]);
-        return {
-          fundingPayments: fundingData.funding_payments,
-          totalCount: countData.funding_payments_aggregate.aggregate.count,
-        };
-      } else if (since !== undefined) {
-        const sinceBigint = String(since);
-        const [fundingData, countData] = await Promise.all([
-          client.request<{ funding_payments: FundingPayment[] }>(GET_FUNDING_PAYMENTS_BY_ACCOUNT_WITH_FILTER, {
-            accountId,
-            limit,
-            offset,
-            since: sinceBigint,
-          }),
-          client.request<{
-            funding_payments_aggregate: { aggregate: { count: number } };
-          }>(GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT_WITH_FILTER, { accountId, since: sinceBigint }),
-        ]);
-        return {
-          fundingPayments: fundingData.funding_payments,
-          totalCount: countData.funding_payments_aggregate.aggregate.count,
-        };
-      } else {
-        const [fundingData, countData] = await Promise.all([
-          client.request<{ funding_payments: FundingPayment[] }>(GET_FUNDING_PAYMENTS_BY_ACCOUNT, {
-            accountId,
-            limit,
-            offset,
-          }),
-          client.request<{
-            funding_payments_aggregate: { aggregate: { count: number } };
-          }>(GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT, { accountId }),
-        ]);
-        return {
-          fundingPayments: fundingData.funding_payments,
-          totalCount: countData.funding_payments_aggregate.aggregate.count,
-        };
-      }
-    });
-  },
-
-  async getFundingAggregates(since?: number, until?: number): Promise<FundingAggregates> {
-    return withErrorHandling(async () => {
-      const client = getGraphQLClient();
-
-      // Use different queries based on whether filter is provided
-      let query;
-      let variables: Record<string, string> = {};
-
-      if (since !== undefined && until !== undefined) {
-        query = GET_FUNDING_AGGREGATES_WITH_RANGE_FILTER;
-        variables = { since: String(since), until: String(until) };
-      } else if (since !== undefined) {
-        query = GET_FUNDING_AGGREGATES_WITH_FILTER;
-        variables = { since: String(since) };
-      } else {
-        query = GET_FUNDING_AGGREGATES;
-      }
+      const where = buildFundingWhereClause(filters);
 
       const data = await client.request<{
         funding_payments_aggregate: {
@@ -469,41 +253,7 @@ export const graphqlApi: ApiClient = {
             sum: { amount: string | null };
           };
         };
-      }>(query, variables);
-
-      return {
-        totalAmount: data.funding_payments_aggregate.aggregate.sum.amount || "0",
-        count: data.funding_payments_aggregate.aggregate.count,
-      };
-    });
-  },
-
-  async getFundingAggregatesByAccount(accountId: string, since?: number, until?: number): Promise<FundingAggregates> {
-    return withErrorHandling(async () => {
-      const client = getGraphQLClient();
-
-      // Use different queries based on whether filter is provided
-      let query;
-      let variables: Record<string, string> = { accountId };
-
-      if (since !== undefined && until !== undefined) {
-        query = GET_FUNDING_AGGREGATES_BY_ACCOUNT_WITH_RANGE_FILTER;
-        variables = { accountId, since: String(since), until: String(until) };
-      } else if (since !== undefined) {
-        query = GET_FUNDING_AGGREGATES_BY_ACCOUNT_WITH_FILTER;
-        variables = { accountId, since: String(since) };
-      } else {
-        query = GET_FUNDING_AGGREGATES_BY_ACCOUNT;
-      }
-
-      const data = await client.request<{
-        funding_payments_aggregate: {
-          aggregate: {
-            count: number;
-            sum: { amount: string | null };
-          };
-        };
-      }>(query, variables);
+      }>(GET_FUNDING_AGGREGATES_DYNAMIC, { where });
 
       return {
         totalAmount: data.funding_payments_aggregate.aggregate.sum.amount || "0",
