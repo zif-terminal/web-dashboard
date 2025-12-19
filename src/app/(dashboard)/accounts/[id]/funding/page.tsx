@@ -19,22 +19,24 @@ async function fetchFundingPayments(
   limit: number,
   offset: number,
   accountId: string | undefined,
-  since: number | undefined
+  since: number | undefined,
+  until: number | undefined
 ) {
   const data = accountId
-    ? await api.getFundingPaymentsByAccount(accountId, limit, offset, since)
-    : await api.getFundingPayments(limit, offset, since);
+    ? await api.getFundingPaymentsByAccount(accountId, limit, offset, since, until)
+    : await api.getFundingPayments(limit, offset, since, until);
 
   return { items: data.fundingPayments, totalCount: data.totalCount };
 }
 
 async function fetchFundingAggregates(
   accountId: string | undefined,
-  since: number | undefined
+  since: number | undefined,
+  until: number | undefined
 ) {
   return accountId
-    ? api.getFundingAggregatesByAccount(accountId, since)
-    : api.getFundingAggregates(since);
+    ? api.getFundingAggregatesByAccount(accountId, since, until)
+    : api.getFundingAggregates(since, until);
 }
 
 interface AccountFundingPageProps {

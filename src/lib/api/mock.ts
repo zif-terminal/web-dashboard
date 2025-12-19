@@ -246,12 +246,16 @@ export const mockApi: ApiClient = {
     return { id };
   },
 
-  async getTrades(limit: number, offset: number, since?: number): Promise<TradesResult> {
+  async getTrades(limit: number, offset: number, since?: number, until?: number): Promise<TradesResult> {
     await delay(300);
-    // Filter by timestamp if since is provided
-    const filteredTrades = since
-      ? mockTrades.filter((trade) => new Date(trade.timestamp).getTime() >= since)
-      : mockTrades;
+    // Filter by timestamp if since/until is provided
+    let filteredTrades = mockTrades;
+    if (since) {
+      filteredTrades = filteredTrades.filter((trade) => new Date(trade.timestamp).getTime() >= since);
+    }
+    if (until) {
+      filteredTrades = filteredTrades.filter((trade) => new Date(trade.timestamp).getTime() <= until);
+    }
     const paginatedTrades = filteredTrades.slice(offset, offset + limit);
     return {
       trades: paginatedTrades,
@@ -263,16 +267,22 @@ export const mockApi: ApiClient = {
     accountId: string,
     limit: number,
     offset: number,
-    since?: number
+    since?: number,
+    until?: number
   ): Promise<TradesResult> {
     await delay(300);
     let accountTrades = mockTrades.filter(
       (trade) => trade.exchange_account_id === accountId
     );
-    // Filter by timestamp if since is provided
+    // Filter by timestamp if since/until is provided
     if (since) {
       accountTrades = accountTrades.filter(
         (trade) => new Date(trade.timestamp).getTime() >= since
+      );
+    }
+    if (until) {
+      accountTrades = accountTrades.filter(
+        (trade) => new Date(trade.timestamp).getTime() <= until
       );
     }
     const paginatedTrades = accountTrades.slice(offset, offset + limit);
@@ -282,12 +292,16 @@ export const mockApi: ApiClient = {
     };
   },
 
-  async getTradesAggregates(since?: number): Promise<TradesAggregates> {
+  async getTradesAggregates(since?: number, until?: number): Promise<TradesAggregates> {
     await delay(200);
-    // Filter by timestamp if since is provided
-    const filteredTrades = since
-      ? mockTrades.filter((trade) => new Date(trade.timestamp).getTime() >= since)
-      : mockTrades;
+    // Filter by timestamp if since/until is provided
+    let filteredTrades = mockTrades;
+    if (since) {
+      filteredTrades = filteredTrades.filter((trade) => new Date(trade.timestamp).getTime() >= since);
+    }
+    if (until) {
+      filteredTrades = filteredTrades.filter((trade) => new Date(trade.timestamp).getTime() <= until);
+    }
     const totalFees = filteredTrades.reduce(
       (sum, trade) => sum + parseFloat(trade.fee),
       0
@@ -299,15 +313,20 @@ export const mockApi: ApiClient = {
     };
   },
 
-  async getTradesAggregatesByAccount(accountId: string, since?: number): Promise<TradesAggregates> {
+  async getTradesAggregatesByAccount(accountId: string, since?: number, until?: number): Promise<TradesAggregates> {
     await delay(200);
     let accountTrades = mockTrades.filter(
       (trade) => trade.exchange_account_id === accountId
     );
-    // Filter by timestamp if since is provided
+    // Filter by timestamp if since/until is provided
     if (since) {
       accountTrades = accountTrades.filter(
         (trade) => new Date(trade.timestamp).getTime() >= since
+      );
+    }
+    if (until) {
+      accountTrades = accountTrades.filter(
+        (trade) => new Date(trade.timestamp).getTime() <= until
       );
     }
     const totalFees = accountTrades.reduce(
@@ -321,12 +340,16 @@ export const mockApi: ApiClient = {
     };
   },
 
-  async getFundingPayments(limit: number, offset: number, since?: number): Promise<FundingPaymentsResult> {
+  async getFundingPayments(limit: number, offset: number, since?: number, until?: number): Promise<FundingPaymentsResult> {
     await delay(300);
-    // Filter by timestamp if since is provided (funding payments use unix ms)
-    const filteredPayments = since
-      ? mockFundingPayments.filter((payment) => payment.timestamp >= since)
-      : mockFundingPayments;
+    // Filter by timestamp if since/until is provided (funding payments use unix ms)
+    let filteredPayments = mockFundingPayments;
+    if (since) {
+      filteredPayments = filteredPayments.filter((payment) => payment.timestamp >= since);
+    }
+    if (until) {
+      filteredPayments = filteredPayments.filter((payment) => payment.timestamp <= until);
+    }
     const paginatedPayments = filteredPayments.slice(offset, offset + limit);
     return {
       fundingPayments: paginatedPayments,
@@ -338,16 +361,22 @@ export const mockApi: ApiClient = {
     accountId: string,
     limit: number,
     offset: number,
-    since?: number
+    since?: number,
+    until?: number
   ): Promise<FundingPaymentsResult> {
     await delay(300);
     let accountPayments = mockFundingPayments.filter(
       (payment) => payment.exchange_account_id === accountId
     );
-    // Filter by timestamp if since is provided
+    // Filter by timestamp if since/until is provided
     if (since) {
       accountPayments = accountPayments.filter(
         (payment) => payment.timestamp >= since
+      );
+    }
+    if (until) {
+      accountPayments = accountPayments.filter(
+        (payment) => payment.timestamp <= until
       );
     }
     const paginatedPayments = accountPayments.slice(offset, offset + limit);
@@ -357,12 +386,16 @@ export const mockApi: ApiClient = {
     };
   },
 
-  async getFundingAggregates(since?: number): Promise<FundingAggregates> {
+  async getFundingAggregates(since?: number, until?: number): Promise<FundingAggregates> {
     await delay(200);
-    // Filter by timestamp if since is provided
-    const filteredPayments = since
-      ? mockFundingPayments.filter((payment) => payment.timestamp >= since)
-      : mockFundingPayments;
+    // Filter by timestamp if since/until is provided
+    let filteredPayments = mockFundingPayments;
+    if (since) {
+      filteredPayments = filteredPayments.filter((payment) => payment.timestamp >= since);
+    }
+    if (until) {
+      filteredPayments = filteredPayments.filter((payment) => payment.timestamp <= until);
+    }
     const totalAmount = filteredPayments.reduce(
       (sum, payment) => sum + parseFloat(payment.amount),
       0
@@ -373,15 +406,20 @@ export const mockApi: ApiClient = {
     };
   },
 
-  async getFundingAggregatesByAccount(accountId: string, since?: number): Promise<FundingAggregates> {
+  async getFundingAggregatesByAccount(accountId: string, since?: number, until?: number): Promise<FundingAggregates> {
     await delay(200);
     let accountPayments = mockFundingPayments.filter(
       (payment) => payment.exchange_account_id === accountId
     );
-    // Filter by timestamp if since is provided
+    // Filter by timestamp if since/until is provided
     if (since) {
       accountPayments = accountPayments.filter(
         (payment) => payment.timestamp >= since
+      );
+    }
+    if (until) {
+      accountPayments = accountPayments.filter(
+        (payment) => payment.timestamp <= until
       );
     }
     const totalAmount = accountPayments.reduce(
