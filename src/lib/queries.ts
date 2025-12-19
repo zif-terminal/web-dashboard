@@ -786,3 +786,109 @@ export const GET_FUNDING_AGGREGATES_BY_ACCOUNT_WITH_RANGE_FILTER = gql`
     }
   }
 `;
+
+// Distinct base assets queries
+export const GET_DISTINCT_TRADE_ASSETS = gql`
+  query GetDistinctTradeAssets {
+    trades(distinct_on: base_asset, order_by: { base_asset: asc }) {
+      base_asset
+    }
+  }
+`;
+
+export const GET_DISTINCT_FUNDING_ASSETS = gql`
+  query GetDistinctFundingAssets {
+    funding_payments(distinct_on: base_asset, order_by: { base_asset: asc }) {
+      base_asset
+    }
+  }
+`;
+
+// Dynamic filter queries - accept where clause as variable
+export const GET_TRADES_DYNAMIC = gql`
+  query GetTradesDynamic($limit: Int!, $offset: Int!, $where: trades_bool_exp!) {
+    trades(limit: $limit, offset: $offset, order_by: { timestamp: desc }, where: $where) {
+      id
+      base_asset
+      quote_asset
+      side
+      price
+      quantity
+      timestamp
+      fee
+      order_id
+      trade_id
+      exchange_account_id
+      exchange_account {
+        id
+        account_identifier
+        account_type
+        exchange {
+          id
+          name
+          display_name
+        }
+      }
+    }
+    trades_aggregate(where: $where) {
+      aggregate {
+        count
+      }
+    }
+  }
+`;
+
+export const GET_TRADES_AGGREGATES_DYNAMIC = gql`
+  query GetTradesAggregatesDynamic($where: trades_bool_exp!) {
+    trades_aggregate(where: $where) {
+      aggregate {
+        count
+        sum {
+          fee
+        }
+      }
+    }
+  }
+`;
+
+export const GET_FUNDING_PAYMENTS_DYNAMIC = gql`
+  query GetFundingPaymentsDynamic($limit: Int!, $offset: Int!, $where: funding_payments_bool_exp!) {
+    funding_payments(limit: $limit, offset: $offset, order_by: { timestamp: desc }, where: $where) {
+      id
+      base_asset
+      quote_asset
+      amount
+      timestamp
+      payment_id
+      exchange_account_id
+      exchange_account {
+        id
+        account_identifier
+        account_type
+        exchange {
+          id
+          name
+          display_name
+        }
+      }
+    }
+    funding_payments_aggregate(where: $where) {
+      aggregate {
+        count
+      }
+    }
+  }
+`;
+
+export const GET_FUNDING_AGGREGATES_DYNAMIC = gql`
+  query GetFundingAggregatesDynamic($where: funding_payments_bool_exp!) {
+    funding_payments_aggregate(where: $where) {
+      aggregate {
+        count
+        sum {
+          amount
+        }
+      }
+    }
+  }
+`;

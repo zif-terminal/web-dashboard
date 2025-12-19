@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { api } from "@/lib/api";
+import { api, DataFilters } from "@/lib/api";
 import { Trade, ExchangeAccount, TradesAggregates } from "@/lib/queries";
 import { TradesTable } from "@/components/trades-table";
 import { SyncButton } from "@/components/sync-button";
@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { DateRangeFilter } from "@/components/date-range-filter";
+import { AssetFilter } from "@/components/asset-filter";
 import { usePaginatedData } from "@/hooks/use-paginated-data";
 
 const PAGE_SIZE = 100;
@@ -22,29 +23,20 @@ const PAGE_SIZE = 100;
 async function fetchTrades(
   limit: number,
   offset: number,
-  accountId: string | undefined,
-  since: number | undefined,
-  until: number | undefined
+  filters: DataFilters
 ) {
-  const data = accountId
-    ? await api.getTradesByAccount(accountId, limit, offset, since, until)
-    : await api.getTrades(limit, offset, since, until);
-
+  const data = await api.getTrades(limit, offset, filters);
   return { items: data.trades, totalCount: data.totalCount };
 }
 
-async function fetchTradesAggregates(
-  accountId: string | undefined,
-  since: number | undefined,
-  until: number | undefined
-) {
-  return accountId
-    ? api.getTradesAggregatesByAccount(accountId, since, until)
-    : api.getTradesAggregates(since, until);
+async function fetchTradesAggregates(filters: DataFilters) {
+  return api.getTradesAggregates(filters);
 }
 
 export default function TradesPage() {
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
+  const [availableAssets, setAvailableAssets] = useState<string[]>([]);
+  const [isLoadingAssets, setIsLoadingAssets] = useState(true);
 
   const {
     items: trades,
@@ -55,10 +47,12 @@ export default function TradesPage() {
     page,
     selectedAccountId,
     dateRange,
+    selectedAssets,
     isNew,
     handlePageChange,
     handleAccountChange,
     handleDateRangeChange,
+    handleAssetChange,
     refresh,
     lastRefreshTime,
   } = usePaginatedData<Trade, TradesAggregates>({
@@ -77,6 +71,21 @@ export default function TradesPage() {
       }
     };
     fetchAccounts();
+  }, []);
+
+  useEffect(() => {
+    const fetchAssets = async () => {
+      setIsLoadingAssets(true);
+      try {
+        const assets = await api.getDistinctBaseAssets("trades");
+        setAvailableAssets(assets);
+      } catch (error) {
+        console.error("Failed to fetch assets:", error);
+      } finally {
+        setIsLoadingAssets(false);
+      }
+    };
+    fetchAssets();
   }, []);
 
   const formatFees = (value: string) => {
@@ -120,6 +129,12 @@ export default function TradesPage() {
             {selectedAccountId === "all" ? "All Trades" : "Filtered Trades"}
           </CardTitle>
           <div className="flex items-center gap-4">
+            <AssetFilter
+              assets={availableAssets}
+              selectedAssets={selectedAssets}
+              onSelectionChange={handleAssetChange}
+              isLoading={isLoadingAssets}
+            />
             <DateRangeFilter value={dateRange} onChange={handleDateRangeChange} />
             <Select value={selectedAccountId} onValueChange={handleAccountChange}>
               <SelectTrigger className="w-[280px]">
