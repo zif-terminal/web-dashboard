@@ -109,9 +109,48 @@ export interface Trade {
 }
 
 // Trade queries
+// Note: We have two versions - one with date filter and one without
+// This is because Hasura doesn't handle null properly in _gte comparisons
 export const GET_TRADES = gql`
   query GetTrades($limit: Int!, $offset: Int!) {
-    trades(limit: $limit, offset: $offset, order_by: { timestamp: desc }) {
+    trades(
+      limit: $limit
+      offset: $offset
+      order_by: { timestamp: desc }
+    ) {
+      id
+      base_asset
+      quote_asset
+      side
+      price
+      quantity
+      timestamp
+      fee
+      order_id
+      trade_id
+      exchange_account_id
+      exchange_account {
+        id
+        account_identifier
+        account_type
+        exchange {
+          id
+          name
+          display_name
+        }
+      }
+    }
+  }
+`;
+
+export const GET_TRADES_WITH_FILTER = gql`
+  query GetTradesWithFilter($limit: Int!, $offset: Int!, $since: bigint!) {
+    trades(
+      limit: $limit
+      offset: $offset
+      order_by: { timestamp: desc }
+      where: { timestamp: { _gte: $since } }
+    ) {
       id
       base_asset
       quote_asset
@@ -170,6 +209,39 @@ export const GET_TRADES_BY_ACCOUNT = gql`
   }
 `;
 
+export const GET_TRADES_BY_ACCOUNT_WITH_FILTER = gql`
+  query GetTradesByAccountWithFilter($accountId: uuid!, $limit: Int!, $offset: Int!, $since: bigint!) {
+    trades(
+      where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since } }
+      limit: $limit
+      offset: $offset
+      order_by: { timestamp: desc }
+    ) {
+      id
+      base_asset
+      quote_asset
+      side
+      price
+      quantity
+      timestamp
+      fee
+      order_id
+      trade_id
+      exchange_account_id
+      exchange_account {
+        id
+        account_identifier
+        account_type
+        exchange {
+          id
+          name
+          display_name
+        }
+      }
+    }
+  }
+`;
+
 export const GET_TRADES_COUNT = gql`
   query GetTradesCount {
     trades_aggregate {
@@ -180,9 +252,29 @@ export const GET_TRADES_COUNT = gql`
   }
 `;
 
+export const GET_TRADES_COUNT_WITH_FILTER = gql`
+  query GetTradesCountWithFilter($since: bigint!) {
+    trades_aggregate(where: { timestamp: { _gte: $since } }) {
+      aggregate {
+        count
+      }
+    }
+  }
+`;
+
 export const GET_TRADES_COUNT_BY_ACCOUNT = gql`
   query GetTradesCountByAccount($accountId: uuid!) {
     trades_aggregate(where: { exchange_account_id: { _eq: $accountId } }) {
+      aggregate {
+        count
+      }
+    }
+  }
+`;
+
+export const GET_TRADES_COUNT_BY_ACCOUNT_WITH_FILTER = gql`
+  query GetTradesCountByAccountWithFilter($accountId: uuid!, $since: bigint!) {
+    trades_aggregate(where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since } }) {
       aggregate {
         count
       }
@@ -211,9 +303,35 @@ export const GET_TRADES_AGGREGATES = gql`
   }
 `;
 
+export const GET_TRADES_AGGREGATES_WITH_FILTER = gql`
+  query GetTradesAggregatesWithFilter($since: bigint!) {
+    trades_aggregate(where: { timestamp: { _gte: $since } }) {
+      aggregate {
+        count
+        sum {
+          fee
+        }
+      }
+    }
+  }
+`;
+
 export const GET_TRADES_AGGREGATES_BY_ACCOUNT = gql`
   query GetTradesAggregatesByAccount($accountId: uuid!) {
     trades_aggregate(where: { exchange_account_id: { _eq: $accountId } }) {
+      aggregate {
+        count
+        sum {
+          fee
+        }
+      }
+    }
+  }
+`;
+
+export const GET_TRADES_AGGREGATES_BY_ACCOUNT_WITH_FILTER = gql`
+  query GetTradesAggregatesByAccountWithFilter($accountId: uuid!, $since: bigint!) {
+    trades_aggregate(where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since } }) {
       aggregate {
         count
         sum {
@@ -237,9 +355,44 @@ export interface FundingPayment {
 }
 
 // Funding payment queries
+// Note: We have two versions - one with date filter and one without
+// This is because Hasura doesn't accept null for bigint _gte comparisons
 export const GET_FUNDING_PAYMENTS = gql`
   query GetFundingPayments($limit: Int!, $offset: Int!) {
-    funding_payments(limit: $limit, offset: $offset, order_by: { timestamp: desc }) {
+    funding_payments(
+      limit: $limit
+      offset: $offset
+      order_by: { timestamp: desc }
+    ) {
+      id
+      base_asset
+      quote_asset
+      amount
+      timestamp
+      payment_id
+      exchange_account_id
+      exchange_account {
+        id
+        account_identifier
+        account_type
+        exchange {
+          id
+          name
+          display_name
+        }
+      }
+    }
+  }
+`;
+
+export const GET_FUNDING_PAYMENTS_WITH_FILTER = gql`
+  query GetFundingPaymentsWithFilter($limit: Int!, $offset: Int!, $since: bigint!) {
+    funding_payments(
+      limit: $limit
+      offset: $offset
+      order_by: { timestamp: desc }
+      where: { timestamp: { _gte: $since } }
+    ) {
       id
       base_asset
       quote_asset
@@ -290,6 +443,35 @@ export const GET_FUNDING_PAYMENTS_BY_ACCOUNT = gql`
   }
 `;
 
+export const GET_FUNDING_PAYMENTS_BY_ACCOUNT_WITH_FILTER = gql`
+  query GetFundingPaymentsByAccountWithFilter($accountId: uuid!, $limit: Int!, $offset: Int!, $since: bigint!) {
+    funding_payments(
+      where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since } }
+      limit: $limit
+      offset: $offset
+      order_by: { timestamp: desc }
+    ) {
+      id
+      base_asset
+      quote_asset
+      amount
+      timestamp
+      payment_id
+      exchange_account_id
+      exchange_account {
+        id
+        account_identifier
+        account_type
+        exchange {
+          id
+          name
+          display_name
+        }
+      }
+    }
+  }
+`;
+
 export const GET_FUNDING_PAYMENTS_COUNT = gql`
   query GetFundingPaymentsCount {
     funding_payments_aggregate {
@@ -300,9 +482,29 @@ export const GET_FUNDING_PAYMENTS_COUNT = gql`
   }
 `;
 
+export const GET_FUNDING_PAYMENTS_COUNT_WITH_FILTER = gql`
+  query GetFundingPaymentsCountWithFilter($since: bigint!) {
+    funding_payments_aggregate(where: { timestamp: { _gte: $since } }) {
+      aggregate {
+        count
+      }
+    }
+  }
+`;
+
 export const GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT = gql`
   query GetFundingPaymentsCountByAccount($accountId: uuid!) {
     funding_payments_aggregate(where: { exchange_account_id: { _eq: $accountId } }) {
+      aggregate {
+        count
+      }
+    }
+  }
+`;
+
+export const GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT_WITH_FILTER = gql`
+  query GetFundingPaymentsCountByAccountWithFilter($accountId: uuid!, $since: bigint!) {
+    funding_payments_aggregate(where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since } }) {
       aggregate {
         count
       }
@@ -330,9 +532,35 @@ export const GET_FUNDING_AGGREGATES = gql`
   }
 `;
 
+export const GET_FUNDING_AGGREGATES_WITH_FILTER = gql`
+  query GetFundingAggregatesWithFilter($since: bigint!) {
+    funding_payments_aggregate(where: { timestamp: { _gte: $since } }) {
+      aggregate {
+        count
+        sum {
+          amount
+        }
+      }
+    }
+  }
+`;
+
 export const GET_FUNDING_AGGREGATES_BY_ACCOUNT = gql`
   query GetFundingAggregatesByAccount($accountId: uuid!) {
     funding_payments_aggregate(where: { exchange_account_id: { _eq: $accountId } }) {
+      aggregate {
+        count
+        sum {
+          amount
+        }
+      }
+    }
+  }
+`;
+
+export const GET_FUNDING_AGGREGATES_BY_ACCOUNT_WITH_FILTER = gql`
+  query GetFundingAggregatesByAccountWithFilter($accountId: uuid!, $since: bigint!) {
+    funding_payments_aggregate(where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since } }) {
       aggregate {
         count
         sum {

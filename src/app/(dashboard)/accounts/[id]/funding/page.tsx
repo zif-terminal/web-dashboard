@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatCard, StatsGrid } from "@/components/stat-card";
 import { formatSignedNumber } from "@/lib/format";
+import { DateRangeFilter, DateRangeValue, getTimestampFromDateRange } from "@/components/date-range-filter";
 
 const PAGE_SIZE = 100;
 
@@ -30,14 +31,17 @@ export default function AccountFundingPage({ params }: AccountFundingPageProps) 
   const [account, setAccount] = useState<ExchangeAccount | null>(null);
   const [aggregates, setAggregates] = useState<FundingAggregates | null>(null);
   const [isLoadingAggregates, setIsLoadingAggregates] = useState(true);
+  const [dateRange, setDateRange] = useState<DateRangeValue>({ preset: "all" });
 
   const { updateItems: updateNewItems, isNew } = useNewItems<FundingPayment>();
 
   const pageRef = useRef(page);
+  const dateRangeRef = useRef(dateRange);
 
   useEffect(() => {
     pageRef.current = page;
-  }, [page]);
+    dateRangeRef.current = dateRange;
+  }, [page, dateRange]);
 
   const fetchAccount = async () => {
     try {
@@ -48,10 +52,11 @@ export default function AccountFundingPage({ params }: AccountFundingPageProps) 
     }
   };
 
-  const fetchAggregates = useCallback(async () => {
+  const fetchAggregates = useCallback(async (dateRangeValue: DateRangeValue) => {
     setIsLoadingAggregates(true);
+    const since = getTimestampFromDateRange(dateRangeValue);
     try {
-      const data = await withErrorReporting(() => api.getFundingAggregatesByAccount(id));
+      const data = await withErrorReporting(() => api.getFundingAggregatesByAccount(id, since));
       setAggregates(data);
     } catch (error) {
       console.error("Failed to fetch aggregates:", error);
@@ -60,10 +65,11 @@ export default function AccountFundingPage({ params }: AccountFundingPageProps) 
     }
   }, [id, withErrorReporting]);
 
-  const fetchFundingPayments = useCallback(async (pageNum: number) => {
+  const fetchFundingPayments = useCallback(async (pageNum: number, dateRangeValue: DateRangeValue) => {
     setIsLoading(true);
+    const since = getTimestampFromDateRange(dateRangeValue);
     try {
-      const data = await withErrorReporting(() => api.getFundingPaymentsByAccount(id, PAGE_SIZE, pageNum * PAGE_SIZE));
+      const data = await withErrorReporting(() => api.getFundingPaymentsByAccount(id, PAGE_SIZE, pageNum * PAGE_SIZE, since));
       setFundingPayments(data.fundingPayments);
       setTotalCount(data.totalCount);
       updateNewItems(data.fundingPayments);
@@ -76,8 +82,8 @@ export default function AccountFundingPage({ params }: AccountFundingPageProps) 
 
   const fetchAllData = useCallback(async () => {
     await Promise.all([
-      fetchFundingPayments(pageRef.current),
-      fetchAggregates(),
+      fetchFundingPayments(pageRef.current, dateRangeRef.current),
+      fetchAggregates(dateRangeRef.current),
     ]);
   }, [fetchFundingPayments, fetchAggregates]);
 
@@ -92,10 +98,15 @@ export default function AccountFundingPage({ params }: AccountFundingPageProps) 
 
   useEffect(() => {
     refresh();
-  }, [page]);
+  }, [page, dateRange]);
 
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
+  };
+
+  const handleDateRangeChange = (newRange: DateRangeValue) => {
+    setDateRange(newRange);
+    setPage(0);
   };
 
   const accountTitle = account
@@ -137,8 +148,9 @@ export default function AccountFundingPage({ params }: AccountFundingPageProps) 
       </StatsGrid>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle>Funding Payments</CardTitle>
+          <DateRangeFilter value={dateRange} onChange={handleDateRangeChange} />
         </CardHeader>
         <CardContent>
           <FundingTable

@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { DateRangeFilter, DateRangeValue, getTimestampFromDateRange } from "@/components/date-range-filter";
 
 const PAGE_SIZE = 100;
 
@@ -30,6 +31,7 @@ export default function TradesPage() {
   const [selectedAccountId, setSelectedAccountId] = useState<string>("all");
   const [aggregates, setAggregates] = useState<TradesAggregates | null>(null);
   const [isLoadingAggregates, setIsLoadingAggregates] = useState(true);
+  const [dateRange, setDateRange] = useState<DateRangeValue>({ preset: "all" });
 
   // Track new items for highlighting
   const { updateItems: updateNewItems, isNew } = useNewItems<Trade>();
@@ -37,11 +39,13 @@ export default function TradesPage() {
   // Use refs to track current values for auto-refresh
   const pageRef = useRef(page);
   const selectedAccountIdRef = useRef(selectedAccountId);
+  const dateRangeRef = useRef(dateRange);
 
   useEffect(() => {
     pageRef.current = page;
     selectedAccountIdRef.current = selectedAccountId;
-  }, [page, selectedAccountId]);
+    dateRangeRef.current = dateRange;
+  }, [page, selectedAccountId, dateRange]);
 
   const fetchAccounts = async () => {
     try {
@@ -52,13 +56,14 @@ export default function TradesPage() {
     }
   };
 
-  const fetchAggregates = useCallback(async (accountId: string) => {
+  const fetchAggregates = useCallback(async (accountId: string, dateRangeValue: DateRangeValue) => {
     setIsLoadingAggregates(true);
+    const since = getTimestampFromDateRange(dateRangeValue);
     try {
       const data = await withErrorReporting(() =>
         accountId === "all"
-          ? api.getTradesAggregates()
-          : api.getTradesAggregatesByAccount(accountId)
+          ? api.getTradesAggregates(since)
+          : api.getTradesAggregatesByAccount(accountId, since)
       );
       setAggregates(data);
     } catch (error) {
@@ -68,13 +73,14 @@ export default function TradesPage() {
     }
   }, [withErrorReporting]);
 
-  const fetchTrades = useCallback(async (pageNum: number, accountId: string) => {
+  const fetchTrades = useCallback(async (pageNum: number, accountId: string, dateRangeValue: DateRangeValue) => {
     setIsLoading(true);
+    const since = getTimestampFromDateRange(dateRangeValue);
     try {
       const data = await withErrorReporting(() =>
         accountId === "all"
-          ? api.getTrades(PAGE_SIZE, pageNum * PAGE_SIZE)
-          : api.getTradesByAccount(accountId, PAGE_SIZE, pageNum * PAGE_SIZE)
+          ? api.getTrades(PAGE_SIZE, pageNum * PAGE_SIZE, since)
+          : api.getTradesByAccount(accountId, PAGE_SIZE, pageNum * PAGE_SIZE, since)
       );
 
       setTrades(data.trades);
@@ -90,8 +96,8 @@ export default function TradesPage() {
   // Fetch function for auto-refresh (uses refs for current values)
   const fetchAllData = useCallback(async () => {
     await Promise.all([
-      fetchTrades(pageRef.current, selectedAccountIdRef.current),
-      fetchAggregates(selectedAccountIdRef.current),
+      fetchTrades(pageRef.current, selectedAccountIdRef.current, dateRangeRef.current),
+      fetchAggregates(selectedAccountIdRef.current, dateRangeRef.current),
     ]);
   }, [fetchTrades, fetchAggregates]);
 
@@ -104,10 +110,10 @@ export default function TradesPage() {
     refresh(); // Initial fetch through auto-refresh to set lastRefreshTime
   }, []);
 
-  // Refetch when page or account changes
+  // Refetch when page, account, or date range changes
   useEffect(() => {
     refresh();
-  }, [page, selectedAccountId]);
+  }, [page, selectedAccountId, dateRange]);
 
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
@@ -115,6 +121,11 @@ export default function TradesPage() {
 
   const handleAccountChange = (accountId: string) => {
     setSelectedAccountId(accountId);
+    setPage(0);
+  };
+
+  const handleDateRangeChange = (newRange: DateRangeValue) => {
+    setDateRange(newRange);
     setPage(0);
   };
 
@@ -162,19 +173,22 @@ export default function TradesPage() {
           <CardTitle>
             {selectedAccountId === "all" ? "All Trades" : "Filtered Trades"}
           </CardTitle>
-          <Select value={selectedAccountId} onValueChange={handleAccountChange}>
-            <SelectTrigger className="w-[280px]">
-              <SelectValue placeholder="Filter by account" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Accounts</SelectItem>
-              {accounts.map((account) => (
-                <SelectItem key={account.id} value={account.id}>
-                  {account.exchange?.display_name || "Unknown"} - {account.account_identifier.slice(0, 10)}...
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-4">
+            <DateRangeFilter value={dateRange} onChange={handleDateRangeChange} />
+            <Select value={selectedAccountId} onValueChange={handleAccountChange}>
+              <SelectTrigger className="w-[280px]">
+                <SelectValue placeholder="Filter by account" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Accounts</SelectItem>
+                {accounts.map((account) => (
+                  <SelectItem key={account.id} value={account.id}>
+                    {account.exchange?.display_name || "Unknown"} - {account.account_identifier.slice(0, 10)}...
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </CardHeader>
         <CardContent>
           <TradesTable
