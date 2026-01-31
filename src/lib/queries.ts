@@ -892,3 +892,174 @@ export const GET_FUNDING_AGGREGATES_DYNAMIC = gql`
     }
   }
 `;
+
+// Position types
+export interface Position {
+  id: string;
+  exchange_account_id: string;
+  base_asset: string;
+  quote_asset: string;
+  side: "long" | "short";
+  start_time: number; // Unix milliseconds (BIGINT)
+  end_time: number; // Unix milliseconds (BIGINT)
+  entry_avg_price: string;
+  exit_avg_price: string;
+  total_quantity: string;
+  total_fees: string;
+  realized_pnl: string;
+  exchange_account?: ExchangeAccount;
+}
+
+export interface PositionTrade {
+  position_id: string;
+  trade_id: string;
+  allocation_percentage: string;
+  allocated_quantity: string;
+  allocated_fees: string;
+  trade?: Trade;
+}
+
+// Position aggregates interface
+export interface PositionsAggregates {
+  totalPnL: string;
+  totalFees: string;
+  count: number;
+}
+
+// Position queries
+export const GET_POSITIONS = gql`
+  query GetPositions($limit: Int!, $offset: Int!) {
+    positions(
+      limit: $limit
+      offset: $offset
+      order_by: { end_time: desc }
+    ) {
+      id
+      exchange_account_id
+      base_asset
+      quote_asset
+      side
+      start_time
+      end_time
+      entry_avg_price
+      exit_avg_price
+      total_quantity
+      total_fees
+      realized_pnl
+      exchange_account {
+        id
+        account_identifier
+        account_type
+        exchange {
+          id
+          name
+          display_name
+        }
+      }
+    }
+  }
+`;
+
+export const GET_POSITIONS_DYNAMIC = gql`
+  query GetPositionsDynamic($limit: Int!, $offset: Int!, $where: positions_bool_exp!) {
+    positions(limit: $limit, offset: $offset, order_by: { end_time: desc }, where: $where) {
+      id
+      exchange_account_id
+      base_asset
+      quote_asset
+      side
+      start_time
+      end_time
+      entry_avg_price
+      exit_avg_price
+      total_quantity
+      total_fees
+      realized_pnl
+      exchange_account {
+        id
+        account_identifier
+        account_type
+        exchange {
+          id
+          name
+          display_name
+        }
+      }
+    }
+    positions_aggregate(where: $where) {
+      aggregate {
+        count
+      }
+    }
+  }
+`;
+
+export const GET_POSITIONS_AGGREGATES_DYNAMIC = gql`
+  query GetPositionsAggregatesDynamic($where: positions_bool_exp!) {
+    positions_aggregate(where: $where) {
+      aggregate {
+        count
+        sum {
+          realized_pnl
+          total_fees
+        }
+      }
+    }
+  }
+`;
+
+export const GET_POSITION_WITH_TRADES = gql`
+  query GetPositionWithTrades($id: uuid!) {
+    positions_by_pk(id: $id) {
+      id
+      exchange_account_id
+      base_asset
+      quote_asset
+      side
+      start_time
+      end_time
+      entry_avg_price
+      exit_avg_price
+      total_quantity
+      total_fees
+      realized_pnl
+      exchange_account {
+        id
+        account_identifier
+        account_type
+        exchange {
+          id
+          name
+          display_name
+        }
+      }
+      position_trades {
+        position_id
+        trade_id
+        allocation_percentage
+        allocated_quantity
+        allocated_fees
+        trade {
+          id
+          base_asset
+          quote_asset
+          side
+          price
+          quantity
+          timestamp
+          fee
+          order_id
+          trade_id
+        }
+      }
+    }
+  }
+`;
+
+export const GET_DISTINCT_POSITION_ASSETS = gql`
+  query GetDistinctPositionAssets {
+    positions(distinct_on: base_asset, order_by: { base_asset: asc }) {
+      base_asset
+    }
+  }
+`;
