@@ -89,3 +89,19 @@ export function FundingTableSkeleton({
 
   return <TableSkeleton rows={rows} columns={3} columnWidths={widths} />;
 }
+
+// Pre-configured skeleton for positions table (7 columns)
+export function PositionsTableSkeleton({
+  rows = 5,
+  showAccount = false,
+}: {
+  rows?: number;
+  showAccount?: boolean;
+}) {
+  // Columns: Closed At, Pair, Side, Entry/Exit, Qty, Fees, PnL
+  const widths = showAccount
+    ? ["w-40", "w-20", "w-14", "w-32", "w-20", "w-16", "w-20"]
+    : ["w-32", "w-20", "w-14", "w-32", "w-20", "w-16", "w-20"];
+
+  return <TableSkeleton rows={rows} columns={7} columnWidths={widths} />;
+}

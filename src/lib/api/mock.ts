@@ -1,5 +1,5 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates } from "../queries";
-import { ApiClient, CreateAccountInput, TradesResult, FundingPaymentsResult, DataFilters } from "./types";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionsAggregates } from "../queries";
+import { ApiClient, CreateAccountInput, TradesResult, FundingPaymentsResult, PositionsResult, PositionWithTrades, DataFilters } from "./types";
 
 // Mock exchanges
 const mockExchanges: Exchange[] = [
@@ -181,6 +181,70 @@ const mockFundingPayments: FundingPayment[] = [
   },
 ];
 
+// Mock positions (closed positions)
+const mockPositions: Position[] = [
+  {
+    id: "mock-pos-001",
+    exchange_account_id: "mock-acc-001",
+    base_asset: "ETH",
+    quote_asset: "USDC",
+    side: "long",
+    start_time: Date.now() - 1000 * 60 * 60 * 24, // 1 day ago
+    end_time: Date.now() - 1000 * 60 * 60 * 12, // 12 hours ago
+    entry_avg_price: "3200.00",
+    exit_avg_price: "3280.00",
+    total_quantity: "2.5",
+    total_fees: "0.00125",
+    realized_pnl: "199.99",
+    exchange_account: mockAccounts[0],
+  },
+  {
+    id: "mock-pos-002",
+    exchange_account_id: "mock-acc-001",
+    base_asset: "BTC",
+    quote_asset: "USDC",
+    side: "short",
+    start_time: Date.now() - 1000 * 60 * 60 * 48, // 2 days ago
+    end_time: Date.now() - 1000 * 60 * 60 * 36, // 1.5 days ago
+    entry_avg_price: "98000.00",
+    exit_avg_price: "97000.00",
+    total_quantity: "0.5",
+    total_fees: "0.00025",
+    realized_pnl: "499.99",
+    exchange_account: mockAccounts[0],
+  },
+  {
+    id: "mock-pos-003",
+    exchange_account_id: "mock-acc-002",
+    base_asset: "SOL",
+    quote_asset: "USDC",
+    side: "long",
+    start_time: Date.now() - 1000 * 60 * 60 * 72, // 3 days ago
+    end_time: Date.now() - 1000 * 60 * 60 * 60, // 2.5 days ago
+    entry_avg_price: "180.00",
+    exit_avg_price: "175.00",
+    total_quantity: "50",
+    total_fees: "0.025",
+    realized_pnl: "-250.02",
+    exchange_account: mockAccounts[1],
+  },
+  {
+    id: "mock-pos-004",
+    exchange_account_id: "mock-acc-003",
+    base_asset: "ETH",
+    quote_asset: "USDT",
+    side: "short",
+    start_time: Date.now() - 1000 * 60 * 60 * 96, // 4 days ago
+    end_time: Date.now() - 1000 * 60 * 60 * 84, // 3.5 days ago
+    entry_avg_price: "3150.00",
+    exit_avg_price: "3200.00",
+    total_quantity: "1.0",
+    total_fees: "0.0005",
+    realized_pnl: "-50.05",
+    exchange_account: mockAccounts[2],
+  },
+];
+
 // Simulate network delay
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -225,6 +289,29 @@ function filterFundingPayments(payments: FundingPayment[], filters?: DataFilters
 
   if (filters?.baseAssets && filters.baseAssets.length > 0) {
     result = result.filter((payment) => filters.baseAssets!.includes(payment.base_asset));
+  }
+
+  return result;
+}
+
+// Filter positions based on DataFilters (uses end_time for date filtering)
+function filterPositions(positions: Position[], filters?: DataFilters): Position[] {
+  let result = positions;
+
+  if (filters?.accountId) {
+    result = result.filter((position) => position.exchange_account_id === filters.accountId);
+  }
+
+  if (filters?.since) {
+    result = result.filter((position) => position.end_time >= filters.since!);
+  }
+
+  if (filters?.until) {
+    result = result.filter((position) => position.end_time <= filters.until!);
+  }
+
+  if (filters?.baseAssets && filters.baseAssets.length > 0) {
+    result = result.filter((position) => filters.baseAssets!.includes(position.base_asset));
   }
 
   return result;
@@ -292,13 +379,16 @@ export const mockApi: ApiClient = {
     return { id };
   },
 
-  async getDistinctBaseAssets(type: "trades" | "funding"): Promise<string[]> {
+  async getDistinctBaseAssets(type: "trades" | "funding" | "positions"): Promise<string[]> {
     await delay(200);
     if (type === "trades") {
       const assets = [...new Set(mockTrades.map((t) => t.base_asset))];
       return assets.sort();
-    } else {
+    } else if (type === "funding") {
       const assets = [...new Set(mockFundingPayments.map((f) => f.base_asset))];
+      return assets.sort();
+    } else {
+      const assets = [...new Set(mockPositions.map((p) => p.base_asset))];
       return assets.sort();
     }
   },
@@ -347,6 +437,46 @@ export const mockApi: ApiClient = {
     return {
       totalAmount: totalAmount.toString(),
       count: filteredPayments.length,
+    };
+  },
+
+  async getPositions(limit: number, offset: number, filters?: DataFilters): Promise<PositionsResult> {
+    await delay(300);
+    const filteredPositions = filterPositions(mockPositions, filters);
+    const paginatedPositions = filteredPositions.slice(offset, offset + limit);
+    return {
+      positions: paginatedPositions,
+      totalCount: filteredPositions.length,
+    };
+  },
+
+  async getPositionsAggregates(filters?: DataFilters): Promise<PositionsAggregates> {
+    await delay(200);
+    const filteredPositions = filterPositions(mockPositions, filters);
+    const totalPnL = filteredPositions.reduce(
+      (sum, position) => sum + parseFloat(position.realized_pnl),
+      0
+    );
+    const totalFees = filteredPositions.reduce(
+      (sum, position) => sum + parseFloat(position.total_fees),
+      0
+    );
+    return {
+      totalPnL: totalPnL.toString(),
+      totalFees: totalFees.toString(),
+      count: filteredPositions.length,
+    };
+  },
+
+  async getPositionById(id: string): Promise<PositionWithTrades | null> {
+    await delay(200);
+    const position = mockPositions.find((p) => p.id === id);
+    if (!position) {
+      return null;
+    }
+    return {
+      ...position,
+      position_trades: [], // Mock doesn't include trades for now
     };
   },
 };

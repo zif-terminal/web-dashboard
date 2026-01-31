@@ -9,10 +9,14 @@ import {
   DELETE_ACCOUNT,
   GET_DISTINCT_TRADE_ASSETS,
   GET_DISTINCT_FUNDING_ASSETS,
+  GET_DISTINCT_POSITION_ASSETS,
   GET_TRADES_DYNAMIC,
   GET_TRADES_AGGREGATES_DYNAMIC,
   GET_FUNDING_PAYMENTS_DYNAMIC,
   GET_FUNDING_AGGREGATES_DYNAMIC,
+  GET_POSITIONS_DYNAMIC,
+  GET_POSITIONS_AGGREGATES_DYNAMIC,
+  GET_POSITION_WITH_TRADES,
   Exchange,
   ExchangeAccount,
   ExchangeAccountType,
@@ -20,8 +24,11 @@ import {
   TradesAggregates,
   FundingPayment,
   FundingAggregates,
+  Position,
+  PositionTrade,
+  PositionsAggregates,
 } from "../queries";
-import { ApiClient, CreateAccountInput, TradesResult, FundingPaymentsResult, DataFilters } from "./types";
+import { ApiClient, CreateAccountInput, TradesResult, FundingPaymentsResult, PositionsResult, PositionWithTrades, DataFilters } from "./types";
 import { ApiError } from "./errors";
 
 function isAuthError(error: unknown): boolean {
@@ -116,6 +123,35 @@ function buildFundingWhereClause(filters?: DataFilters): Record<string, unknown>
   return { _and: conditions };
 }
 
+// Build where clause for positions based on filters (uses end_time for date filtering)
+function buildPositionsWhereClause(filters?: DataFilters): Record<string, unknown> {
+  const conditions: Record<string, unknown>[] = [];
+
+  if (filters?.accountId) {
+    conditions.push({ exchange_account_id: { _eq: filters.accountId } });
+  }
+
+  if (filters?.since !== undefined && filters?.until !== undefined) {
+    conditions.push({ end_time: { _gte: String(filters.since), _lte: String(filters.until) } });
+  } else if (filters?.since !== undefined) {
+    conditions.push({ end_time: { _gte: String(filters.since) } });
+  }
+
+  if (filters?.baseAssets && filters.baseAssets.length > 0) {
+    conditions.push({ base_asset: { _in: filters.baseAssets } });
+  }
+
+  if (conditions.length === 0) {
+    return {};
+  }
+
+  if (conditions.length === 1) {
+    return conditions[0];
+  }
+
+  return { _and: conditions };
+}
+
 export const graphqlApi: ApiClient = {
   async getExchanges(): Promise<Exchange[]> {
     return withErrorHandling(async () => {
@@ -172,15 +208,18 @@ export const graphqlApi: ApiClient = {
     });
   },
 
-  async getDistinctBaseAssets(type: "trades" | "funding"): Promise<string[]> {
+  async getDistinctBaseAssets(type: "trades" | "funding" | "positions"): Promise<string[]> {
     return withErrorHandling(async () => {
       const client = getGraphQLClient();
       if (type === "trades") {
         const data = await client.request<{ trades: { base_asset: string }[] }>(GET_DISTINCT_TRADE_ASSETS);
         return data.trades.map((t) => t.base_asset);
-      } else {
+      } else if (type === "funding") {
         const data = await client.request<{ funding_payments: { base_asset: string }[] }>(GET_DISTINCT_FUNDING_ASSETS);
         return data.funding_payments.map((f) => f.base_asset);
+      } else {
+        const data = await client.request<{ positions: { base_asset: string }[] }>(GET_DISTINCT_POSITION_ASSETS);
+        return data.positions.map((p) => p.base_asset);
       }
     });
   },
@@ -259,6 +298,55 @@ export const graphqlApi: ApiClient = {
         totalAmount: data.funding_payments_aggregate.aggregate.sum.amount || "0",
         count: data.funding_payments_aggregate.aggregate.count,
       };
+    });
+  },
+
+  async getPositions(limit: number, offset: number, filters?: DataFilters): Promise<PositionsResult> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const where = buildPositionsWhereClause(filters);
+
+      const data = await client.request<{
+        positions: Position[];
+        positions_aggregate: { aggregate: { count: number } };
+      }>(GET_POSITIONS_DYNAMIC, { limit, offset, where });
+
+      return {
+        positions: data.positions,
+        totalCount: data.positions_aggregate.aggregate.count,
+      };
+    });
+  },
+
+  async getPositionsAggregates(filters?: DataFilters): Promise<PositionsAggregates> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const where = buildPositionsWhereClause(filters);
+
+      const data = await client.request<{
+        positions_aggregate: {
+          aggregate: {
+            count: number;
+            sum: { realized_pnl: string | null; total_fees: string | null };
+          };
+        };
+      }>(GET_POSITIONS_AGGREGATES_DYNAMIC, { where });
+
+      return {
+        totalPnL: data.positions_aggregate.aggregate.sum.realized_pnl || "0",
+        totalFees: data.positions_aggregate.aggregate.sum.total_fees || "0",
+        count: data.positions_aggregate.aggregate.count,
+      };
+    });
+  },
+
+  async getPositionById(id: string): Promise<PositionWithTrades | null> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        positions_by_pk: (Position & { position_trades: PositionTrade[] }) | null;
+      }>(GET_POSITION_WITH_TRADES, { id });
+      return data.positions_by_pk;
     });
   },
 };
