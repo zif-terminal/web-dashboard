@@ -11,6 +11,10 @@ import {
   DiscoverableAccount,
   getWalletInputPlaceholder,
   getWalletInputHelp,
+  exchangeRequiresAuthToken,
+  getAuthTokenPlaceholder,
+  getAuthTokenHelp,
+  buildUserIdentifier,
 } from "@/lib/api/exchanges";
 import { Exchange } from "@/lib/queries";
 import { Button } from "@/components/ui/button";
@@ -47,6 +51,7 @@ import {
 const walletSchema = z.object({
   exchange_id: z.string().min(1, "Exchange is required"),
   wallet_address: z.string().min(1, "Wallet address is required"),
+  auth_token: z.string().optional(),
 });
 
 type WalletFormValues = z.infer<typeof walletSchema>;
@@ -79,6 +84,7 @@ export function AddAccountDialog({ onSuccess }: AddAccountDialogProps) {
     defaultValues: {
       exchange_id: "",
       wallet_address: "",
+      auth_token: "",
     },
   });
 
@@ -128,10 +134,19 @@ export function AddAccountDialog({ onSuccess }: AddAccountDialogProps) {
         throw new Error("Exchange not found");
       }
 
-      const accounts = await discoverAccounts(
+      // Validate auth token for exchanges that require it
+      if (exchangeRequiresAuthToken(exchange.name) && !data.auth_token) {
+        throw new Error("Auth token is required for this exchange");
+      }
+
+      // Build the user identifier based on exchange requirements
+      const userIdentifier = buildUserIdentifier(
         exchange.name,
-        data.wallet_address
+        data.wallet_address,
+        data.auth_token
       );
+
+      const accounts = await discoverAccounts(exchange.name, userIdentifier);
 
       if (accounts.length === 0) {
         toast.error("No accounts found for this wallet address");
@@ -323,6 +338,30 @@ export function AddAccountDialog({ onSuccess }: AddAccountDialogProps) {
                     </FormItem>
                   )}
                 />
+                {selectedExchange &&
+                  exchangeRequiresAuthToken(selectedExchange.name) && (
+                    <FormField
+                      control={form.control}
+                      name="auth_token"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Auth Token</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder={getAuthTokenPlaceholder(
+                                selectedExchange.name
+                              )}
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {getAuthTokenHelp(selectedExchange.name)}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
                 <div className="flex justify-end gap-2">
                   <Button
                     type="button"
