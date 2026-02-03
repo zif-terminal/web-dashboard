@@ -105,6 +105,7 @@ export interface Trade {
   order_id: string;
   trade_id: string;
   exchange_account_id: string;
+  market_type: "perp" | "spot";
   exchange_account?: ExchangeAccount;
 }
 
@@ -819,6 +820,7 @@ export const GET_TRADES_DYNAMIC = gql`
       order_id
       trade_id
       exchange_account_id
+      market_type
       exchange_account {
         id
         account_identifier
@@ -1050,6 +1052,7 @@ export const GET_POSITION_WITH_TRADES = gql`
           fee
           order_id
           trade_id
+          market_type
         }
       }
     }

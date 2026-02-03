@@ -31,6 +31,7 @@ export interface DataFilters {
   since?: number;
   until?: number;
   baseAssets?: string[];
+  marketTypes?: ("perp" | "spot")[];
 }
 
 export interface ApiClient {
