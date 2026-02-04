@@ -130,6 +130,7 @@ export const GET_TRADES = gql`
       order_id
       trade_id
       exchange_account_id
+      market_type
       exchange_account {
         id
         account_identifier
@@ -163,6 +164,7 @@ export const GET_TRADES_WITH_FILTER = gql`
       order_id
       trade_id
       exchange_account_id
+      market_type
       exchange_account {
         id
         account_identifier
@@ -196,6 +198,7 @@ export const GET_TRADES_WITH_RANGE_FILTER = gql`
       order_id
       trade_id
       exchange_account_id
+      market_type
       exchange_account {
         id
         account_identifier
@@ -229,6 +232,7 @@ export const GET_TRADES_BY_ACCOUNT = gql`
       order_id
       trade_id
       exchange_account_id
+      market_type
       exchange_account {
         id
         account_identifier
@@ -262,6 +266,7 @@ export const GET_TRADES_BY_ACCOUNT_WITH_FILTER = gql`
       order_id
       trade_id
       exchange_account_id
+      market_type
       exchange_account {
         id
         account_identifier
@@ -295,6 +300,7 @@ export const GET_TRADES_BY_ACCOUNT_WITH_RANGE_FILTER = gql`
       order_id
       trade_id
       exchange_account_id
+      market_type
       exchange_account {
         id
         account_identifier
