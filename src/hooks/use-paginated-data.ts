@@ -51,6 +51,7 @@ export interface UsePaginatedDataResult<TItem, TAggregates> {
   selectedAccountId: string;
   dateRange: DateRangeValue;
   selectedAssets: string[];
+  selectedMarketTypes: ("perp" | "spot")[];
 
   // New item tracking
   isNew: (id: string) => boolean;
@@ -60,6 +61,7 @@ export interface UsePaginatedDataResult<TItem, TAggregates> {
   handleAccountChange: (accountId: string) => void;
   handleDateRangeChange: (newRange: DateRangeValue) => void;
   handleAssetChange: (assets: string[]) => void;
+  handleMarketTypeChange: (marketTypes: ("perp" | "spot")[]) => void;
 
   // Refresh
   refresh: () => void;
@@ -96,6 +98,7 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
   const [selectedAccountId, setSelectedAccountId] = useState<string>(accountId ?? "all");
   const [dateRange, setDateRange] = useState<DateRangeValue>({ preset: "all" });
   const [selectedAssets, setSelectedAssets] = useState<string[]>([]);
+  const [selectedMarketTypes, setSelectedMarketTypes] = useState<("perp" | "spot")[]>([]);
 
   // New item tracking
   const { updateItems: updateNewItems, isNew } = useNewItems<TItem>();
@@ -105,23 +108,26 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
   const selectedAccountIdRef = useRef(selectedAccountId);
   const dateRangeRef = useRef(dateRange);
   const selectedAssetsRef = useRef(selectedAssets);
+  const selectedMarketTypesRef = useRef(selectedMarketTypes);
 
   useEffect(() => {
     pageRef.current = page;
     selectedAccountIdRef.current = selectedAccountId;
     dateRangeRef.current = dateRange;
     selectedAssetsRef.current = selectedAssets;
-  }, [page, selectedAccountId, dateRange, selectedAssets]);
+    selectedMarketTypesRef.current = selectedMarketTypes;
+  }, [page, selectedAccountId, dateRange, selectedAssets, selectedMarketTypes]);
 
   // Build filters object from current state
   const buildFilters = useCallback(
-    (accId: string, dateRangeValue: DateRangeValue, assets: string[]): DataFilters => {
+    (accId: string, dateRangeValue: DateRangeValue, assets: string[], marketTypes: ("perp" | "spot")[]): DataFilters => {
       const { since, until } = getTimestampsFromDateRange(dateRangeValue);
       return {
         accountId: accId === "all" ? undefined : accId,
         since,
         until,
         baseAssets: assets.length > 0 ? assets : undefined,
+        marketTypes: marketTypes.length > 0 ? marketTypes : undefined,
       };
     },
     []
@@ -129,9 +135,9 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
 
   // Fetch aggregates
   const doFetchAggregates = useCallback(
-    async (accId: string, dateRangeValue: DateRangeValue, assets: string[]) => {
+    async (accId: string, dateRangeValue: DateRangeValue, assets: string[], marketTypes: ("perp" | "spot")[]) => {
       setIsLoadingAggregates(true);
-      const filters = buildFilters(accId, dateRangeValue, assets);
+      const filters = buildFilters(accId, dateRangeValue, assets, marketTypes);
 
       try {
         const data = await withErrorReporting(() => fetchAggregates(filters));
@@ -147,9 +153,9 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
 
   // Fetch items
   const doFetchItems = useCallback(
-    async (pageNum: number, accId: string, dateRangeValue: DateRangeValue, assets: string[]) => {
+    async (pageNum: number, accId: string, dateRangeValue: DateRangeValue, assets: string[], marketTypes: ("perp" | "spot")[]) => {
       setIsLoading(true);
-      const filters = buildFilters(accId, dateRangeValue, assets);
+      const filters = buildFilters(accId, dateRangeValue, assets, marketTypes);
 
       try {
         const data = await withErrorReporting(() =>
@@ -174,12 +180,14 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
         pageRef.current,
         selectedAccountIdRef.current,
         dateRangeRef.current,
-        selectedAssetsRef.current
+        selectedAssetsRef.current,
+        selectedMarketTypesRef.current
       ),
       doFetchAggregates(
         selectedAccountIdRef.current,
         dateRangeRef.current,
-        selectedAssetsRef.current
+        selectedAssetsRef.current,
+        selectedMarketTypesRef.current
       ),
     ]);
   }, [doFetchItems, doFetchAggregates]);
@@ -197,7 +205,7 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
   // Refetch when filters change
   useEffect(() => {
     refresh();
-  }, [page, selectedAccountId, dateRange, selectedAssets]);
+  }, [page, selectedAccountId, dateRange, selectedAssets, selectedMarketTypes]);
 
   // If accountId prop changes (for account-specific pages), update filter
   useEffect(() => {
@@ -226,6 +234,11 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
     setPage(0);
   }, []);
 
+  const handleMarketTypeChange = useCallback((marketTypes: ("perp" | "spot")[]) => {
+    setSelectedMarketTypes(marketTypes);
+    setPage(0);
+  }, []);
+
   return {
     // Data
     items,
@@ -244,6 +257,7 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
     selectedAccountId,
     dateRange,
     selectedAssets,
+    selectedMarketTypes,
 
     // New item tracking
     isNew,
@@ -253,6 +267,7 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
     handleAccountChange,
     handleDateRangeChange,
     handleAssetChange,
+    handleMarketTypeChange,
 
     // Refresh
     refresh,

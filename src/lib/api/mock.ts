@@ -57,6 +57,7 @@ const mockTrades: Trade[] = [
     order_id: "ord-abc123def456",
     trade_id: "trd-001",
     exchange_account_id: "mock-acc-001",
+    market_type: "perp",
     exchange_account: mockAccounts[0],
   },
   {
@@ -71,6 +72,7 @@ const mockTrades: Trade[] = [
     order_id: "ord-xyz789ghi012",
     trade_id: "trd-002",
     exchange_account_id: "mock-acc-001",
+    market_type: "perp",
     exchange_account: mockAccounts[0],
   },
   {
@@ -85,6 +87,7 @@ const mockTrades: Trade[] = [
     order_id: "ord-mno345pqr678",
     trade_id: "trd-003",
     exchange_account_id: "mock-acc-003",
+    market_type: "spot",
     exchange_account: mockAccounts[2],
   },
   {
@@ -99,6 +102,7 @@ const mockTrades: Trade[] = [
     order_id: "ord-stu901vwx234",
     trade_id: "trd-004",
     exchange_account_id: "mock-acc-002",
+    market_type: "spot",
     exchange_account: mockAccounts[1],
   },
   {
@@ -113,6 +117,7 @@ const mockTrades: Trade[] = [
     order_id: "ord-yza567bcd890",
     trade_id: "trd-005",
     exchange_account_id: "mock-acc-001",
+    market_type: "perp",
     exchange_account: mockAccounts[0],
   },
 ];
@@ -266,6 +271,10 @@ function filterTrades(trades: Trade[], filters?: DataFilters): Trade[] {
 
   if (filters?.baseAssets && filters.baseAssets.length > 0) {
     result = result.filter((trade) => filters.baseAssets!.includes(trade.base_asset));
+  }
+
+  if (filters?.marketTypes && filters.marketTypes.length > 0) {
+    result = result.filter((trade) => filters.marketTypes!.includes(trade.market_type));
   }
 
   return result;

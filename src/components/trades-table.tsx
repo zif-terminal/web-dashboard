@@ -114,8 +114,22 @@ export function TradesTable({
                   </div>
                 </div>
               </TableCell>
-              <TableCell className="py-3 font-medium">
-                {trade.base_asset}/{trade.quote_asset}
+              <TableCell className="py-3">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">
+                    {trade.base_asset}/{trade.quote_asset}
+                  </span>
+                  <span
+                    className={cn(
+                      "text-[10px] font-medium px-1.5 py-0.5 rounded uppercase",
+                      trade.market_type === "spot"
+                        ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                        : "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400"
+                    )}
+                  >
+                    {trade.market_type || "perp"}
+                  </span>
+                </div>
               </TableCell>
               <TableCell className="py-3">
                 <span

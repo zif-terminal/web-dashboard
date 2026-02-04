@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { StatCard, StatsGrid } from "@/components/stat-card";
 import { DateRangeFilter } from "@/components/date-range-filter";
 import { AssetFilter } from "@/components/asset-filter";
+import { MarketTypeFilter } from "@/components/market-type-filter";
 import { usePaginatedData } from "@/hooks/use-paginated-data";
 
 const PAGE_SIZE = 100;
@@ -47,10 +48,12 @@ export default function AccountTradesPage({ params }: AccountTradesPageProps) {
     page,
     dateRange,
     selectedAssets,
+    selectedMarketTypes,
     isNew,
     handlePageChange,
     handleDateRangeChange,
     handleAssetChange,
+    handleMarketTypeChange,
     refresh,
     lastRefreshTime,
   } = usePaginatedData<Trade, TradesAggregates>({
@@ -131,6 +134,10 @@ export default function AccountTradesPage({ params }: AccountTradesPageProps) {
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle>Trades</CardTitle>
           <div className="flex items-center gap-4">
+            <MarketTypeFilter
+              value={selectedMarketTypes}
+              onChange={handleMarketTypeChange}
+            />
             <AssetFilter
               assets={availableAssets}
               selectedAssets={selectedAssets}

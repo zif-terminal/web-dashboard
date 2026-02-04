@@ -137,8 +137,15 @@ export function PositionsTable({
                     </div>
                   </div>
                 </TableCell>
-                <TableCell className="py-3 font-medium">
-                  {position.base_asset}/{position.quote_asset}
+                <TableCell className="py-3">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">
+                      {position.base_asset}/{position.quote_asset}
+                    </span>
+                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded uppercase bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
+                      PERP
+                    </span>
+                  </div>
                 </TableCell>
                 <TableCell className="py-3">
                   <span

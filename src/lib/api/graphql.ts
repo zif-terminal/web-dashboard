@@ -83,6 +83,10 @@ function buildTradesWhereClause(filters?: DataFilters): Record<string, unknown> 
     conditions.push({ base_asset: { _in: filters.baseAssets } });
   }
 
+  if (filters?.marketTypes && filters.marketTypes.length > 0) {
+    conditions.push({ market_type: { _in: filters.marketTypes } });
+  }
+
   if (conditions.length === 0) {
     return {};
   }
