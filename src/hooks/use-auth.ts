@@ -10,6 +10,7 @@ export function useAuth() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- required for initial auth check
     setIsLoggedIn(isAuthenticated());
     setIsLoading(false);
   }, []);

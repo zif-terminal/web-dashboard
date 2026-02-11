@@ -1,0 +1,77 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate-commits:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate conventional commits
+        run: |
+          commits=$(git log --format="%s" origin/${{ github.base_ref }}..${{ github.sha }})
+
+          pattern="^(feat|fix|docs|style|refactor|perf|test|chore|ci|build)(\([a-zA-Z0-9_-]+\))?\!?: .+"
+
+          has_error=false
+          while IFS= read -r msg; do
+            [ -z "$msg" ] && continue
+            echo "$msg" | grep -qE "^Merge " && continue
+
+            if ! echo "$msg" | grep -qE "$pattern"; then
+              echo "Invalid: $msg"
+              has_error=true
+            else
+              echo "Valid: $msg"
+            fi
+          done <<< "$commits"
+
+          if [ "$has_error" = true ]; then
+            echo ""
+            echo "Commits must follow conventional format: <type>[scope]: <description>"
+            echo "Types: feat, fix, docs, style, refactor, perf, test, chore, ci, build"
+            exit 1
+          fi
+
+  build:
+    needs: validate-commits
+    if: always() && (needs.validate-commits.result == 'success' || needs.validate-commits.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: "--prod"

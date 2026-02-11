@@ -1,5 +1,8 @@
 # zif-dashboard
 
+[![Deploy](https://github.com/zif-terminal/web-dashboard/actions/workflows/deploy.yml/badge.svg)](https://github.com/zif-terminal/web-dashboard/actions/workflows/deploy.yml)
+[![Node](https://img.shields.io/badge/node-20+-blue)](https://nodejs.org/)
+
 Web dashboard for managing cryptocurrency exchange accounts across Hyperliquid, Lighter, and Drift.
 
 ## Quick Start
