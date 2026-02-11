@@ -7,6 +7,9 @@ import {
   GET_ACCOUNT_BY_ID,
   CREATE_ACCOUNT,
   DELETE_ACCOUNT,
+  GET_WALLETS,
+  CREATE_WALLET,
+  DELETE_WALLET,
   GET_DISTINCT_TRADE_ASSETS,
   GET_DISTINCT_FUNDING_ASSETS,
   GET_DISTINCT_POSITION_ASSETS,
@@ -27,8 +30,9 @@ import {
   Position,
   PositionTrade,
   PositionsAggregates,
+  Wallet,
 } from "../queries";
-import { ApiClient, CreateAccountInput, TradesResult, FundingPaymentsResult, PositionsResult, PositionWithTrades, DataFilters } from "./types";
+import { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, PositionsResult, PositionWithTrades, DataFilters } from "./types";
 import { ApiError } from "./errors";
 
 function isAuthError(error: unknown): boolean {
@@ -351,6 +355,35 @@ export const graphqlApi: ApiClient = {
         positions_by_pk: (Position & { position_trades: PositionTrade[] }) | null;
       }>(GET_POSITION_WITH_TRADES, { id });
       return data.positions_by_pk;
+    });
+  },
+
+  // Wallet methods
+  async getWallets(): Promise<Wallet[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{ wallets: Wallet[] }>(GET_WALLETS);
+      return data.wallets;
+    });
+  },
+
+  async createWallet(input: CreateWalletInput): Promise<Wallet> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        insert_wallets_one: Wallet;
+      }>(CREATE_WALLET, { address: input.address, chain: input.chain });
+      return data.insert_wallets_one;
+    });
+  },
+
+  async deleteWallet(id: string): Promise<{ id: string }> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        delete_wallets_by_pk: { id: string };
+      }>(DELETE_WALLET, { id });
+      return data.delete_wallets_by_pk;
     });
   },
 };
