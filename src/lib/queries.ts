@@ -17,7 +17,6 @@ export interface ExchangeAccount {
   account_identifier: string;
   account_type: string;
   account_type_metadata: Record<string, unknown>;
-  wallet_address?: string;
   wallet_id?: string;
   status?: string; // "active", "needs_token", "disabled"
   detected_at?: string;
@@ -54,13 +53,12 @@ export const GET_ACCOUNT_TYPES = gql`
 
 export const GET_ACCOUNTS = gql`
   query GetAccounts {
-    exchange_accounts(order_by: { wallet_address: asc, exchange: { name: asc } }) {
+    exchange_accounts(order_by: { wallet: { address: asc }, exchange: { name: asc } }) {
       id
       exchange_id
       account_identifier
       account_type
       account_type_metadata
-      wallet_address
       wallet_id
       status
       detected_at
@@ -123,7 +121,6 @@ export const GET_ACCOUNTS_BY_WALLET = gql`
       account_identifier
       account_type
       account_type_metadata
-      wallet_address
       wallet_id
       status
       detected_at
@@ -131,6 +128,11 @@ export const GET_ACCOUNTS_BY_WALLET = gql`
         id
         name
         display_name
+      }
+      wallet {
+        id
+        address
+        chain
       }
     }
   }
@@ -144,11 +146,18 @@ export const GET_ACCOUNT_BY_ID = gql`
       account_identifier
       account_type
       account_type_metadata
-      wallet_address
+      wallet_id
+      status
+      detected_at
       exchange {
         id
         name
         display_name
+      }
+      wallet {
+        id
+        address
+        chain
       }
     }
   }

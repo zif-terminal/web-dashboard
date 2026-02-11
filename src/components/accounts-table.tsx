@@ -82,7 +82,7 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
     const groups = new Map<string | null, ExchangeAccount[]>();
 
     for (const account of accounts) {
-      const key = account.wallet_address || null;
+      const key = account.wallet?.address || null;
       const existing = groups.get(key) || [];
       existing.push(account);
       groups.set(key, existing);
@@ -98,9 +98,9 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
       .map(([walletAddress, accts]) => ({ walletAddress, accounts: accts }));
   }, [accounts]);
 
-  // Check if we should show wallet grouping (at least one account has wallet_address)
+  // Check if we should show wallet grouping (at least one account has a wallet)
   const hasWalletGrouping = useMemo(() => {
-    return accounts.some(a => a.wallet_address);
+    return accounts.some(a => a.wallet?.address);
   }, [accounts]);
 
   if (isLoading) {

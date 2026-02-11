@@ -5,7 +5,6 @@ export interface CreateAccountInput {
   account_identifier: string;
   account_type: string;
   account_type_metadata: Record<string, unknown>;
-  wallet_address?: string;
   wallet_id?: string;
   status?: string;
 }
