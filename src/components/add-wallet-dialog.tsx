@@ -122,7 +122,7 @@ export function AddWalletDialog({ onSuccess }: AddWalletDialogProps) {
         <DialogHeader>
           <DialogTitle>Add Wallet</DialogTitle>
           <DialogDescription>
-            Enter your wallet address. We'll automatically detect the chain and find your accounts.
+            Enter your wallet address. We will automatically detect the chain and find your accounts.
           </DialogDescription>
         </DialogHeader>
 
@@ -177,7 +177,7 @@ export function AddWalletDialog({ onSuccess }: AddWalletDialogProps) {
           {status === "done" && chain && (
             <div className="text-sm text-muted-foreground">
               After adding this wallet, our system will automatically detect protocols
-              you've used and create accounts for them. This may include:
+              you have used and create accounts for them. This may include:
               {chain === "solana" && (
                 <ul className="mt-2 list-disc list-inside">
                   <li>Drift Protocol (perps, funding, subaccounts)</li>

@@ -2,7 +2,7 @@ import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates
 import { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, PositionsResult, PositionWithTrades, DataFilters } from "./types";
 
 // Mock wallets
-let mockWallets: Wallet[] = [
+const mockWallets: Wallet[] = [
   {
     id: "mock-wallet-001",
     address: "HN4xHDBPK7oSGGRafaJWS6jT8M7xyEk7Kos24xp27Kpq",
