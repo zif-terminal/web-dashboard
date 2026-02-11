@@ -16,7 +16,7 @@ const mockAccountTypes: ExchangeAccountType[] = [
 ];
 
 // Mock accounts (mutable for add/delete operations)
-let mockAccounts: ExchangeAccount[] = [
+const mockAccounts: ExchangeAccount[] = [
   {
     id: "mock-acc-001",
     exchange_id: "hyperliquid",
