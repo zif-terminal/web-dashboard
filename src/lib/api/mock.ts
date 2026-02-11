@@ -1,5 +1,15 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionsAggregates } from "../queries";
-import { ApiClient, CreateAccountInput, TradesResult, FundingPaymentsResult, PositionsResult, PositionWithTrades, DataFilters } from "./types";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionsAggregates, Wallet } from "../queries";
+import { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, PositionsResult, PositionWithTrades, DataFilters } from "./types";
+
+// Mock wallets
+const mockWallets: Wallet[] = [
+  {
+    id: "mock-wallet-001",
+    address: "HN4xHDBPK7oSGGRafaJWS6jT8M7xyEk7Kos24xp27Kpq",
+    chain: "solana",
+    created_at: new Date().toISOString(),
+  },
+];
 
 // Mock exchanges
 const mockExchanges: Exchange[] = [
@@ -487,5 +497,42 @@ export const mockApi: ApiClient = {
       ...position,
       position_trades: [], // Mock doesn't include trades for now
     };
+  },
+
+  // Wallet methods
+  async getWallets(): Promise<Wallet[]> {
+    await delay(200);
+    return [...mockWallets];
+  },
+
+  async createWallet(input: CreateWalletInput): Promise<Wallet> {
+    await delay(400);
+    const exists = mockWallets.some(
+      (w) => w.address === input.address && w.chain === input.chain
+    );
+    if (exists) {
+      const existing = mockWallets.find(
+        (w) => w.address === input.address && w.chain === input.chain
+      );
+      return existing!;
+    }
+    const newWallet: Wallet = {
+      id: `mock-wallet-${Date.now()}`,
+      address: input.address,
+      chain: input.chain,
+      created_at: new Date().toISOString(),
+    };
+    mockWallets.push(newWallet);
+    return newWallet;
+  },
+
+  async deleteWallet(id: string): Promise<{ id: string }> {
+    await delay(300);
+    const index = mockWallets.findIndex((w) => w.id === id);
+    if (index === -1) {
+      throw new Error("Wallet not found");
+    }
+    mockWallets.splice(index, 1);
+    return { id };
   },
 };

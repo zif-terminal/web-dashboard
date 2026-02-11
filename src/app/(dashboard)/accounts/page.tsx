@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { AccountsTable } from "@/components/accounts-table";
-import { AddAccountDialog } from "@/components/add-account-dialog";
+import { AddWalletDialog } from "@/components/add-wallet-dialog";
 import { SyncButton } from "@/components/sync-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -26,7 +26,7 @@ export default function AccountsPage() {
           <div>
             <h1 className="text-3xl font-bold">Exchange Accounts</h1>
             <p className="text-muted-foreground">
-              Manage your connected exchange accounts
+              Manage your wallets and exchange accounts
             </p>
           </div>
           <SyncButton
@@ -35,7 +35,7 @@ export default function AccountsPage() {
             isLoading={isLoading}
           />
         </div>
-        <AddAccountDialog onSuccess={handleRefresh} />
+        <AddWalletDialog onSuccess={handleRefresh} />
       </div>
       <Card>
         <CardHeader>

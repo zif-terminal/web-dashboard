@@ -17,7 +17,19 @@ export interface ExchangeAccount {
   account_identifier: string;
   account_type: string;
   account_type_metadata: Record<string, unknown>;
+  wallet_id?: string;
+  status?: string; // "active", "needs_token", "disabled"
+  detected_at?: string;
   exchange?: Exchange;
+  wallet?: Wallet;
+}
+
+// Wallet types
+export interface Wallet {
+  id: string;
+  address: string;
+  chain: string;
+  created_at: string;
 }
 
 // Queries
@@ -41,16 +53,86 @@ export const GET_ACCOUNT_TYPES = gql`
 
 export const GET_ACCOUNTS = gql`
   query GetAccounts {
-    exchange_accounts {
+    exchange_accounts(order_by: { wallet: { address: asc }, exchange: { name: asc } }) {
       id
       exchange_id
       account_identifier
       account_type
       account_type_metadata
+      wallet_id
+      status
+      detected_at
       exchange {
         id
         name
         display_name
+      }
+      wallet {
+        id
+        address
+        chain
+      }
+    }
+  }
+`;
+
+// Wallet queries
+export const GET_WALLETS = gql`
+  query GetWallets {
+    wallets(order_by: { created_at: desc }) {
+      id
+      address
+      chain
+      created_at
+    }
+  }
+`;
+
+export const CREATE_WALLET = gql`
+  mutation CreateWallet($address: String!, $chain: String!) {
+    insert_wallets_one(
+      object: { address: $address, chain: $chain }
+      on_conflict: { constraint: wallets_address_chain_key, update_columns: [] }
+    ) {
+      id
+      address
+      chain
+      created_at
+    }
+  }
+`;
+
+export const DELETE_WALLET = gql`
+  mutation DeleteWallet($id: uuid!) {
+    delete_wallets_by_pk(id: $id) {
+      id
+    }
+  }
+`;
+
+export const GET_ACCOUNTS_BY_WALLET = gql`
+  query GetAccountsByWallet($walletId: uuid!) {
+    exchange_accounts(
+      where: { wallet_id: { _eq: $walletId } }
+      order_by: { exchange: { name: asc } }
+    ) {
+      id
+      exchange_id
+      account_identifier
+      account_type
+      account_type_metadata
+      wallet_id
+      status
+      detected_at
+      exchange {
+        id
+        name
+        display_name
+      }
+      wallet {
+        id
+        address
+        chain
       }
     }
   }
@@ -64,10 +146,18 @@ export const GET_ACCOUNT_BY_ID = gql`
       account_identifier
       account_type
       account_type_metadata
+      wallet_id
+      status
+      detected_at
       exchange {
         id
         name
         display_name
+      }
+      wallet {
+        id
+        address
+        chain
       }
     }
   }

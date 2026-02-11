@@ -52,6 +52,7 @@ export function getWalletInputPlaceholder(exchangeName: string): string {
     case "hyperliquid":
       return "0x... (Ethereum wallet address)";
     case "drift":
+    case "jupiter":
       return "Solana wallet address";
     case "lighter":
       return "0x... (L1 wallet address)";
@@ -69,6 +70,8 @@ export function getWalletInputHelp(exchangeName: string): string {
       return "Enter your Ethereum wallet address to discover your main account, subaccounts, and vaults.";
     case "drift":
       return "Enter your Solana wallet address (authority) to discover your Drift subaccounts.";
+    case "jupiter":
+      return "Enter your Solana wallet address to sync your Jupiter swap history.";
     case "lighter":
       return "Enter your L1 wallet address and read-only auth token to discover your Lighter accounts.";
     default:

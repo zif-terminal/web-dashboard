@@ -1,10 +1,17 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionTrade, PositionsAggregates } from "../queries";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionTrade, PositionsAggregates, Wallet } from "../queries";
 
 export interface CreateAccountInput {
   exchange_id: string;
   account_identifier: string;
   account_type: string;
   account_type_metadata: Record<string, unknown>;
+  wallet_id?: string;
+  status?: string;
+}
+
+export interface CreateWalletInput {
+  address: string;
+  chain: string;
 }
 
 export interface TradesResult {
@@ -49,4 +56,8 @@ export interface ApiClient {
   getPositions(limit: number, offset: number, filters?: DataFilters): Promise<PositionsResult>;
   getPositionsAggregates(filters?: DataFilters): Promise<PositionsAggregates>;
   getPositionById(id: string): Promise<PositionWithTrades | null>;
+  // Wallet methods
+  getWallets(): Promise<Wallet[]>;
+  createWallet(input: CreateWalletInput): Promise<Wallet>;
+  deleteWallet(id: string): Promise<{ id: string }>;
 }
