@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { ExchangeAccount } from "@/lib/queries";
 import { useApi } from "@/hooks/use-api";
+import { formatRelativeTime } from "@/lib/format";
 import {
   Table,
   TableBody,
@@ -183,6 +184,7 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
                 <TableHead>Account Identifier</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Last Synced</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -205,6 +207,9 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
                   </TableCell>
                   <TableCell>
                     {getStatusBadge(account.status)}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground text-sm">
+                    {formatRelativeTime(account.last_synced_at)}
                   </TableCell>
                 </TableRow>
               ))}

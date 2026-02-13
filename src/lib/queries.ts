@@ -20,6 +20,7 @@ export interface ExchangeAccount {
   wallet_id?: string;
   status?: string; // "active", "needs_token", "disabled"
   detected_at?: string;
+  last_synced_at?: string;
   exchange?: Exchange;
   wallet?: Wallet;
 }
@@ -30,6 +31,7 @@ export interface Wallet {
   address: string;
   chain: string;
   created_at: string;
+  last_detected_at?: string;
 }
 
 // Queries
@@ -62,6 +64,7 @@ export const GET_ACCOUNTS = gql`
       wallet_id
       status
       detected_at
+      last_synced_at
       exchange {
         id
         name
@@ -84,6 +87,7 @@ export const GET_WALLETS = gql`
       address
       chain
       created_at
+      last_detected_at
     }
   }
 `;
@@ -110,6 +114,32 @@ export const DELETE_WALLET = gql`
   }
 `;
 
+// Wallet with account count (for wallets section)
+export interface WalletWithAccounts extends Wallet {
+  exchange_accounts_aggregate: {
+    aggregate: {
+      count: number;
+    };
+  };
+}
+
+export const GET_WALLETS_WITH_COUNTS = gql`
+  query GetWalletsWithCounts {
+    wallets(order_by: { created_at: desc }) {
+      id
+      address
+      chain
+      created_at
+      last_detected_at
+      exchange_accounts_aggregate {
+        aggregate {
+          count
+        }
+      }
+    }
+  }
+`;
+
 export const GET_ACCOUNTS_BY_WALLET = gql`
   query GetAccountsByWallet($walletId: uuid!) {
     exchange_accounts(
@@ -124,6 +154,7 @@ export const GET_ACCOUNTS_BY_WALLET = gql`
       wallet_id
       status
       detected_at
+      last_synced_at
       exchange {
         id
         name
@@ -149,6 +180,7 @@ export const GET_ACCOUNT_BY_ID = gql`
       wallet_id
       status
       detected_at
+      last_synced_at
       exchange {
         id
         name
