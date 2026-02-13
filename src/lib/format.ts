@@ -50,3 +50,15 @@ export function formatRelativeTime(timestamp: string | number | null | undefined
 
   return date.toLocaleDateString();
 }
+
+export function truncateAddress(address: string, startChars = 6, endChars = 4): string {
+  if (address.length <= startChars + endChars + 3) return address;
+  return `${address.slice(0, startChars)}...${address.slice(-endChars)}`;
+}
+
+export function getDisplayName(label: string | null | undefined, address: string, startChars = 6, endChars = 4): string {
+  if (label && label.trim().length > 0) {
+    return label.trim();
+  }
+  return truncateAddress(address, startChars, endChars);
+}

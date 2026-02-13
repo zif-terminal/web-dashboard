@@ -9,6 +9,7 @@ const mockWallets: Wallet[] = [
     chain: "solana",
     created_at: new Date().toISOString(),
     tags: ["main", "trading"],
+    label: "Main Trading Wallet",
   },
 ];
 
@@ -36,6 +37,7 @@ const mockAccounts: ExchangeAccount[] = [
     account_type_metadata: {},
     exchange: mockExchanges[0],
     tags: ["main", "trading"],
+    label: "Primary HL",
   },
   {
     id: "mock-acc-002",
@@ -45,6 +47,7 @@ const mockAccounts: ExchangeAccount[] = [
     account_type_metadata: {},
     exchange: mockExchanges[0],
     tags: ["defi"],
+    label: undefined,
   },
   {
     id: "mock-acc-003",
@@ -54,6 +57,7 @@ const mockAccounts: ExchangeAccount[] = [
     account_type_metadata: {},
     exchange: mockExchanges[2],
     tags: [],
+    label: "Drift Main",
   },
 ];
 
@@ -572,5 +576,25 @@ export const mockApi: ApiClient = {
     }
     account.tags = tags;
     return { id, tags };
+  },
+
+  async updateWalletLabel(id: string, label: string | null): Promise<{ id: string; label: string | null }> {
+    await delay(200);
+    const wallet = mockWallets.find((w) => w.id === id);
+    if (!wallet) {
+      throw new Error("Wallet not found");
+    }
+    wallet.label = label || undefined;
+    return { id, label };
+  },
+
+  async updateAccountLabel(id: string, label: string | null): Promise<{ id: string; label: string | null }> {
+    await delay(200);
+    const account = mockAccounts.find((a) => a.id === id);
+    if (!account) {
+      throw new Error("Account not found");
+    }
+    account.label = label || undefined;
+    return { id, label };
   },
 };

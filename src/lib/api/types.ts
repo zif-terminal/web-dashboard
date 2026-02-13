@@ -64,4 +64,6 @@ export interface ApiClient {
   deleteWallet(id: string): Promise<{ id: string }>;
   updateWalletTags(id: string, tags: string[]): Promise<{ id: string; tags: string[] }>;
   updateAccountTags(id: string, tags: string[]): Promise<{ id: string; tags: string[] }>;
+  updateWalletLabel(id: string, label: string | null): Promise<{ id: string; label: string | null }>;
+  updateAccountLabel(id: string, label: string | null): Promise<{ id: string; label: string | null }>;
 }
