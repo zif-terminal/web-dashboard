@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { ExchangeAccount } from "@/lib/queries";
 import { useApi } from "@/hooks/use-api";
+import { useGlobalTags } from "@/contexts/filters-context";
 import { formatRelativeTime } from "@/lib/format";
 import {
   Table,
@@ -18,7 +19,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { AccountsTableSkeleton } from "@/components/table-skeleton";
 import { TagInput } from "@/components/tag-input";
-import { TagFilter } from "@/components/tag-filter";
+import { ExchangeBadge } from "@/components/exchange-badge";
+import { LabelInput } from "@/components/label-input";
 
 interface AccountsTableProps {
   refreshKey?: number;
@@ -59,9 +61,9 @@ function getStatusBadge(status: string | undefined) {
 export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }: AccountsTableProps) {
   const router = useRouter();
   const { withErrorReporting } = useApi();
+  const { globalTags: selectedTags, refreshTags } = useGlobalTags();
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
 
   const fetchAccounts = async () => {
     setIsLoading(true);
@@ -82,8 +84,8 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
     fetchAccounts();
   }, [refreshKey]);
 
-  // Get all unique tags from accounts
-  const availableTags = useMemo(() => {
+  // Get all unique tags from accounts (for TagInput suggestions)
+  const allAccountTags = useMemo(() => {
     const tagSet = new Set<string>();
     accounts.forEach((account) => {
       (account.tags || []).forEach((tag) => tagSet.add(tag));
@@ -91,7 +93,7 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
     return Array.from(tagSet).sort();
   }, [accounts]);
 
-  // Filter accounts by selected tags
+  // Filter accounts by global tags
   const filteredAccounts = useMemo(() => {
     if (selectedTags.length === 0) return accounts;
     return accounts.filter((account) =>
@@ -131,8 +133,21 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
       setAccounts((prev) =>
         prev.map((a) => (a.id === accountId ? { ...a, tags: newTags } : a))
       );
+      // Refresh global tags list since we added/removed tags
+      refreshTags();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to update tags");
+    }
+  };
+
+  const handleLabelChange = async (accountId: string, newLabel: string | null) => {
+    try {
+      await api.updateAccountLabel(accountId, newLabel);
+      setAccounts((prev) =>
+        prev.map((a) => (a.id === accountId ? { ...a, label: newLabel || undefined } : a))
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update label");
     }
   };
 
@@ -155,20 +170,11 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
   if (!hasWalletGrouping) {
     return (
       <div className="space-y-4">
-        {availableTags.length > 0 && (
-          <div className="flex justify-end">
-            <TagFilter
-              availableTags={availableTags}
-              selectedTags={selectedTags}
-              onSelectionChange={setSelectedTags}
-            />
-          </div>
-        )}
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Exchange</TableHead>
-              <TableHead>Account Identifier</TableHead>
+              <TableHead>Label / Account</TableHead>
               <TableHead>Type</TableHead>
               <TableHead>Tags</TableHead>
             </TableRow>
@@ -180,11 +186,17 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
                 className="cursor-pointer"
                 onClick={() => router.push(`/accounts/${account.id}`)}
               >
-                <TableCell className="font-medium">
-                  {account.exchange?.display_name || "Unknown"}
+                <TableCell>
+                  <ExchangeBadge
+                    exchangeName={account.exchange?.display_name || "Unknown"}
+                  />
                 </TableCell>
-                <TableCell className="font-mono text-sm">
-                  {truncateAddress(account.account_identifier, 10, 8)}
+                <TableCell>
+                  <LabelInput
+                    label={account.label}
+                    fallbackText={truncateAddress(account.account_identifier, 10, 8)}
+                    onLabelChange={(label) => handleLabelChange(account.id, label)}
+                  />
                 </TableCell>
                 <TableCell>
                   <Badge variant="secondary">{account.account_type}</Badge>
@@ -193,7 +205,7 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
                   <TagInput
                     tags={account.tags || []}
                     onTagsChange={(tags) => handleTagsChange(account.id, tags)}
-                    availableTags={availableTags}
+                    availableTags={allAccountTags}
                   />
                 </TableCell>
               </TableRow>
@@ -206,17 +218,7 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
 
   // Show grouped table with wallet headers
   return (
-    <div className="space-y-4">
-      {availableTags.length > 0 && (
-        <div className="flex justify-end">
-          <TagFilter
-            availableTags={availableTags}
-            selectedTags={selectedTags}
-            onSelectionChange={setSelectedTags}
-          />
-        </div>
-      )}
-      <div className="space-y-6">
+    <div className="space-y-6">
         {walletGroups.map((group) => (
           <div key={group.walletAddress || "ungrouped"} className="space-y-2">
             {group.walletAddress && (
@@ -242,7 +244,7 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
               <TableHeader>
                 <TableRow>
                   <TableHead>Protocol</TableHead>
-                  <TableHead>Account Identifier</TableHead>
+                  <TableHead>Label / Account</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Tags</TableHead>
                   <TableHead>Status</TableHead>
@@ -257,12 +259,16 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
                     onClick={() => router.push(`/accounts/${account.id}`)}
                   >
                     <TableCell>
-                      <Badge variant="secondary">
-                        {account.exchange?.display_name || "Unknown"}
-                      </Badge>
+                      <ExchangeBadge
+                        exchangeName={account.exchange?.display_name || "Unknown"}
+                      />
                     </TableCell>
-                    <TableCell className="font-mono text-sm">
-                      {truncateAddress(account.account_identifier, 10, 8)}
+                    <TableCell>
+                      <LabelInput
+                        label={account.label}
+                        fallbackText={truncateAddress(account.account_identifier, 10, 8)}
+                        onLabelChange={(label) => handleLabelChange(account.id, label)}
+                      />
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline">{account.account_type}</Badge>
@@ -271,7 +277,7 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
                       <TagInput
                         tags={account.tags || []}
                         onTagsChange={(tags) => handleTagsChange(account.id, tags)}
-                        availableTags={availableTags}
+                        availableTags={allAccountTags}
                       />
                     </TableCell>
                     <TableCell>
@@ -286,7 +292,6 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
             </Table>
           </div>
         ))}
-      </div>
     </div>
   );
 }

@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
+import { useGlobalTags } from "@/contexts/filters-context";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { TagFilter } from "@/components/tag-filter";
 import { cn } from "@/lib/utils";
 
 const navigation = [
@@ -21,6 +23,7 @@ export default function DashboardLayout({
 }) {
   const pathname = usePathname();
   const { logout } = useAuth();
+  const { globalTags, availableTags, isLoadingTags, setGlobalTags } = useGlobalTags();
 
   return (
     <div className="min-h-screen bg-background">
@@ -49,6 +52,12 @@ export default function DashboardLayout({
               </nav>
             </div>
             <div className="flex items-center gap-2">
+              <TagFilter
+                availableTags={availableTags}
+                selectedTags={globalTags}
+                onSelectionChange={setGlobalTags}
+                isLoading={isLoadingTags}
+              />
               <ThemeToggle />
               <Button variant="outline" onClick={logout}>
                 Logout

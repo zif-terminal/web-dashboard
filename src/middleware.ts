@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const TOKEN_COOKIE_NAME = "zif_auth_token";
+// Cookie name can be customized via env var to allow multiple instances on same host
+const COOKIE_SUFFIX = process.env.NEXT_PUBLIC_COOKIE_SUFFIX || "";
+const TOKEN_COOKIE_NAME = `zif_auth_token${COOKIE_SUFFIX}`;
 
 const publicPaths = ["/login"];
 

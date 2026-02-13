@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { TagFilter } from "@/components/tag-filter";
+import { useState, useEffect } from "react";
 import { api, DataFilters } from "@/lib/api";
 import { FundingPayment, ExchangeAccount, FundingAggregates } from "@/lib/queries";
 import { FundingTable } from "@/components/funding-table";
@@ -44,19 +43,18 @@ export default function FundingPage() {
     selectedAccountId,
     dateRange,
     selectedAssets,
-    selectedTags,
     isNew,
     handlePageChange,
     handleAccountChange,
     handleDateRangeChange,
     handleAssetChange,
-    handleTagChange,
     refresh,
     lastRefreshTime,
   } = usePaginatedData<FundingPayment, FundingAggregates>({
     fetchItems: fetchFundingPayments,
     fetchAggregates: fetchFundingAggregates,
     pageSize: PAGE_SIZE,
+    useGlobalTags: true,
   });
 
   useEffect(() => {
@@ -85,15 +83,6 @@ export default function FundingPage() {
     };
     fetchAssets();
   }, []);
-
-  // Get all unique tags from accounts
-  const availableTags = useMemo(() => {
-    const tagSet = new Set<string>();
-    accounts.forEach((account) => {
-      (account.tags || []).forEach((tag) => tagSet.add(tag));
-    });
-    return Array.from(tagSet).sort();
-  }, [accounts]);
 
   const totalAmount = aggregates ? parseFloat(aggregates.totalAmount) : 0;
   const isPositive = totalAmount >= 0;
@@ -134,11 +123,6 @@ export default function FundingPage() {
             {selectedAccountId === "all" ? "All Funding Payments" : "Filtered Payments"}
           </CardTitle>
           <div className="flex items-center gap-4">
-            <TagFilter
-              availableTags={availableTags}
-              selectedTags={selectedTags}
-              onSelectionChange={handleTagChange}
-            />
             <AssetFilter
               assets={availableAssets}
               selectedAssets={selectedAssets}

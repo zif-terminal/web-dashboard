@@ -22,6 +22,7 @@ export interface ExchangeAccount {
   detected_at?: string;
   last_synced_at?: string;
   tags: string[];
+  label?: string;
   exchange?: Exchange;
   wallet?: Wallet;
 }
@@ -33,7 +34,7 @@ export interface Wallet {
   chain: string;
   created_at: string;
   last_detected_at?: string;
-  tags: string[];
+  label?: string;
 }
 
 // Queries
@@ -68,6 +69,7 @@ export const GET_ACCOUNTS = gql`
       detected_at
       last_synced_at
       tags
+      label
       exchange {
         id
         name
@@ -77,6 +79,7 @@ export const GET_ACCOUNTS = gql`
         id
         address
         chain
+        label
       }
     }
   }
@@ -91,7 +94,7 @@ export const GET_WALLETS = gql`
       chain
       created_at
       last_detected_at
-      tags
+      label
     }
   }
 `;
@@ -118,11 +121,11 @@ export const DELETE_WALLET = gql`
   }
 `;
 
-export const UPDATE_WALLET_TAGS = gql`
-  mutation UpdateWalletTags($id: uuid!, $tags: jsonb!) {
-    update_wallets_by_pk(pk_columns: { id: $id }, _set: { tags: $tags }) {
+export const UPDATE_WALLET_LABEL = gql`
+  mutation UpdateWalletLabel($id: uuid!, $label: String) {
+    update_wallets_by_pk(pk_columns: { id: $id }, _set: { label: $label }) {
       id
-      tags
+      label
     }
   }
 `;
@@ -144,7 +147,7 @@ export const GET_WALLETS_WITH_COUNTS = gql`
       chain
       created_at
       last_detected_at
-      tags
+      label
       exchange_accounts_aggregate {
         aggregate {
           count
@@ -169,6 +172,8 @@ export const GET_ACCOUNTS_BY_WALLET = gql`
       status
       detected_at
       last_synced_at
+      tags
+      label
       exchange {
         id
         name
@@ -178,6 +183,7 @@ export const GET_ACCOUNTS_BY_WALLET = gql`
         id
         address
         chain
+        label
       }
     }
   }
@@ -195,6 +201,8 @@ export const GET_ACCOUNT_BY_ID = gql`
       status
       detected_at
       last_synced_at
+      tags
+      label
       exchange {
         id
         name
@@ -204,6 +212,7 @@ export const GET_ACCOUNT_BY_ID = gql`
         id
         address
         chain
+        label
       }
     }
   }
@@ -233,6 +242,15 @@ export const UPDATE_ACCOUNT_TAGS = gql`
     update_exchange_accounts_by_pk(pk_columns: { id: $id }, _set: { tags: $tags }) {
       id
       tags
+    }
+  }
+`;
+
+export const UPDATE_ACCOUNT_LABEL = gql`
+  mutation UpdateAccountLabel($id: uuid!, $label: String) {
+    update_exchange_accounts_by_pk(pk_columns: { id: $id }, _set: { label: $label }) {
+      id
+      label
     }
   }
 `;
@@ -976,6 +994,7 @@ export const GET_TRADES_DYNAMIC = gql`
         id
         account_identifier
         account_type
+        label
         exchange {
           id
           name
@@ -1018,6 +1037,7 @@ export const GET_FUNDING_PAYMENTS_DYNAMIC = gql`
         id
         account_identifier
         account_type
+        label
         exchange {
           id
           name
@@ -1132,6 +1152,7 @@ export const GET_POSITIONS_DYNAMIC = gql`
         id
         account_identifier
         account_type
+        label
         exchange {
           id
           name

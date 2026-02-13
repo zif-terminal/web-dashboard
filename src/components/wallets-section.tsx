@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { WalletWithAccounts } from "@/lib/queries";
@@ -29,8 +29,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Loader2, Trash2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TagInput } from "@/components/tag-input";
-import { TagFilter } from "@/components/tag-filter";
+import { LabelInput } from "@/components/label-input";
+import { getDisplayName } from "@/lib/format";
 
 interface WalletsSectionProps {
   refreshKey?: number;
@@ -76,7 +76,6 @@ export function WalletsSection({ refreshKey, detectingWalletId, onWalletDeleted 
   const [wallets, setWallets] = useState<WalletWithAccounts[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const pollCountRef = useRef(0);
 
@@ -129,23 +128,6 @@ export function WalletsSection({ refreshKey, detectingWalletId, onWalletDeleted 
     }
   }, [detectingWalletId, fetchWallets]);
 
-  // Get all unique tags from wallets
-  const availableTags = useMemo(() => {
-    const tagSet = new Set<string>();
-    wallets.forEach((wallet) => {
-      (wallet.tags || []).forEach((tag) => tagSet.add(tag));
-    });
-    return Array.from(tagSet).sort();
-  }, [wallets]);
-
-  // Filter wallets by selected tags
-  const filteredWallets = useMemo(() => {
-    if (selectedTags.length === 0) return wallets;
-    return wallets.filter((wallet) =>
-      selectedTags.some((tag) => (wallet.tags || []).includes(tag))
-    );
-  }, [wallets, selectedTags]);
-
   const handleDelete = async (walletId: string) => {
     setDeletingId(walletId);
     try {
@@ -160,14 +142,14 @@ export function WalletsSection({ refreshKey, detectingWalletId, onWalletDeleted 
     }
   };
 
-  const handleTagsChange = async (walletId: string, newTags: string[]) => {
+  const handleLabelChange = async (walletId: string, newLabel: string | null) => {
     try {
-      await api.updateWalletTags(walletId, newTags);
+      await api.updateWalletLabel(walletId, newLabel);
       setWallets((prev) =>
-        prev.map((w) => (w.id === walletId ? { ...w, tags: newTags } : w))
+        prev.map((w) => (w.id === walletId ? { ...w, label: newLabel || undefined } : w))
       );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to update tags");
+      toast.error(error instanceof Error ? error.message : "Failed to update label");
     }
   };
 
@@ -185,21 +167,11 @@ export function WalletsSection({ refreshKey, detectingWalletId, onWalletDeleted 
 
   return (
     <div className="space-y-4">
-      {availableTags.length > 0 && (
-        <div className="flex justify-end">
-          <TagFilter
-            availableTags={availableTags}
-            selectedTags={selectedTags}
-            onSelectionChange={setSelectedTags}
-          />
-        </div>
-      )}
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Address</TableHead>
+            <TableHead>Label / Address</TableHead>
             <TableHead>Chain</TableHead>
-            <TableHead>Tags</TableHead>
             <TableHead>Added</TableHead>
             <TableHead>Last Detected</TableHead>
             <TableHead className="text-center">Accounts</TableHead>
@@ -207,26 +179,23 @@ export function WalletsSection({ refreshKey, detectingWalletId, onWalletDeleted 
           </TableRow>
         </TableHeader>
         <TableBody>
-          {filteredWallets.map((wallet) => {
+          {wallets.map((wallet) => {
             const isDetecting = detectingWalletId === wallet.id && !wallet.last_detected_at;
             const accountCount = wallet.exchange_accounts_aggregate?.aggregate?.count ?? 0;
 
             return (
               <TableRow key={wallet.id}>
-                <TableCell className="font-mono text-sm">
-                  {truncateAddress(wallet.address, 8, 6)}
+                <TableCell>
+                  <LabelInput
+                    label={wallet.label}
+                    fallbackText={truncateAddress(wallet.address, 8, 6)}
+                    onLabelChange={(label) => handleLabelChange(wallet.id, label)}
+                  />
                 </TableCell>
                 <TableCell>
                   <Badge variant={getChainBadgeVariant(wallet.chain)}>
                     {wallet.chain.charAt(0).toUpperCase() + wallet.chain.slice(1)}
                   </Badge>
-                </TableCell>
-                <TableCell>
-                  <TagInput
-                    tags={wallet.tags || []}
-                    onTagsChange={(tags) => handleTagsChange(wallet.id, tags)}
-                    availableTags={availableTags}
-                  />
                 </TableCell>
                 <TableCell className="text-muted-foreground text-sm">
                   {formatRelativeTime(wallet.created_at)}

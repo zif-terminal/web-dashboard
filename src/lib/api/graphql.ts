@@ -8,11 +8,12 @@ import {
   CREATE_ACCOUNT,
   DELETE_ACCOUNT,
   UPDATE_ACCOUNT_TAGS,
+  UPDATE_ACCOUNT_LABEL,
   GET_WALLETS,
   GET_WALLETS_WITH_COUNTS,
   CREATE_WALLET,
   DELETE_WALLET,
-  UPDATE_WALLET_TAGS,
+  UPDATE_WALLET_LABEL,
   GET_DISTINCT_TRADE_ASSETS,
   GET_DISTINCT_FUNDING_ASSETS,
   GET_DISTINCT_POSITION_ASSETS,
@@ -423,22 +424,32 @@ export const graphqlApi: ApiClient = {
     });
   },
 
-  async updateWalletTags(id: string, tags: string[]): Promise<{ id: string; tags: string[] }> {
-    return withErrorHandling(async () => {
-      const client = getGraphQLClient();
-      const data = await client.request<{
-        update_wallets_by_pk: { id: string; tags: string[] };
-      }>(UPDATE_WALLET_TAGS, { id, tags });
-      return data.update_wallets_by_pk;
-    });
-  },
-
   async updateAccountTags(id: string, tags: string[]): Promise<{ id: string; tags: string[] }> {
     return withErrorHandling(async () => {
       const client = getGraphQLClient();
       const data = await client.request<{
         update_exchange_accounts_by_pk: { id: string; tags: string[] };
       }>(UPDATE_ACCOUNT_TAGS, { id, tags });
+      return data.update_exchange_accounts_by_pk;
+    });
+  },
+
+  async updateWalletLabel(id: string, label: string | null): Promise<{ id: string; label: string | null }> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        update_wallets_by_pk: { id: string; label: string | null };
+      }>(UPDATE_WALLET_LABEL, { id, label });
+      return data.update_wallets_by_pk;
+    });
+  },
+
+  async updateAccountLabel(id: string, label: string | null): Promise<{ id: string; label: string | null }> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        update_exchange_accounts_by_pk: { id: string; label: string | null };
+      }>(UPDATE_ACCOUNT_LABEL, { id, label });
       return data.update_exchange_accounts_by_pk;
     });
   },

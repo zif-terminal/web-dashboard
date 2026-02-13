@@ -1,7 +1,9 @@
 import { GraphQLClient } from "graphql-request";
 import Cookies from "js-cookie";
 
-export const TOKEN_COOKIE_NAME = "zif_auth_token";
+// Cookie name can be customized via env var to allow multiple instances on same host
+const COOKIE_SUFFIX = process.env.NEXT_PUBLIC_COOKIE_SUFFIX || "";
+export const TOKEN_COOKIE_NAME = `zif_auth_token${COOKIE_SUFFIX}`;
 
 function getGraphQLEndpoint(): string {
   const endpoint =

@@ -12,6 +12,8 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { PositionsTableSkeleton } from "@/components/table-skeleton";
+import { ExchangeBadge } from "@/components/exchange-badge";
+import { getDisplayName } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 interface PositionsTableProps {
@@ -125,12 +127,18 @@ export function PositionsTable({
                         {formatTimestamp(position.end_time)}
                       </span>
                       {showAccount && (
-                        <div className="flex items-center gap-1 mt-0.5 text-muted-foreground">
-                          <span className="text-xs">
-                            {position.exchange_account?.exchange?.display_name || "Unknown"}
-                          </span>
-                          <span className="text-xs font-mono">
-                            ({position.exchange_account?.account_identifier || position.exchange_account_id})
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <ExchangeBadge
+                            exchangeName={position.exchange_account?.exchange?.display_name || "Unknown"}
+                            className="text-[10px] px-1.5 py-0"
+                          />
+                          <span className="text-xs text-muted-foreground">
+                            {getDisplayName(
+                              position.exchange_account?.label,
+                              position.exchange_account?.account_identifier || position.exchange_account_id,
+                              8,
+                              4
+                            )}
                           </span>
                         </div>
                       )}

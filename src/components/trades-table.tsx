@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { TradesTableSkeleton } from "@/components/table-skeleton";
+import { ExchangeBadge } from "@/components/exchange-badge";
+import { getDisplayName } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 interface TradesTableProps {
@@ -102,12 +104,18 @@ export function TradesTable({
                       {formatTimestamp(trade.timestamp)}
                     </span>
                     {showAccount && (
-                      <div className="flex items-center gap-1 mt-0.5 text-muted-foreground">
-                        <span className="text-xs">
-                          {trade.exchange_account?.exchange?.display_name || "Unknown"}
-                        </span>
-                        <span className="text-xs font-mono">
-                          ({trade.exchange_account?.account_identifier || trade.exchange_account_id})
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <ExchangeBadge
+                          exchangeName={trade.exchange_account?.exchange?.display_name || "Unknown"}
+                          className="text-[10px] px-1.5 py-0"
+                        />
+                        <span className="text-xs text-muted-foreground">
+                          {getDisplayName(
+                            trade.exchange_account?.label,
+                            trade.exchange_account?.account_identifier || trade.exchange_account_id,
+                            8,
+                            4
+                          )}
                         </span>
                       </div>
                     )}
