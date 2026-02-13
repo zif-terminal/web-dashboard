@@ -11,7 +11,8 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { FundingTableSkeleton } from "@/components/table-skeleton";
-import { formatTimestamp, formatSignedNumber } from "@/lib/format";
+import { ExchangeBadge } from "@/components/exchange-badge";
+import { formatTimestamp, formatSignedNumber, getDisplayName } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 interface FundingTableProps {
@@ -89,12 +90,18 @@ export function FundingTable({
                         {formatTimestamp(payment.timestamp)}
                       </span>
                       {showAccount && (
-                        <div className="flex items-center gap-1 mt-0.5 text-muted-foreground">
-                          <span className="text-xs">
-                            {payment.exchange_account?.exchange?.display_name || "Unknown"}
-                          </span>
-                          <span className="text-xs font-mono">
-                            ({payment.exchange_account?.account_identifier || payment.exchange_account_id})
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <ExchangeBadge
+                            exchangeName={payment.exchange_account?.exchange?.display_name || "Unknown"}
+                            className="text-[10px] px-1.5 py-0"
+                          />
+                          <span className="text-xs text-muted-foreground">
+                            {getDisplayName(
+                              payment.exchange_account?.label,
+                              payment.exchange_account?.account_identifier || payment.exchange_account_id,
+                              8,
+                              4
+                            )}
                           </span>
                         </div>
                       )}
