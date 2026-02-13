@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { useNewItems } from "@/hooks/use-new-items";
 import { useApi } from "@/hooks/use-api";
+import { useFilters } from "@/contexts/filters-context";
 import { DateRangeValue, getTimestampsFromDateRange } from "@/components/date-range-filter";
 import { DataFilters } from "@/lib/api";
 
@@ -31,6 +32,9 @@ export interface UsePaginatedDataConfig<TItem, TAggregates> {
 
   /** Auto-refresh interval in ms */
   refreshInterval?: number;
+
+  /** Use global tags from FiltersContext instead of local state */
+  useGlobalTags?: boolean;
 }
 
 export interface UsePaginatedDataResult<TItem, TAggregates> {
@@ -82,9 +86,11 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
     accountId,
     pageSize = DEFAULT_PAGE_SIZE,
     refreshInterval = DEFAULT_REFRESH_INTERVAL,
+    useGlobalTags = false,
   } = config;
 
   const { withErrorReporting } = useApi();
+  const { globalTags } = useFilters();
 
   // Data state
   const [items, setItems] = useState<TItem[]>([]);
@@ -101,7 +107,10 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
   const [dateRange, setDateRange] = useState<DateRangeValue>({ preset: "all" });
   const [selectedAssets, setSelectedAssets] = useState<string[]>([]);
   const [selectedMarketTypes, setSelectedMarketTypes] = useState<("perp" | "spot")[]>([]);
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [localSelectedTags, setLocalSelectedTags] = useState<string[]>([]);
+
+  // Use global tags if configured, otherwise use local state
+  const selectedTags = useGlobalTags ? globalTags : localSelectedTags;
 
   // New item tracking
   const { updateItems: updateNewItems, isNew } = useNewItems<TItem>();
@@ -248,9 +257,12 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
   }, []);
 
   const handleTagChange = useCallback((tags: string[]) => {
-    setSelectedTags(tags);
-    setPage(0);
-  }, []);
+    // Only update local tags if not using global tags
+    if (!useGlobalTags) {
+      setLocalSelectedTags(tags);
+      setPage(0);
+    }
+  }, [useGlobalTags]);
 
   return {
     // Data
