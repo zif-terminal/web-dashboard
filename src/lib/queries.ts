@@ -34,7 +34,6 @@ export interface Wallet {
   chain: string;
   created_at: string;
   last_detected_at?: string;
-  tags: string[];
   label?: string;
 }
 
@@ -95,7 +94,6 @@ export const GET_WALLETS = gql`
       chain
       created_at
       last_detected_at
-      tags
       label
     }
   }
@@ -119,15 +117,6 @@ export const DELETE_WALLET = gql`
   mutation DeleteWallet($id: uuid!) {
     delete_wallets_by_pk(id: $id) {
       id
-    }
-  }
-`;
-
-export const UPDATE_WALLET_TAGS = gql`
-  mutation UpdateWalletTags($id: uuid!, $tags: jsonb!) {
-    update_wallets_by_pk(pk_columns: { id: $id }, _set: { tags: $tags }) {
-      id
-      tags
     }
   }
 `;
@@ -158,7 +147,6 @@ export const GET_WALLETS_WITH_COUNTS = gql`
       chain
       created_at
       last_detected_at
-      tags
       label
       exchange_accounts_aggregate {
         aggregate {

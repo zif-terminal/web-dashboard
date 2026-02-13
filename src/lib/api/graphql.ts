@@ -13,7 +13,6 @@ import {
   GET_WALLETS_WITH_COUNTS,
   CREATE_WALLET,
   DELETE_WALLET,
-  UPDATE_WALLET_TAGS,
   UPDATE_WALLET_LABEL,
   GET_DISTINCT_TRADE_ASSETS,
   GET_DISTINCT_FUNDING_ASSETS,
@@ -422,16 +421,6 @@ export const graphqlApi: ApiClient = {
         delete_wallets_by_pk: { id: string };
       }>(DELETE_WALLET, { id });
       return data.delete_wallets_by_pk;
-    });
-  },
-
-  async updateWalletTags(id: string, tags: string[]): Promise<{ id: string; tags: string[] }> {
-    return withErrorHandling(async () => {
-      const client = getGraphQLClient();
-      const data = await client.request<{
-        update_wallets_by_pk: { id: string; tags: string[] };
-      }>(UPDATE_WALLET_TAGS, { id, tags });
-      return data.update_wallets_by_pk;
     });
   },
 

@@ -8,7 +8,6 @@ const mockWallets: Wallet[] = [
     address: "HN4xHDBPK7oSGGRafaJWS6jT8M7xyEk7Kos24xp27Kpq",
     chain: "solana",
     created_at: new Date().toISOString(),
-    tags: ["main", "trading"],
     label: "Main Trading Wallet",
   },
 ];
@@ -542,7 +541,6 @@ export const mockApi: ApiClient = {
       address: input.address,
       chain: input.chain,
       created_at: new Date().toISOString(),
-      tags: [],
     };
     mockWallets.push(newWallet);
     return newWallet;
@@ -556,16 +554,6 @@ export const mockApi: ApiClient = {
     }
     mockWallets.splice(index, 1);
     return { id };
-  },
-
-  async updateWalletTags(id: string, tags: string[]): Promise<{ id: string; tags: string[] }> {
-    await delay(200);
-    const wallet = mockWallets.find((w) => w.id === id);
-    if (!wallet) {
-      throw new Error("Wallet not found");
-    }
-    wallet.tags = tags;
-    return { id, tags };
   },
 
   async updateAccountTags(id: string, tags: string[]): Promise<{ id: string; tags: string[] }> {
