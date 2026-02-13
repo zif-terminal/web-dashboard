@@ -8,6 +8,7 @@ import {
   CREATE_ACCOUNT,
   DELETE_ACCOUNT,
   GET_WALLETS,
+  GET_WALLETS_WITH_COUNTS,
   CREATE_WALLET,
   DELETE_WALLET,
   GET_DISTINCT_TRADE_ASSETS,
@@ -31,6 +32,7 @@ import {
   PositionTrade,
   PositionsAggregates,
   Wallet,
+  WalletWithAccounts,
 } from "../queries";
 import { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, PositionsResult, PositionWithTrades, DataFilters } from "./types";
 import { ApiError } from "./errors";
@@ -363,6 +365,14 @@ export const graphqlApi: ApiClient = {
     return withErrorHandling(async () => {
       const client = getGraphQLClient();
       const data = await client.request<{ wallets: Wallet[] }>(GET_WALLETS);
+      return data.wallets;
+    });
+  },
+
+  async getWalletsWithCounts(): Promise<WalletWithAccounts[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{ wallets: WalletWithAccounts[] }>(GET_WALLETS_WITH_COUNTS);
       return data.wallets;
     });
   },

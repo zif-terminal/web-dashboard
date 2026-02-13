@@ -2,14 +2,16 @@
 
 import { useState } from "react";
 import { AccountsTable } from "@/components/accounts-table";
-import { AddWalletDialog } from "@/components/add-wallet-dialog";
+import { WalletSearch } from "@/components/wallet-search";
+import { WalletsSection } from "@/components/wallets-section";
 import { SyncButton } from "@/components/sync-button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
 export default function AccountsPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
+  const [detectingWalletId, setDetectingWalletId] = useState<string | null>(null);
 
   const handleRefresh = () => {
     setRefreshKey((prev) => prev + 1);
@@ -17,6 +19,19 @@ export default function AccountsPage() {
 
   const handleRefreshComplete = () => {
     setLastRefreshTime(new Date());
+  };
+
+  const handleWalletAdded = (walletId: string) => {
+    setDetectingWalletId(walletId);
+    handleRefresh();
+    // Clear detecting state after 60 seconds
+    setTimeout(() => {
+      setDetectingWalletId(null);
+    }, 60000);
+  };
+
+  const handleWalletDeleted = () => {
+    handleRefresh();
   };
 
   return (
@@ -35,11 +50,39 @@ export default function AccountsPage() {
             isLoading={isLoading}
           />
         </div>
-        <AddWalletDialog onSuccess={handleRefresh} />
       </div>
+
+      {/* Wallet Search */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">Add Wallet</CardTitle>
+          <CardDescription>
+            Enter a wallet address to automatically detect accounts
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <WalletSearch onWalletAdded={handleWalletAdded} />
+        </CardContent>
+      </Card>
+
+      {/* Wallets Section */}
       <Card>
         <CardHeader>
-          <CardTitle>Connected Accounts</CardTitle>
+          <CardTitle>My Wallets</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <WalletsSection
+            refreshKey={refreshKey}
+            detectingWalletId={detectingWalletId}
+            onWalletDeleted={handleWalletDeleted}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Accounts Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Accounts</CardTitle>
         </CardHeader>
         <CardContent>
           <AccountsTable

@@ -1,4 +1,4 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionTrade, PositionsAggregates, Wallet } from "../queries";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionTrade, PositionsAggregates, Wallet, WalletWithAccounts } from "../queries";
 
 export interface CreateAccountInput {
   exchange_id: string;
@@ -58,6 +58,7 @@ export interface ApiClient {
   getPositionById(id: string): Promise<PositionWithTrades | null>;
   // Wallet methods
   getWallets(): Promise<Wallet[]>;
+  getWalletsWithCounts(): Promise<WalletWithAccounts[]>;
   createWallet(input: CreateWalletInput): Promise<Wallet>;
   deleteWallet(id: string): Promise<{ id: string }>;
 }

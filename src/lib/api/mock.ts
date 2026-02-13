@@ -1,4 +1,4 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionsAggregates, Wallet } from "../queries";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionsAggregates, Wallet, WalletWithAccounts } from "../queries";
 import { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, PositionsResult, PositionWithTrades, DataFilters } from "./types";
 
 // Mock wallets
@@ -503,6 +503,18 @@ export const mockApi: ApiClient = {
   async getWallets(): Promise<Wallet[]> {
     await delay(200);
     return [...mockWallets];
+  },
+
+  async getWalletsWithCounts(): Promise<WalletWithAccounts[]> {
+    await delay(200);
+    return mockWallets.map((wallet) => ({
+      ...wallet,
+      exchange_accounts_aggregate: {
+        aggregate: {
+          count: mockAccounts.filter((a) => a.wallet_id === wallet.id).length,
+        },
+      },
+    }));
   },
 
   async createWallet(input: CreateWalletInput): Promise<Wallet> {
