@@ -8,6 +8,7 @@ const mockWallets: Wallet[] = [
     address: "HN4xHDBPK7oSGGRafaJWS6jT8M7xyEk7Kos24xp27Kpq",
     chain: "solana",
     created_at: new Date().toISOString(),
+    tags: ["main", "trading"],
   },
 ];
 
@@ -34,6 +35,7 @@ const mockAccounts: ExchangeAccount[] = [
     account_type: "main",
     account_type_metadata: {},
     exchange: mockExchanges[0],
+    tags: ["main", "trading"],
   },
   {
     id: "mock-acc-002",
@@ -42,6 +44,7 @@ const mockAccounts: ExchangeAccount[] = [
     account_type: "main",
     account_type_metadata: {},
     exchange: mockExchanges[0],
+    tags: ["defi"],
   },
   {
     id: "mock-acc-003",
@@ -50,6 +53,7 @@ const mockAccounts: ExchangeAccount[] = [
     account_type: "main",
     account_type_metadata: {},
     exchange: mockExchanges[2],
+    tags: [],
   },
 ];
 
@@ -382,6 +386,7 @@ export const mockApi: ApiClient = {
       account_type: input.account_type,
       account_type_metadata: input.account_type_metadata,
       exchange,
+      tags: [],
     };
 
     mockAccounts.push(newAccount);
@@ -533,6 +538,7 @@ export const mockApi: ApiClient = {
       address: input.address,
       chain: input.chain,
       created_at: new Date().toISOString(),
+      tags: [],
     };
     mockWallets.push(newWallet);
     return newWallet;
@@ -546,5 +552,25 @@ export const mockApi: ApiClient = {
     }
     mockWallets.splice(index, 1);
     return { id };
+  },
+
+  async updateWalletTags(id: string, tags: string[]): Promise<{ id: string; tags: string[] }> {
+    await delay(200);
+    const wallet = mockWallets.find((w) => w.id === id);
+    if (!wallet) {
+      throw new Error("Wallet not found");
+    }
+    wallet.tags = tags;
+    return { id, tags };
+  },
+
+  async updateAccountTags(id: string, tags: string[]): Promise<{ id: string; tags: string[] }> {
+    await delay(200);
+    const account = mockAccounts.find((a) => a.id === id);
+    if (!account) {
+      throw new Error("Account not found");
+    }
+    account.tags = tags;
+    return { id, tags };
   },
 };

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { ExchangeAccount } from "@/lib/queries";
 import { useApi } from "@/hooks/use-api";
@@ -16,6 +17,8 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { AccountsTableSkeleton } from "@/components/table-skeleton";
+import { TagInput } from "@/components/tag-input";
+import { TagFilter } from "@/components/tag-filter";
 
 interface AccountsTableProps {
   refreshKey?: number;
@@ -58,6 +61,7 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
   const { withErrorReporting } = useApi();
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
 
   const fetchAccounts = async () => {
     setIsLoading(true);
@@ -78,11 +82,28 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
     fetchAccounts();
   }, [refreshKey]);
 
+  // Get all unique tags from accounts
+  const availableTags = useMemo(() => {
+    const tagSet = new Set<string>();
+    accounts.forEach((account) => {
+      (account.tags || []).forEach((tag) => tagSet.add(tag));
+    });
+    return Array.from(tagSet).sort();
+  }, [accounts]);
+
+  // Filter accounts by selected tags
+  const filteredAccounts = useMemo(() => {
+    if (selectedTags.length === 0) return accounts;
+    return accounts.filter((account) =>
+      selectedTags.some((tag) => (account.tags || []).includes(tag))
+    );
+  }, [accounts, selectedTags]);
+
   // Group accounts by wallet address
   const walletGroups = useMemo((): WalletGroup[] => {
     const groups = new Map<string | null, ExchangeAccount[]>();
 
-    for (const account of accounts) {
+    for (const account of filteredAccounts) {
       const key = account.wallet?.address || null;
       const existing = groups.get(key) || [];
       existing.push(account);
@@ -97,12 +118,23 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
         return a.localeCompare(b);
       })
       .map(([walletAddress, accts]) => ({ walletAddress, accounts: accts }));
-  }, [accounts]);
+  }, [filteredAccounts]);
 
   // Check if we should show wallet grouping (at least one account has a wallet)
   const hasWalletGrouping = useMemo(() => {
-    return accounts.some(a => a.wallet?.address);
-  }, [accounts]);
+    return filteredAccounts.some(a => a.wallet?.address);
+  }, [filteredAccounts]);
+
+  const handleTagsChange = async (accountId: string, newTags: string[]) => {
+    try {
+      await api.updateAccountTags(accountId, newTags);
+      setAccounts((prev) =>
+        prev.map((a) => (a.id === accountId ? { ...a, tags: newTags } : a))
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update tags");
+    }
+  };
 
   if (isLoading) {
     return <AccountsTableSkeleton rows={3} />;
@@ -122,101 +154,139 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
   // If no wallet grouping, show simple table
   if (!hasWalletGrouping) {
     return (
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Exchange</TableHead>
-            <TableHead>Account Identifier</TableHead>
-            <TableHead>Type</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {accounts.map((account) => (
-            <TableRow
-              key={account.id}
-              className="cursor-pointer"
-              onClick={() => router.push(`/accounts/${account.id}`)}
-            >
-              <TableCell className="font-medium">
-                {account.exchange?.display_name || "Unknown"}
-              </TableCell>
-              <TableCell className="font-mono text-sm">
-                {truncateAddress(account.account_identifier, 10, 8)}
-              </TableCell>
-              <TableCell>
-                <Badge variant="secondary">{account.account_type}</Badge>
-              </TableCell>
+      <div className="space-y-4">
+        {availableTags.length > 0 && (
+          <div className="flex justify-end">
+            <TagFilter
+              availableTags={availableTags}
+              selectedTags={selectedTags}
+              onSelectionChange={setSelectedTags}
+            />
+          </div>
+        )}
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Exchange</TableHead>
+              <TableHead>Account Identifier</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead>Tags</TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {filteredAccounts.map((account) => (
+              <TableRow
+                key={account.id}
+                className="cursor-pointer"
+                onClick={() => router.push(`/accounts/${account.id}`)}
+              >
+                <TableCell className="font-medium">
+                  {account.exchange?.display_name || "Unknown"}
+                </TableCell>
+                <TableCell className="font-mono text-sm">
+                  {truncateAddress(account.account_identifier, 10, 8)}
+                </TableCell>
+                <TableCell>
+                  <Badge variant="secondary">{account.account_type}</Badge>
+                </TableCell>
+                <TableCell>
+                  <TagInput
+                    tags={account.tags || []}
+                    onTagsChange={(tags) => handleTagsChange(account.id, tags)}
+                    availableTags={availableTags}
+                  />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
     );
   }
 
   // Show grouped table with wallet headers
   return (
-    <div className="space-y-6">
-      {walletGroups.map((group) => (
-        <div key={group.walletAddress || "ungrouped"} className="space-y-2">
-          {group.walletAddress && (
-            <div className="flex items-center gap-2 px-2">
-              <span className="text-sm font-medium text-muted-foreground">Wallet:</span>
-              <code className="text-sm font-mono bg-muted px-2 py-0.5 rounded">
-                {truncateAddress(group.walletAddress, 8, 6)}
-              </code>
-              <Badge variant="outline" className="text-xs">
-                {group.accounts.length} account{group.accounts.length !== 1 ? "s" : ""}
-              </Badge>
-            </div>
-          )}
-          {!group.walletAddress && walletGroups.length > 1 && (
-            <div className="flex items-center gap-2 px-2">
-              <span className="text-sm font-medium text-muted-foreground">Other Accounts</span>
-              <Badge variant="outline" className="text-xs">
-                {group.accounts.length} account{group.accounts.length !== 1 ? "s" : ""}
-              </Badge>
-            </div>
-          )}
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Protocol</TableHead>
-                <TableHead>Account Identifier</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Last Synced</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {group.accounts.map((account) => (
-                <TableRow
-                  key={account.id}
-                  className="cursor-pointer"
-                  onClick={() => router.push(`/accounts/${account.id}`)}
-                >
-                  <TableCell>
-                    <Badge variant="secondary">
-                      {account.exchange?.display_name || "Unknown"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="font-mono text-sm">
-                    {truncateAddress(account.account_identifier, 10, 8)}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{account.account_type}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    {getStatusBadge(account.status)}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground text-sm">
-                    {formatRelativeTime(account.last_synced_at)}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+    <div className="space-y-4">
+      {availableTags.length > 0 && (
+        <div className="flex justify-end">
+          <TagFilter
+            availableTags={availableTags}
+            selectedTags={selectedTags}
+            onSelectionChange={setSelectedTags}
+          />
         </div>
-      ))}
+      )}
+      <div className="space-y-6">
+        {walletGroups.map((group) => (
+          <div key={group.walletAddress || "ungrouped"} className="space-y-2">
+            {group.walletAddress && (
+              <div className="flex items-center gap-2 px-2">
+                <span className="text-sm font-medium text-muted-foreground">Wallet:</span>
+                <code className="text-sm font-mono bg-muted px-2 py-0.5 rounded">
+                  {truncateAddress(group.walletAddress, 8, 6)}
+                </code>
+                <Badge variant="outline" className="text-xs">
+                  {group.accounts.length} account{group.accounts.length !== 1 ? "s" : ""}
+                </Badge>
+              </div>
+            )}
+            {!group.walletAddress && walletGroups.length > 1 && (
+              <div className="flex items-center gap-2 px-2">
+                <span className="text-sm font-medium text-muted-foreground">Other Accounts</span>
+                <Badge variant="outline" className="text-xs">
+                  {group.accounts.length} account{group.accounts.length !== 1 ? "s" : ""}
+                </Badge>
+              </div>
+            )}
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Protocol</TableHead>
+                  <TableHead>Account Identifier</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Tags</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Last Synced</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {group.accounts.map((account) => (
+                  <TableRow
+                    key={account.id}
+                    className="cursor-pointer"
+                    onClick={() => router.push(`/accounts/${account.id}`)}
+                  >
+                    <TableCell>
+                      <Badge variant="secondary">
+                        {account.exchange?.display_name || "Unknown"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="font-mono text-sm">
+                      {truncateAddress(account.account_identifier, 10, 8)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{account.account_type}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <TagInput
+                        tags={account.tags || []}
+                        onTagsChange={(tags) => handleTagsChange(account.id, tags)}
+                        availableTags={availableTags}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      {getStatusBadge(account.status)}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-sm">
+                      {formatRelativeTime(account.last_synced_at)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

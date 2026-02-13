@@ -7,10 +7,12 @@ import {
   GET_ACCOUNT_BY_ID,
   CREATE_ACCOUNT,
   DELETE_ACCOUNT,
+  UPDATE_ACCOUNT_TAGS,
   GET_WALLETS,
   GET_WALLETS_WITH_COUNTS,
   CREATE_WALLET,
   DELETE_WALLET,
+  UPDATE_WALLET_TAGS,
   GET_DISTINCT_TRADE_ASSETS,
   GET_DISTINCT_FUNDING_ASSETS,
   GET_DISTINCT_POSITION_ASSETS,
@@ -71,6 +73,18 @@ async function withErrorHandling<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+// Build tag filter conditions (OR logic - match accounts with ANY of the selected tags)
+function buildTagConditions(tags: string[]): Record<string, unknown> {
+  if (tags.length === 1) {
+    return { exchange_account: { tags: { _contains: tags[0] } } };
+  }
+  // Multiple tags: use OR logic
+  const tagConditions = tags.map(tag => ({
+    exchange_account: { tags: { _contains: tag } }
+  }));
+  return { _or: tagConditions };
+}
+
 // Build where clause for trades based on filters
 function buildTradesWhereClause(filters?: DataFilters): Record<string, unknown> {
   const conditions: Record<string, unknown>[] = [];
@@ -91,6 +105,10 @@ function buildTradesWhereClause(filters?: DataFilters): Record<string, unknown> 
 
   if (filters?.marketTypes && filters.marketTypes.length > 0) {
     conditions.push({ market_type: { _in: filters.marketTypes } });
+  }
+
+  if (filters?.tags && filters.tags.length > 0) {
+    conditions.push(buildTagConditions(filters.tags));
   }
 
   if (conditions.length === 0) {
@@ -122,6 +140,10 @@ function buildFundingWhereClause(filters?: DataFilters): Record<string, unknown>
     conditions.push({ base_asset: { _in: filters.baseAssets } });
   }
 
+  if (filters?.tags && filters.tags.length > 0) {
+    conditions.push(buildTagConditions(filters.tags));
+  }
+
   if (conditions.length === 0) {
     return {};
   }
@@ -149,6 +171,10 @@ function buildPositionsWhereClause(filters?: DataFilters): Record<string, unknow
 
   if (filters?.baseAssets && filters.baseAssets.length > 0) {
     conditions.push({ base_asset: { _in: filters.baseAssets } });
+  }
+
+  if (filters?.tags && filters.tags.length > 0) {
+    conditions.push(buildTagConditions(filters.tags));
   }
 
   if (conditions.length === 0) {
@@ -394,6 +420,26 @@ export const graphqlApi: ApiClient = {
         delete_wallets_by_pk: { id: string };
       }>(DELETE_WALLET, { id });
       return data.delete_wallets_by_pk;
+    });
+  },
+
+  async updateWalletTags(id: string, tags: string[]): Promise<{ id: string; tags: string[] }> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        update_wallets_by_pk: { id: string; tags: string[] };
+      }>(UPDATE_WALLET_TAGS, { id, tags });
+      return data.update_wallets_by_pk;
+    });
+  },
+
+  async updateAccountTags(id: string, tags: string[]): Promise<{ id: string; tags: string[] }> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        update_exchange_accounts_by_pk: { id: string; tags: string[] };
+      }>(UPDATE_ACCOUNT_TAGS, { id, tags });
+      return data.update_exchange_accounts_by_pk;
     });
   },
 };

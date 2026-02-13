@@ -52,6 +52,7 @@ export interface UsePaginatedDataResult<TItem, TAggregates> {
   dateRange: DateRangeValue;
   selectedAssets: string[];
   selectedMarketTypes: ("perp" | "spot")[];
+  selectedTags: string[];
 
   // New item tracking
   isNew: (id: string) => boolean;
@@ -62,6 +63,7 @@ export interface UsePaginatedDataResult<TItem, TAggregates> {
   handleDateRangeChange: (newRange: DateRangeValue) => void;
   handleAssetChange: (assets: string[]) => void;
   handleMarketTypeChange: (marketTypes: ("perp" | "spot")[]) => void;
+  handleTagChange: (tags: string[]) => void;
 
   // Refresh
   refresh: () => void;
@@ -99,6 +101,7 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
   const [dateRange, setDateRange] = useState<DateRangeValue>({ preset: "all" });
   const [selectedAssets, setSelectedAssets] = useState<string[]>([]);
   const [selectedMarketTypes, setSelectedMarketTypes] = useState<("perp" | "spot")[]>([]);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
 
   // New item tracking
   const { updateItems: updateNewItems, isNew } = useNewItems<TItem>();
@@ -109,6 +112,7 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
   const dateRangeRef = useRef(dateRange);
   const selectedAssetsRef = useRef(selectedAssets);
   const selectedMarketTypesRef = useRef(selectedMarketTypes);
+  const selectedTagsRef = useRef(selectedTags);
 
   useEffect(() => {
     pageRef.current = page;
@@ -116,11 +120,12 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
     dateRangeRef.current = dateRange;
     selectedAssetsRef.current = selectedAssets;
     selectedMarketTypesRef.current = selectedMarketTypes;
-  }, [page, selectedAccountId, dateRange, selectedAssets, selectedMarketTypes]);
+    selectedTagsRef.current = selectedTags;
+  }, [page, selectedAccountId, dateRange, selectedAssets, selectedMarketTypes, selectedTags]);
 
   // Build filters object from current state
   const buildFilters = useCallback(
-    (accId: string, dateRangeValue: DateRangeValue, assets: string[], marketTypes: ("perp" | "spot")[]): DataFilters => {
+    (accId: string, dateRangeValue: DateRangeValue, assets: string[], marketTypes: ("perp" | "spot")[], tags: string[]): DataFilters => {
       const { since, until } = getTimestampsFromDateRange(dateRangeValue);
       return {
         accountId: accId === "all" ? undefined : accId,
@@ -128,6 +133,7 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
         until,
         baseAssets: assets.length > 0 ? assets : undefined,
         marketTypes: marketTypes.length > 0 ? marketTypes : undefined,
+        tags: tags.length > 0 ? tags : undefined,
       };
     },
     []
@@ -135,9 +141,9 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
 
   // Fetch aggregates
   const doFetchAggregates = useCallback(
-    async (accId: string, dateRangeValue: DateRangeValue, assets: string[], marketTypes: ("perp" | "spot")[]) => {
+    async (accId: string, dateRangeValue: DateRangeValue, assets: string[], marketTypes: ("perp" | "spot")[], tags: string[]) => {
       setIsLoadingAggregates(true);
-      const filters = buildFilters(accId, dateRangeValue, assets, marketTypes);
+      const filters = buildFilters(accId, dateRangeValue, assets, marketTypes, tags);
 
       try {
         const data = await withErrorReporting(() => fetchAggregates(filters));
@@ -153,9 +159,9 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
 
   // Fetch items
   const doFetchItems = useCallback(
-    async (pageNum: number, accId: string, dateRangeValue: DateRangeValue, assets: string[], marketTypes: ("perp" | "spot")[]) => {
+    async (pageNum: number, accId: string, dateRangeValue: DateRangeValue, assets: string[], marketTypes: ("perp" | "spot")[], tags: string[]) => {
       setIsLoading(true);
-      const filters = buildFilters(accId, dateRangeValue, assets, marketTypes);
+      const filters = buildFilters(accId, dateRangeValue, assets, marketTypes, tags);
 
       try {
         const data = await withErrorReporting(() =>
@@ -181,13 +187,15 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
         selectedAccountIdRef.current,
         dateRangeRef.current,
         selectedAssetsRef.current,
-        selectedMarketTypesRef.current
+        selectedMarketTypesRef.current,
+        selectedTagsRef.current
       ),
       doFetchAggregates(
         selectedAccountIdRef.current,
         dateRangeRef.current,
         selectedAssetsRef.current,
-        selectedMarketTypesRef.current
+        selectedMarketTypesRef.current,
+        selectedTagsRef.current
       ),
     ]);
   }, [doFetchItems, doFetchAggregates]);
@@ -205,7 +213,7 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
   // Refetch when filters change
   useEffect(() => {
     refresh();
-  }, [page, selectedAccountId, dateRange, selectedAssets, selectedMarketTypes]);
+  }, [page, selectedAccountId, dateRange, selectedAssets, selectedMarketTypes, selectedTags]);
 
   // If accountId prop changes (for account-specific pages), update filter
   useEffect(() => {
@@ -239,6 +247,11 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
     setPage(0);
   }, []);
 
+  const handleTagChange = useCallback((tags: string[]) => {
+    setSelectedTags(tags);
+    setPage(0);
+  }, []);
+
   return {
     // Data
     items,
@@ -258,6 +271,7 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
     dateRange,
     selectedAssets,
     selectedMarketTypes,
+    selectedTags,
 
     // New item tracking
     isNew,
@@ -268,6 +282,7 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
     handleDateRangeChange,
     handleAssetChange,
     handleMarketTypeChange,
+    handleTagChange,
 
     // Refresh
     refresh,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { WalletWithAccounts } from "@/lib/queries";
@@ -29,6 +29,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Loader2, Trash2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TagInput } from "@/components/tag-input";
+import { TagFilter } from "@/components/tag-filter";
 
 interface WalletsSectionProps {
   refreshKey?: number;
@@ -61,6 +63,7 @@ function WalletsSkeleton() {
           <Skeleton className="h-4 w-16" />
           <Skeleton className="h-4 w-20" />
           <Skeleton className="h-4 w-20" />
+          <Skeleton className="h-4 w-20" />
           <Skeleton className="h-4 w-8" />
         </div>
       ))}
@@ -73,6 +76,7 @@ export function WalletsSection({ refreshKey, detectingWalletId, onWalletDeleted 
   const [wallets, setWallets] = useState<WalletWithAccounts[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const pollCountRef = useRef(0);
 
@@ -125,6 +129,23 @@ export function WalletsSection({ refreshKey, detectingWalletId, onWalletDeleted 
     }
   }, [detectingWalletId, fetchWallets]);
 
+  // Get all unique tags from wallets
+  const availableTags = useMemo(() => {
+    const tagSet = new Set<string>();
+    wallets.forEach((wallet) => {
+      (wallet.tags || []).forEach((tag) => tagSet.add(tag));
+    });
+    return Array.from(tagSet).sort();
+  }, [wallets]);
+
+  // Filter wallets by selected tags
+  const filteredWallets = useMemo(() => {
+    if (selectedTags.length === 0) return wallets;
+    return wallets.filter((wallet) =>
+      selectedTags.some((tag) => (wallet.tags || []).includes(tag))
+    );
+  }, [wallets, selectedTags]);
+
   const handleDelete = async (walletId: string) => {
     setDeletingId(walletId);
     try {
@@ -136,6 +157,17 @@ export function WalletsSection({ refreshKey, detectingWalletId, onWalletDeleted 
       toast.error(error instanceof Error ? error.message : "Failed to delete wallet");
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleTagsChange = async (walletId: string, newTags: string[]) => {
+    try {
+      await api.updateWalletTags(walletId, newTags);
+      setWallets((prev) =>
+        prev.map((w) => (w.id === walletId ? { ...w, tags: newTags } : w))
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update tags");
     }
   };
 
@@ -152,93 +184,112 @@ export function WalletsSection({ refreshKey, detectingWalletId, onWalletDeleted 
   }
 
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Address</TableHead>
-          <TableHead>Chain</TableHead>
-          <TableHead>Added</TableHead>
-          <TableHead>Last Detected</TableHead>
-          <TableHead className="text-center">Accounts</TableHead>
-          <TableHead className="w-[50px]"></TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {wallets.map((wallet) => {
-          const isDetecting = detectingWalletId === wallet.id && !wallet.last_detected_at;
-          const accountCount = wallet.exchange_accounts_aggregate?.aggregate?.count ?? 0;
+    <div className="space-y-4">
+      {availableTags.length > 0 && (
+        <div className="flex justify-end">
+          <TagFilter
+            availableTags={availableTags}
+            selectedTags={selectedTags}
+            onSelectionChange={setSelectedTags}
+          />
+        </div>
+      )}
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Address</TableHead>
+            <TableHead>Chain</TableHead>
+            <TableHead>Tags</TableHead>
+            <TableHead>Added</TableHead>
+            <TableHead>Last Detected</TableHead>
+            <TableHead className="text-center">Accounts</TableHead>
+            <TableHead className="w-[50px]"></TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {filteredWallets.map((wallet) => {
+            const isDetecting = detectingWalletId === wallet.id && !wallet.last_detected_at;
+            const accountCount = wallet.exchange_accounts_aggregate?.aggregate?.count ?? 0;
 
-          return (
-            <TableRow key={wallet.id}>
-              <TableCell className="font-mono text-sm">
-                {truncateAddress(wallet.address, 8, 6)}
-              </TableCell>
-              <TableCell>
-                <Badge variant={getChainBadgeVariant(wallet.chain)}>
-                  {wallet.chain.charAt(0).toUpperCase() + wallet.chain.slice(1)}
-                </Badge>
-              </TableCell>
-              <TableCell className="text-muted-foreground text-sm">
-                {formatRelativeTime(wallet.created_at)}
-              </TableCell>
-              <TableCell className="text-sm">
-                {isDetecting ? (
-                  <span className="flex items-center gap-2 text-muted-foreground">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Detecting...
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">
-                    {formatRelativeTime(wallet.last_detected_at)}
-                  </span>
-                )}
-              </TableCell>
-              <TableCell className="text-center">
-                {isDetecting ? (
-                  <span className="text-muted-foreground">-</span>
-                ) : (
-                  <Badge variant="outline">{accountCount}</Badge>
-                )}
-              </TableCell>
-              <TableCell>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                      disabled={deletingId === wallet.id}
-                    >
-                      {deletingId === wallet.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Delete Wallet</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        Are you sure you want to delete this wallet? This will also delete all associated accounts and their data.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction
-                        onClick={() => handleDelete(wallet.id)}
-                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            return (
+              <TableRow key={wallet.id}>
+                <TableCell className="font-mono text-sm">
+                  {truncateAddress(wallet.address, 8, 6)}
+                </TableCell>
+                <TableCell>
+                  <Badge variant={getChainBadgeVariant(wallet.chain)}>
+                    {wallet.chain.charAt(0).toUpperCase() + wallet.chain.slice(1)}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <TagInput
+                    tags={wallet.tags || []}
+                    onTagsChange={(tags) => handleTagsChange(wallet.id, tags)}
+                    availableTags={availableTags}
+                  />
+                </TableCell>
+                <TableCell className="text-muted-foreground text-sm">
+                  {formatRelativeTime(wallet.created_at)}
+                </TableCell>
+                <TableCell className="text-sm">
+                  {isDetecting ? (
+                    <span className="flex items-center gap-2 text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Detecting...
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">
+                      {formatRelativeTime(wallet.last_detected_at)}
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell className="text-center">
+                  {isDetecting ? (
+                    <span className="text-muted-foreground">-</span>
+                  ) : (
+                    <Badge variant="outline">{accountCount}</Badge>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                        disabled={deletingId === wallet.id}
                       >
-                        Delete
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </TableCell>
-            </TableRow>
-          );
-        })}
-      </TableBody>
-    </Table>
+                        {deletingId === wallet.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Wallet</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Are you sure you want to delete this wallet? This will also delete all associated accounts and their data.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => handleDelete(wallet.id)}
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                          Delete
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { api, DataFilters } from "@/lib/api";
 import { Trade, ExchangeAccount, TradesAggregates } from "@/lib/queries";
 import { TradesTable } from "@/components/trades-table";
@@ -17,6 +17,7 @@ import {
 import { DateRangeFilter } from "@/components/date-range-filter";
 import { AssetFilter } from "@/components/asset-filter";
 import { MarketTypeFilter } from "@/components/market-type-filter";
+import { TagFilter } from "@/components/tag-filter";
 import { usePaginatedData } from "@/hooks/use-paginated-data";
 
 const PAGE_SIZE = 100;
@@ -50,12 +51,14 @@ export default function TradesPage() {
     dateRange,
     selectedAssets,
     selectedMarketTypes,
+    selectedTags,
     isNew,
     handlePageChange,
     handleAccountChange,
     handleDateRangeChange,
     handleAssetChange,
     handleMarketTypeChange,
+    handleTagChange,
     refresh,
     lastRefreshTime,
   } = usePaginatedData<Trade, TradesAggregates>({
@@ -90,6 +93,15 @@ export default function TradesPage() {
     };
     fetchAssets();
   }, []);
+
+  // Get all unique tags from accounts
+  const availableTags = useMemo(() => {
+    const tagSet = new Set<string>();
+    accounts.forEach((account) => {
+      (account.tags || []).forEach((tag) => tagSet.add(tag));
+    });
+    return Array.from(tagSet).sort();
+  }, [accounts]);
 
   const formatFees = (value: string) => {
     const num = parseFloat(value);
@@ -132,6 +144,11 @@ export default function TradesPage() {
             {selectedAccountId === "all" ? "All Trades" : "Filtered Trades"}
           </CardTitle>
           <div className="flex items-center gap-4">
+            <TagFilter
+              availableTags={availableTags}
+              selectedTags={selectedTags}
+              onSelectionChange={handleTagChange}
+            />
             <MarketTypeFilter
               value={selectedMarketTypes}
               onChange={handleMarketTypeChange}
