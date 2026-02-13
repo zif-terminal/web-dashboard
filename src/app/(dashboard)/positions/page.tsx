@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { api, DataFilters } from "@/lib/api";
 import { Position, ExchangeAccount, PositionsAggregates } from "@/lib/queries";
 import { PositionsTable } from "@/components/positions-table";
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { DateRangeFilter } from "@/components/date-range-filter";
 import { AssetFilter } from "@/components/asset-filter";
+import { TagFilter } from "@/components/tag-filter";
 import { usePaginatedData } from "@/hooks/use-paginated-data";
 
 const PAGE_SIZE = 100;
@@ -48,11 +49,13 @@ export default function PositionsPage() {
     selectedAccountId,
     dateRange,
     selectedAssets,
+    selectedTags,
     isNew,
     handlePageChange,
     handleAccountChange,
     handleDateRangeChange,
     handleAssetChange,
+    handleTagChange,
     refresh,
     lastRefreshTime,
   } = usePaginatedData<Position, PositionsAggregates>({
@@ -87,6 +90,15 @@ export default function PositionsPage() {
     };
     fetchAssets();
   }, []);
+
+  // Get all unique tags from accounts
+  const availableTags = useMemo(() => {
+    const tagSet = new Set<string>();
+    accounts.forEach((account) => {
+      (account.tags || []).forEach((tag) => tagSet.add(tag));
+    });
+    return Array.from(tagSet).sort();
+  }, [accounts]);
 
   const formatPnL = (value: string) => {
     const num = parseFloat(value);
@@ -143,6 +155,11 @@ export default function PositionsPage() {
             {selectedAccountId === "all" ? "All Positions" : "Filtered Positions"}
           </CardTitle>
           <div className="flex items-center gap-4">
+            <TagFilter
+              availableTags={availableTags}
+              selectedTags={selectedTags}
+              onSelectionChange={handleTagChange}
+            />
             <AssetFilter
               assets={availableAssets}
               selectedAssets={selectedAssets}

@@ -21,6 +21,7 @@ export interface ExchangeAccount {
   status?: string; // "active", "needs_token", "disabled"
   detected_at?: string;
   last_synced_at?: string;
+  tags: string[];
   exchange?: Exchange;
   wallet?: Wallet;
 }
@@ -32,6 +33,7 @@ export interface Wallet {
   chain: string;
   created_at: string;
   last_detected_at?: string;
+  tags: string[];
 }
 
 // Queries
@@ -65,6 +67,7 @@ export const GET_ACCOUNTS = gql`
       status
       detected_at
       last_synced_at
+      tags
       exchange {
         id
         name
@@ -88,6 +91,7 @@ export const GET_WALLETS = gql`
       chain
       created_at
       last_detected_at
+      tags
     }
   }
 `;
@@ -114,6 +118,15 @@ export const DELETE_WALLET = gql`
   }
 `;
 
+export const UPDATE_WALLET_TAGS = gql`
+  mutation UpdateWalletTags($id: uuid!, $tags: jsonb!) {
+    update_wallets_by_pk(pk_columns: { id: $id }, _set: { tags: $tags }) {
+      id
+      tags
+    }
+  }
+`;
+
 // Wallet with account count (for wallets section)
 export interface WalletWithAccounts extends Wallet {
   exchange_accounts_aggregate: {
@@ -131,6 +144,7 @@ export const GET_WALLETS_WITH_COUNTS = gql`
       chain
       created_at
       last_detected_at
+      tags
       exchange_accounts_aggregate {
         aggregate {
           count
@@ -210,6 +224,15 @@ export const DELETE_ACCOUNT = gql`
   mutation DeleteAccount($id: uuid!) {
     delete_exchange_accounts_by_pk(id: $id) {
       id
+    }
+  }
+`;
+
+export const UPDATE_ACCOUNT_TAGS = gql`
+  mutation UpdateAccountTags($id: uuid!, $tags: jsonb!) {
+    update_exchange_accounts_by_pk(pk_columns: { id: $id }, _set: { tags: $tags }) {
+      id
+      tags
     }
   }
 `;

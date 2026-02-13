@@ -39,6 +39,7 @@ export interface DataFilters {
   until?: number;
   baseAssets?: string[];
   marketTypes?: ("perp" | "spot")[];
+  tags?: string[];
 }
 
 export interface ApiClient {
@@ -61,4 +62,6 @@ export interface ApiClient {
   getWalletsWithCounts(): Promise<WalletWithAccounts[]>;
   createWallet(input: CreateWalletInput): Promise<Wallet>;
   deleteWallet(id: string): Promise<{ id: string }>;
+  updateWalletTags(id: string, tags: string[]): Promise<{ id: string; tags: string[] }>;
+  updateAccountTags(id: string, tags: string[]): Promise<{ id: string; tags: string[] }>;
 }
