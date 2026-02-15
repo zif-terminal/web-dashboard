@@ -268,7 +268,7 @@ export interface Trade {
   order_id: string;
   trade_id: string;
   exchange_account_id: string;
-  market_type: "perp" | "spot";
+  market_type: "perp" | "spot" | "swap";
   exchange_account?: ExchangeAccount;
 }
 
@@ -1073,6 +1073,7 @@ export interface Position {
   base_asset: string;
   quote_asset: string;
   side: "long" | "short";
+  market_type: "perp" | "spot" | "swap";
   start_time: number; // Unix milliseconds (BIGINT)
   end_time: number; // Unix milliseconds (BIGINT)
   entry_avg_price: string;
@@ -1112,6 +1113,7 @@ export const GET_POSITIONS = gql`
       base_asset
       quote_asset
       side
+      market_type
       start_time
       end_time
       entry_avg_price
@@ -1141,6 +1143,7 @@ export const GET_POSITIONS_DYNAMIC = gql`
       base_asset
       quote_asset
       side
+      market_type
       start_time
       end_time
       entry_avg_price
@@ -1190,6 +1193,7 @@ export const GET_POSITION_WITH_TRADES = gql`
       base_asset
       quote_asset
       side
+      market_type
       start_time
       end_time
       entry_avg_price
@@ -1235,6 +1239,270 @@ export const GET_DISTINCT_POSITION_ASSETS = gql`
   query GetDistinctPositionAssets {
     positions(distinct_on: base_asset, order_by: { base_asset: asc }) {
       base_asset
+    }
+  }
+`;
+
+// Deposit types
+export interface Deposit {
+  id: string;
+  exchange_account_id: string;
+  asset: string;
+  direction: "deposit" | "withdraw";
+  amount: string;
+  user_cost_basis: string;
+  timestamp: number; // Unix milliseconds (BIGINT)
+  deposit_id: string;
+  exchange_account?: ExchangeAccount;
+}
+
+// Deposit aggregates interface
+export interface DepositsAggregates {
+  totalDeposits: string;
+  totalWithdrawals: string;
+  depositCount: number;
+  withdrawalCount: number;
+}
+
+// Deposit queries
+export const GET_DEPOSITS_DYNAMIC = gql`
+  query GetDepositsDynamic($limit: Int!, $offset: Int!, $where: deposits_bool_exp!) {
+    deposits(limit: $limit, offset: $offset, order_by: { timestamp: desc }, where: $where) {
+      id
+      exchange_account_id
+      asset
+      direction
+      amount
+      user_cost_basis
+      timestamp
+      deposit_id
+      exchange_account {
+        id
+        account_identifier
+        account_type
+        label
+        exchange {
+          id
+          name
+          display_name
+        }
+      }
+    }
+    deposits_aggregate(where: $where) {
+      aggregate {
+        count
+      }
+    }
+  }
+`;
+
+export const GET_DEPOSITS_AGGREGATES_DYNAMIC = gql`
+  query GetDepositsAggregatesDynamic($where: deposits_bool_exp!) {
+    deposits: deposits_aggregate(where: $where) {
+      aggregate {
+        count
+        sum {
+          amount
+        }
+      }
+    }
+    deposit_totals: deposits_aggregate(where: { _and: [$where, { direction: { _eq: "deposit" } }] }) {
+      aggregate {
+        count
+        sum {
+          amount
+        }
+      }
+    }
+    withdrawal_totals: deposits_aggregate(where: { _and: [$where, { direction: { _eq: "withdraw" } }] }) {
+      aggregate {
+        count
+        sum {
+          amount
+        }
+      }
+    }
+  }
+`;
+
+export const GET_DISTINCT_DEPOSIT_ASSETS = gql`
+  query GetDistinctDepositAssets {
+    deposits(distinct_on: asset, order_by: { asset: asc }) {
+      asset
+    }
+  }
+`;
+
+// Open Position types (derived from trades)
+export interface OpenPosition {
+  base_asset: string;
+  quote_asset: string;
+  market_type: "perp" | "spot" | "swap";
+  side: "long" | "short";
+  net_quantity: number;
+  avg_entry_price: number;
+  total_cost: number;
+  exchange_account_id?: string;
+  exchange_account?: ExchangeAccount;
+  // For spot positions traded against non-USD (e.g., bSOL/SOL)
+  native_quote_asset?: string; // The actual quote asset (e.g., "SOL" for bSOL/SOL)
+}
+
+// Query to get open positions by aggregating trades
+// This calculates net position = sum(buy quantities) - sum(sell quantities)
+export const GET_OPEN_POSITIONS = gql`
+  query GetOpenPositions {
+    perp_positions: trades(
+      where: { market_type: { _eq: "perp" } }
+      distinct_on: [base_asset, quote_asset, exchange_account_id]
+    ) {
+      base_asset
+      quote_asset
+      exchange_account_id
+      exchange_account {
+        id
+        account_identifier
+        label
+        exchange {
+          id
+          name
+          display_name
+        }
+      }
+    }
+    spot_positions: trades(
+      where: { market_type: { _in: ["spot", "swap"] } }
+      distinct_on: [base_asset, quote_asset, exchange_account_id]
+    ) {
+      base_asset
+      quote_asset
+      exchange_account_id
+      exchange_account {
+        id
+        account_identifier
+        label
+        exchange {
+          id
+          name
+          display_name
+        }
+      }
+    }
+  }
+`;
+
+// Get trade totals for calculating open position quantities
+export const GET_TRADE_TOTALS_BY_ASSET = gql`
+  query GetTradeTotalsByAsset(
+    $base_asset: String!
+    $quote_asset: String!
+    $market_type: String!
+    $exchange_account_id: uuid!
+  ) {
+    buy_total: trades_aggregate(
+      where: {
+        base_asset: { _eq: $base_asset }
+        quote_asset: { _eq: $quote_asset }
+        market_type: { _eq: $market_type }
+        exchange_account_id: { _eq: $exchange_account_id }
+        side: { _eq: "buy" }
+      }
+    ) {
+      aggregate {
+        sum {
+          quantity
+        }
+        count
+      }
+    }
+    sell_total: trades_aggregate(
+      where: {
+        base_asset: { _eq: $base_asset }
+        quote_asset: { _eq: $quote_asset }
+        market_type: { _eq: $market_type }
+        exchange_account_id: { _eq: $exchange_account_id }
+        side: { _eq: "sell" }
+      }
+    ) {
+      aggregate {
+        sum {
+          quantity
+        }
+        count
+      }
+    }
+    # Get weighted average entry price (for the winning side)
+    buy_value: trades_aggregate(
+      where: {
+        base_asset: { _eq: $base_asset }
+        quote_asset: { _eq: $quote_asset }
+        market_type: { _eq: $market_type }
+        exchange_account_id: { _eq: $exchange_account_id }
+        side: { _eq: "buy" }
+      }
+    ) {
+      aggregate {
+        sum {
+          quantity
+        }
+      }
+    }
+    sell_value: trades_aggregate(
+      where: {
+        base_asset: { _eq: $base_asset }
+        quote_asset: { _eq: $quote_asset }
+        market_type: { _eq: $market_type }
+        exchange_account_id: { _eq: $exchange_account_id }
+        side: { _eq: "sell" }
+      }
+    ) {
+      aggregate {
+        sum {
+          quantity
+        }
+      }
+    }
+  }
+`;
+
+// Combined query for spot+swap positions
+export const GET_TRADE_TOTALS_SPOT_SWAP = gql`
+  query GetTradeTotalsSpotSwap(
+    $base_asset: String!
+    $quote_asset: String!
+    $exchange_account_id: uuid!
+  ) {
+    buy_total: trades_aggregate(
+      where: {
+        base_asset: { _eq: $base_asset }
+        quote_asset: { _eq: $quote_asset }
+        market_type: { _in: ["spot", "swap"] }
+        exchange_account_id: { _eq: $exchange_account_id }
+        side: { _eq: "buy" }
+      }
+    ) {
+      aggregate {
+        sum {
+          quantity
+        }
+        count
+      }
+    }
+    sell_total: trades_aggregate(
+      where: {
+        base_asset: { _eq: $base_asset }
+        quote_asset: { _eq: $quote_asset }
+        market_type: { _in: ["spot", "swap"] }
+        exchange_account_id: { _eq: $exchange_account_id }
+        side: { _eq: "sell" }
+      }
+    ) {
+      aggregate {
+        sum {
+          quantity
+        }
+        count
+      }
     }
   }
 `;

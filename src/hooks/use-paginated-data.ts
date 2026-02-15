@@ -55,7 +55,7 @@ export interface UsePaginatedDataResult<TItem, TAggregates> {
   selectedAccountId: string;
   dateRange: DateRangeValue;
   selectedAssets: string[];
-  selectedMarketTypes: ("perp" | "spot")[];
+  selectedMarketTypes: ("perp" | "spot" | "swap")[];
   selectedTags: string[];
 
   // New item tracking
@@ -66,7 +66,7 @@ export interface UsePaginatedDataResult<TItem, TAggregates> {
   handleAccountChange: (accountId: string) => void;
   handleDateRangeChange: (newRange: DateRangeValue) => void;
   handleAssetChange: (assets: string[]) => void;
-  handleMarketTypeChange: (marketTypes: ("perp" | "spot")[]) => void;
+  handleMarketTypeChange: (marketTypes: ("perp" | "spot" | "swap")[]) => void;
   handleTagChange: (tags: string[]) => void;
 
   // Refresh
@@ -106,7 +106,7 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
   const [selectedAccountId, setSelectedAccountId] = useState<string>(accountId ?? "all");
   const [dateRange, setDateRange] = useState<DateRangeValue>({ preset: "all" });
   const [selectedAssets, setSelectedAssets] = useState<string[]>([]);
-  const [selectedMarketTypes, setSelectedMarketTypes] = useState<("perp" | "spot")[]>([]);
+  const [selectedMarketTypes, setSelectedMarketTypes] = useState<("perp" | "spot" | "swap")[]>([]);
   const [localSelectedTags, setLocalSelectedTags] = useState<string[]>([]);
 
   // Use global tags if configured, otherwise use local state
@@ -134,7 +134,7 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
 
   // Build filters object from current state
   const buildFilters = useCallback(
-    (accId: string, dateRangeValue: DateRangeValue, assets: string[], marketTypes: ("perp" | "spot")[], tags: string[]): DataFilters => {
+    (accId: string, dateRangeValue: DateRangeValue, assets: string[], marketTypes: ("perp" | "spot" | "swap")[], tags: string[]): DataFilters => {
       const { since, until } = getTimestampsFromDateRange(dateRangeValue);
       return {
         accountId: accId === "all" ? undefined : accId,
@@ -150,7 +150,7 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
 
   // Fetch aggregates
   const doFetchAggregates = useCallback(
-    async (accId: string, dateRangeValue: DateRangeValue, assets: string[], marketTypes: ("perp" | "spot")[], tags: string[]) => {
+    async (accId: string, dateRangeValue: DateRangeValue, assets: string[], marketTypes: ("perp" | "spot" | "swap")[], tags: string[]) => {
       setIsLoadingAggregates(true);
       const filters = buildFilters(accId, dateRangeValue, assets, marketTypes, tags);
 
@@ -168,7 +168,7 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
 
   // Fetch items
   const doFetchItems = useCallback(
-    async (pageNum: number, accId: string, dateRangeValue: DateRangeValue, assets: string[], marketTypes: ("perp" | "spot")[], tags: string[]) => {
+    async (pageNum: number, accId: string, dateRangeValue: DateRangeValue, assets: string[], marketTypes: ("perp" | "spot" | "swap")[], tags: string[]) => {
       setIsLoading(true);
       const filters = buildFilters(accId, dateRangeValue, assets, marketTypes, tags);
 
@@ -251,7 +251,7 @@ export function usePaginatedData<TItem extends { id: string }, TAggregates>(
     setPage(0);
   }, []);
 
-  const handleMarketTypeChange = useCallback((marketTypes: ("perp" | "spot")[]) => {
+  const handleMarketTypeChange = useCallback((marketTypes: ("perp" | "spot" | "swap")[]) => {
     setSelectedMarketTypes(marketTypes);
     setPage(0);
   }, []);

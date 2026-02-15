@@ -1,4 +1,4 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionTrade, PositionsAggregates, Wallet, WalletWithAccounts } from "../queries";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionTrade, PositionsAggregates, Wallet, WalletWithAccounts, Deposit, DepositsAggregates, OpenPosition } from "../queries";
 
 export interface CreateAccountInput {
   exchange_id: string;
@@ -33,12 +33,17 @@ export interface PositionWithTrades extends Position {
   position_trades: PositionTrade[];
 }
 
+export interface DepositsResult {
+  deposits: Deposit[];
+  totalCount: number;
+}
+
 export interface DataFilters {
   accountId?: string;
   since?: number;
   until?: number;
   baseAssets?: string[];
-  marketTypes?: ("perp" | "spot")[];
+  marketTypes?: ("perp" | "spot" | "swap")[];
   tags?: string[];
 }
 
@@ -57,6 +62,10 @@ export interface ApiClient {
   getPositions(limit: number, offset: number, filters?: DataFilters): Promise<PositionsResult>;
   getPositionsAggregates(filters?: DataFilters): Promise<PositionsAggregates>;
   getPositionById(id: string): Promise<PositionWithTrades | null>;
+  // Deposit methods
+  getDeposits(limit: number, offset: number, filters?: DataFilters): Promise<DepositsResult>;
+  getDepositsAggregates(filters?: DataFilters): Promise<DepositsAggregates>;
+  getDistinctDepositAssets(): Promise<string[]>;
   // Wallet methods
   getWallets(): Promise<Wallet[]>;
   getWalletsWithCounts(): Promise<WalletWithAccounts[]>;
@@ -65,4 +74,6 @@ export interface ApiClient {
   updateAccountTags(id: string, tags: string[]): Promise<{ id: string; tags: string[] }>;
   updateWalletLabel(id: string, label: string | null): Promise<{ id: string; label: string | null }>;
   updateAccountLabel(id: string, label: string | null): Promise<{ id: string; label: string | null }>;
+  // Open positions (derived from trades)
+  getOpenPositions(filters?: DataFilters): Promise<OpenPosition[]>;
 }

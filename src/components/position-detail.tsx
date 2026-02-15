@@ -143,9 +143,19 @@ export function PositionDetail({ positionId }: PositionDetailProps) {
               <p className="text-sm font-medium text-muted-foreground">
                 Asset Pair
               </p>
-              <p className="text-lg font-semibold">
-                {position.base_asset}/{position.quote_asset}
-              </p>
+              <div className="flex items-center gap-2">
+                <p className="text-lg font-semibold">
+                  {position.base_asset}/{position.quote_asset}
+                </p>
+                <span className={cn(
+                  "text-[10px] font-medium px-1.5 py-0.5 rounded uppercase",
+                  position.market_type === "perp" && "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
+                  position.market_type === "spot" && "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+                  position.market_type === "swap" && "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"
+                )}>
+                  {position.market_type?.toUpperCase() || "PERP"}
+                </span>
+              </div>
             </div>
             <div>
               <p className="text-sm font-medium text-muted-foreground">
@@ -213,7 +223,10 @@ export function PositionDetail({ positionId }: PositionDetailProps) {
               <p className="text-sm font-medium text-muted-foreground">
                 Total Fees
               </p>
-              <p className="text-lg font-mono text-red-600">
+              <p className={cn(
+                "text-lg font-mono",
+                parseFloat(position.total_fees) >= 0 ? "text-red-600" : "text-green-600"
+              )}>
                 {formatNumber(position.total_fees, 6)}
               </p>
             </div>

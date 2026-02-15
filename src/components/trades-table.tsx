@@ -132,6 +132,8 @@ export function TradesTable({
                       "text-[10px] font-medium px-1.5 py-0.5 rounded uppercase",
                       trade.market_type === "spot"
                         ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                        : trade.market_type === "swap"
+                        ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
                         : "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400"
                     )}
                   >
@@ -156,7 +158,11 @@ export function TradesTable({
                 {formatNumber(trade.quantity)}
               </TableCell>
               <TableCell className="py-3 text-right font-mono">
-                {formatNumber(trade.fee, 6)}
+                <span className={cn(
+                  parseFloat(trade.fee) >= 0 ? "text-red-600" : "text-green-600"
+                )}>
+                  {formatNumber(trade.fee, 6)}
+                </span>
               </TableCell>
             </TableRow>
           ))}

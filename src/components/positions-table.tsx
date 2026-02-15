@@ -150,8 +150,13 @@ export function PositionsTable({
                     <span className="font-medium">
                       {position.base_asset}/{position.quote_asset}
                     </span>
-                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded uppercase bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
-                      PERP
+                    <span className={cn(
+                      "text-[10px] font-medium px-1.5 py-0.5 rounded uppercase",
+                      position.market_type === "perp" && "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
+                      position.market_type === "spot" && "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+                      position.market_type === "swap" && "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"
+                    )}>
+                      {position.market_type?.toUpperCase() || "PERP"}
                     </span>
                   </div>
                 </TableCell>
@@ -177,7 +182,11 @@ export function PositionsTable({
                   {formatNumber(position.total_quantity)}
                 </TableCell>
                 <TableCell className="py-3 text-right font-mono">
-                  {formatNumber(position.total_fees, 6)}
+                  <span className={cn(
+                    parseFloat(position.total_fees) >= 0 ? "text-red-600" : "text-green-600"
+                  )}>
+                    {formatNumber(position.total_fees, 6)}
+                  </span>
                 </TableCell>
                 <TableCell className={cn("py-3 text-right font-mono font-medium", pnl.className)}>
                   {pnl.text}

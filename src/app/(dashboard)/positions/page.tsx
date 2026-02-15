@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { api, DataFilters } from "@/lib/api";
-import { Position, ExchangeAccount, PositionsAggregates } from "@/lib/queries";
+import { Position, ExchangeAccount, PositionsAggregates, OpenPosition } from "@/lib/queries";
 import { PositionsTable } from "@/components/positions-table";
+import { OpenPositionsTable } from "@/components/open-positions-table";
 import { SyncButton } from "@/components/sync-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard, StatsGrid } from "@/components/stat-card";
@@ -16,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import { DateRangeFilter } from "@/components/date-range-filter";
 import { AssetFilter } from "@/components/asset-filter";
+import { MarketTypeFilter } from "@/components/market-type-filter";
 import { usePaginatedData } from "@/hooks/use-paginated-data";
 
 const PAGE_SIZE = 100;
@@ -37,6 +39,8 @@ export default function PositionsPage() {
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
   const [availableAssets, setAvailableAssets] = useState<string[]>([]);
   const [isLoadingAssets, setIsLoadingAssets] = useState(true);
+  const [openPositions, setOpenPositions] = useState<OpenPosition[]>([]);
+  const [isLoadingOpenPositions, setIsLoadingOpenPositions] = useState(true);
 
   const {
     items: positions,
@@ -48,11 +52,13 @@ export default function PositionsPage() {
     selectedAccountId,
     dateRange,
     selectedAssets,
+    selectedMarketTypes,
     isNew,
     handlePageChange,
     handleAccountChange,
     handleDateRangeChange,
     handleAssetChange,
+    handleMarketTypeChange,
     refresh,
     lastRefreshTime,
   } = usePaginatedData<Position, PositionsAggregates>({
@@ -89,6 +95,32 @@ export default function PositionsPage() {
     fetchAssets();
   }, []);
 
+  // Fetch open positions
+  useEffect(() => {
+    const fetchOpenPositions = async () => {
+      setIsLoadingOpenPositions(true);
+      try {
+        const filters: DataFilters = {};
+        if (selectedAccountId && selectedAccountId !== "all") {
+          filters.accountId = selectedAccountId;
+        }
+        if (selectedAssets.length > 0) {
+          filters.baseAssets = selectedAssets;
+        }
+        if (selectedMarketTypes.length > 0) {
+          filters.marketTypes = selectedMarketTypes;
+        }
+        const positions = await api.getOpenPositions(filters);
+        setOpenPositions(positions);
+      } catch (error) {
+        console.error("Failed to fetch open positions:", error);
+      } finally {
+        setIsLoadingOpenPositions(false);
+      }
+    };
+    fetchOpenPositions();
+  }, [selectedAccountId, selectedAssets, selectedMarketTypes, lastRefreshTime]);
+
   const formatPnL = (value: string) => {
     const num = parseFloat(value);
     const sign = num >= 0 ? "+" : "";
@@ -106,9 +138,9 @@ export default function PositionsPage() {
     <div className="space-y-6">
       <div className="flex items-center gap-2">
         <div>
-          <h1 className="text-3xl font-bold">Position History</h1>
+          <h1 className="text-3xl font-bold">Positions</h1>
           <p className="text-muted-foreground">
-            View all closed positions across your exchange accounts
+            View open and closed positions across your exchange accounts
           </p>
         </div>
         <SyncButton
@@ -138,33 +170,54 @@ export default function PositionsPage() {
         />
       </StatsGrid>
 
+      {/* Filters */}
+      <div className="flex items-center gap-4 flex-wrap">
+        <MarketTypeFilter
+          value={selectedMarketTypes}
+          onChange={handleMarketTypeChange}
+        />
+        <AssetFilter
+          assets={availableAssets}
+          selectedAssets={selectedAssets}
+          onSelectionChange={handleAssetChange}
+          isLoading={isLoadingAssets}
+        />
+        <DateRangeFilter value={dateRange} onChange={handleDateRangeChange} />
+        <Select value={selectedAccountId} onValueChange={handleAccountChange}>
+          <SelectTrigger className="w-[280px]">
+            <SelectValue placeholder="Filter by account" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Accounts</SelectItem>
+            {accounts.map((account) => (
+              <SelectItem key={account.id} value={account.id}>
+                {account.exchange?.display_name || "Unknown"} - {account.account_identifier.slice(0, 10)}...
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Open Positions */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+        <CardHeader>
+          <CardTitle>Open Positions</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <OpenPositionsTable
+            positions={openPositions}
+            showAccount={true}
+            isLoading={isLoadingOpenPositions}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Closed Positions */}
+      <Card>
+        <CardHeader>
           <CardTitle>
-            {selectedAccountId === "all" ? "All Positions" : "Filtered Positions"}
+            Closed Positions
           </CardTitle>
-          <div className="flex items-center gap-4">
-            <AssetFilter
-              assets={availableAssets}
-              selectedAssets={selectedAssets}
-              onSelectionChange={handleAssetChange}
-              isLoading={isLoadingAssets}
-            />
-            <DateRangeFilter value={dateRange} onChange={handleDateRangeChange} />
-            <Select value={selectedAccountId} onValueChange={handleAccountChange}>
-              <SelectTrigger className="w-[280px]">
-                <SelectValue placeholder="Filter by account" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Accounts</SelectItem>
-                {accounts.map((account) => (
-                  <SelectItem key={account.id} value={account.id}>
-                    {account.exchange?.display_name || "Unknown"} - {account.account_identifier.slice(0, 10)}...
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
         </CardHeader>
         <CardContent>
           <PositionsTable
