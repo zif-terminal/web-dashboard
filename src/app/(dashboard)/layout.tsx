@@ -14,6 +14,7 @@ const navigation = [
   { name: "Trades", href: "/trades" },
   { name: "Positions", href: "/positions" },
   { name: "Funding", href: "/funding" },
+  { name: "Deposits", href: "/deposits" },
 ];
 
 export default function DashboardLayout({

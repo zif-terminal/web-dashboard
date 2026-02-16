@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-export type MarketType = "perp" | "spot";
+export type MarketType = "perp" | "spot" | "swap";
 
 interface MarketTypeFilterProps {
   value: MarketType[];
@@ -19,6 +19,7 @@ export function MarketTypeFilter({
   const isAll = value.length === 0;
   const isPerp = value.length === 1 && value[0] === "perp";
   const isSpot = value.length === 1 && value[0] === "spot";
+  const isSwap = value.length === 1 && value[0] === "swap";
 
   return (
     <div className={cn("flex items-center gap-1 p-1 bg-muted rounded-lg", className)}>
@@ -45,6 +46,14 @@ export function MarketTypeFilter({
         onClick={() => onChange(["spot"])}
       >
         Spot
+      </Button>
+      <Button
+        variant={isSwap ? "default" : "ghost"}
+        size="sm"
+        className="h-7 px-3 text-xs"
+        onClick={() => onChange(["swap"])}
+      >
+        Swap
       </Button>
     </div>
   );
