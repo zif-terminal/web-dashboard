@@ -16,7 +16,7 @@ export default async function AccountPage({ params }: AccountPageProps) {
           <Link href="/accounts">Back</Link>
         </Button>
         <div>
-          <h1 className="text-3xl font-bold">Account Details</h1>
+          <h1 className="text-xl md:text-3xl font-bold">Account Details</h1>
           <p className="text-muted-foreground">
             View and manage this exchange account
           </p>

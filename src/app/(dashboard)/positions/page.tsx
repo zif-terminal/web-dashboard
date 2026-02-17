@@ -6,6 +6,8 @@ import { Position, ExchangeAccount, PositionsAggregates, OpenPosition } from "@/
 import { PositionsTable } from "@/components/positions-table";
 import { OpenPositionsTable } from "@/components/open-positions-table";
 import { SyncButton } from "@/components/sync-button";
+import { PageHeader } from "@/components/page-header";
+import { FilterBar } from "@/components/filter-bar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard, StatsGrid } from "@/components/stat-card";
 import {
@@ -136,19 +138,17 @@ export default function PositionsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2">
-        <div>
-          <h1 className="text-3xl font-bold">Positions</h1>
-          <p className="text-muted-foreground">
-            View open and closed positions across your exchange accounts
-          </p>
-        </div>
-        <SyncButton
-          lastRefreshTime={lastRefreshTime}
-          onRefresh={refresh}
-          isLoading={isLoading}
-        />
-      </div>
+      <PageHeader
+        title="Positions"
+        description="View open and closed positions across your exchange accounts"
+        action={
+          <SyncButton
+            lastRefreshTime={lastRefreshTime}
+            onRefresh={refresh}
+            isLoading={isLoading}
+          />
+        }
+      />
 
       <StatsGrid>
         <StatCard
@@ -171,32 +171,37 @@ export default function PositionsPage() {
       </StatsGrid>
 
       {/* Filters */}
-      <div className="flex items-center gap-4 flex-wrap">
+      <FilterBar
+        compact={
+          <>
+            <AssetFilter
+              assets={availableAssets}
+              selectedAssets={selectedAssets}
+              onSelectionChange={handleAssetChange}
+              isLoading={isLoadingAssets}
+            />
+            <Select value={selectedAccountId} onValueChange={handleAccountChange}>
+              <SelectTrigger className="w-full sm:w-[200px]">
+                <SelectValue placeholder="Filter by account" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Accounts</SelectItem>
+                {accounts.map((account) => (
+                  <SelectItem key={account.id} value={account.id}>
+                    {account.exchange?.display_name || "Unknown"} - {account.account_identifier.slice(0, 10)}...
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </>
+        }
+      >
         <MarketTypeFilter
           value={selectedMarketTypes}
           onChange={handleMarketTypeChange}
         />
-        <AssetFilter
-          assets={availableAssets}
-          selectedAssets={selectedAssets}
-          onSelectionChange={handleAssetChange}
-          isLoading={isLoadingAssets}
-        />
         <DateRangeFilter value={dateRange} onChange={handleDateRangeChange} />
-        <Select value={selectedAccountId} onValueChange={handleAccountChange}>
-          <SelectTrigger className="w-[280px]">
-            <SelectValue placeholder="Filter by account" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Accounts</SelectItem>
-            {accounts.map((account) => (
-              <SelectItem key={account.id} value={account.id}>
-                {account.exchange?.display_name || "Unknown"} - {account.account_identifier.slice(0, 10)}...
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      </FilterBar>
 
       {/* Open Positions */}
       <Card>

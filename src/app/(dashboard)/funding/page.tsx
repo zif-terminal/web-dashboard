@@ -6,6 +6,8 @@ import { FundingPayment, ExchangeAccount, FundingAggregates } from "@/lib/querie
 import { FundingTable } from "@/components/funding-table";
 import { AccountFilter } from "@/components/account-filter";
 import { SyncButton } from "@/components/sync-button";
+import { PageHeader } from "@/components/page-header";
+import { FilterBar } from "@/components/filter-bar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard, StatsGrid } from "@/components/stat-card";
 import { formatSignedNumber } from "@/lib/format";
@@ -89,19 +91,17 @@ export default function FundingPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2">
-        <div>
-          <h1 className="text-3xl font-bold">Funding Payments</h1>
-          <p className="text-muted-foreground">
-            View funding payments across your exchange accounts
-          </p>
-        </div>
-        <SyncButton
-          lastRefreshTime={lastRefreshTime}
-          onRefresh={refresh}
-          isLoading={isLoading}
-        />
-      </div>
+      <PageHeader
+        title="Funding Payments"
+        description="View funding payments across your exchange accounts"
+        action={
+          <SyncButton
+            lastRefreshTime={lastRefreshTime}
+            onRefresh={refresh}
+            isLoading={isLoading}
+          />
+        }
+      />
 
       <StatsGrid>
         <StatCard
@@ -118,26 +118,31 @@ export default function FundingPage() {
       </StatsGrid>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <CardTitle>
+        <CardHeader className="space-y-3 px-3 md:px-6">
+          <CardTitle className="text-base md:text-lg">
             {selectedAccountId === "all" ? "All Funding Payments" : "Filtered Payments"}
           </CardTitle>
-          <div className="flex items-center gap-4">
-            <AssetFilter
-              assets={availableAssets}
-              selectedAssets={selectedAssets}
-              onSelectionChange={handleAssetChange}
-              isLoading={isLoadingAssets}
-            />
+          <FilterBar
+            compact={
+              <>
+                <AssetFilter
+                  assets={availableAssets}
+                  selectedAssets={selectedAssets}
+                  onSelectionChange={handleAssetChange}
+                  isLoading={isLoadingAssets}
+                />
+                <AccountFilter
+                  accounts={accounts}
+                  selectedAccountId={selectedAccountId}
+                  onAccountChange={handleAccountChange}
+                />
+              </>
+            }
+          >
             <DateRangeFilter value={dateRange} onChange={handleDateRangeChange} />
-            <AccountFilter
-              accounts={accounts}
-              selectedAccountId={selectedAccountId}
-              onAccountChange={handleAccountChange}
-            />
-          </div>
+          </FilterBar>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-2 md:px-6">
           <FundingTable
             fundingPayments={fundingPayments}
             totalCount={totalCount}

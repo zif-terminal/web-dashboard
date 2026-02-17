@@ -81,7 +81,7 @@ export function PositionsTable({
     return (
       <div className="flex flex-col items-center justify-center py-8 text-center">
         <p className="text-muted-foreground mb-2">No positions found</p>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-xs sm:text-sm text-muted-foreground">
           Closed positions will appear here once they are recorded
         </p>
       </div>
@@ -198,9 +198,9 @@ export function PositionsTable({
       </Table>
 
       {/* Pagination */}
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          Showing {startItem} to {endItem} of {totalCount} positions
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs sm:text-sm text-muted-foreground">
+          {startItem}–{endItem} of {totalCount} positions
         </p>
         <div className="flex items-center gap-2">
           <Button
@@ -211,8 +211,8 @@ export function PositionsTable({
           >
             Previous
           </Button>
-          <span className="text-sm text-muted-foreground">
-            Page {page + 1} of {totalPages}
+          <span className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap">
+            {page + 1} / {totalPages}
           </span>
           <Button
             variant="outline"

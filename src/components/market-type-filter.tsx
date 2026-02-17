@@ -22,11 +22,11 @@ export function MarketTypeFilter({
   const isSwap = value.length === 1 && value[0] === "swap";
 
   return (
-    <div className={cn("flex items-center gap-1 p-1 bg-muted rounded-lg", className)}>
+    <div className={cn("flex items-center gap-0.5 p-1 bg-muted rounded-lg w-full sm:w-auto", className)}>
       <Button
         variant={isAll ? "default" : "ghost"}
         size="sm"
-        className="h-7 px-3 text-xs"
+        className="h-7 flex-1 sm:flex-none px-2 sm:px-3 text-xs"
         onClick={() => onChange([])}
       >
         All
@@ -34,7 +34,7 @@ export function MarketTypeFilter({
       <Button
         variant={isPerp ? "default" : "ghost"}
         size="sm"
-        className="h-7 px-3 text-xs"
+        className="h-7 flex-1 sm:flex-none px-2 sm:px-3 text-xs"
         onClick={() => onChange(["perp"])}
       >
         Perp
@@ -42,7 +42,7 @@ export function MarketTypeFilter({
       <Button
         variant={isSpot ? "default" : "ghost"}
         size="sm"
-        className="h-7 px-3 text-xs"
+        className="h-7 flex-1 sm:flex-none px-2 sm:px-3 text-xs"
         onClick={() => onChange(["spot"])}
       >
         Spot
@@ -50,7 +50,7 @@ export function MarketTypeFilter({
       <Button
         variant={isSwap ? "default" : "ghost"}
         size="sm"
-        className="h-7 px-3 text-xs"
+        className="h-7 flex-1 sm:flex-none px-2 sm:px-3 text-xs"
         onClick={() => onChange(["swap"])}
       >
         Swap
