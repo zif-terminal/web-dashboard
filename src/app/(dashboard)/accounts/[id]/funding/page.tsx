@@ -6,6 +6,8 @@ import { api, DataFilters } from "@/lib/api";
 import { FundingPayment, ExchangeAccount, FundingAggregates } from "@/lib/queries";
 import { FundingTable } from "@/components/funding-table";
 import { SyncButton } from "@/components/sync-button";
+import { PageHeader } from "@/components/page-header";
+import { FilterBar } from "@/components/filter-bar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatCard, StatsGrid } from "@/components/stat-card";
@@ -97,20 +99,22 @@ export default function AccountFundingPage({ params }: AccountFundingPageProps) 
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="outline" asChild>
-          <Link href={`/accounts/${id}`}>Back</Link>
-        </Button>
-        <div>
-          <h1 className="text-3xl font-bold">Funding Payments</h1>
-          <p className="text-muted-foreground">{accountTitle}</p>
-        </div>
-        <SyncButton
-          lastRefreshTime={lastRefreshTime}
-          onRefresh={refresh}
-          isLoading={isLoading}
-        />
-      </div>
+      <PageHeader
+        title="Funding Payments"
+        description={accountTitle}
+        prefix={
+          <Button variant="outline" asChild className="w-fit">
+            <Link href={`/accounts/${id}`}>Back</Link>
+          </Button>
+        }
+        action={
+          <SyncButton
+            lastRefreshTime={lastRefreshTime}
+            onRefresh={refresh}
+            isLoading={isLoading}
+          />
+        }
+      />
 
       <StatsGrid>
         <StatCard
@@ -127,19 +131,19 @@ export default function AccountFundingPage({ params }: AccountFundingPageProps) 
       </StatsGrid>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <CardTitle>Funding Payments</CardTitle>
-          <div className="flex items-center gap-4">
+        <CardHeader className="space-y-3 px-3 md:px-6">
+          <CardTitle className="text-base md:text-lg">Funding Payments</CardTitle>
+          <FilterBar>
+            <DateRangeFilter value={dateRange} onChange={handleDateRangeChange} />
             <AssetFilter
               assets={availableAssets}
               selectedAssets={selectedAssets}
               onSelectionChange={handleAssetChange}
               isLoading={isLoadingAssets}
             />
-            <DateRangeFilter value={dateRange} onChange={handleDateRangeChange} />
-          </div>
+          </FilterBar>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-2 md:px-6">
           <FundingTable
             fundingPayments={fundingPayments}
             totalCount={totalCount}

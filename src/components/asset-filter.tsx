@@ -55,7 +55,7 @@ export function AssetFilter({
         <Button
           variant={selectedAssets.length > 0 ? "default" : "outline"}
           size="sm"
-          className={cn("h-[34px] min-w-[120px] justify-between", className)}
+          className={cn("h-[34px] w-full sm:w-auto sm:min-w-[120px] justify-between", className)}
           disabled={isLoading}
         >
           <span>{isLoading ? "Loading..." : getButtonLabel()}</span>

@@ -5,6 +5,8 @@ import { api, DataFilters } from "@/lib/api";
 import { Trade, ExchangeAccount, TradesAggregates } from "@/lib/queries";
 import { TradesTable } from "@/components/trades-table";
 import { SyncButton } from "@/components/sync-button";
+import { PageHeader } from "@/components/page-header";
+import { FilterBar } from "@/components/filter-bar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard, StatsGrid } from "@/components/stat-card";
 import {
@@ -99,19 +101,17 @@ export default function TradesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2">
-        <div>
-          <h1 className="text-3xl font-bold">Trade History</h1>
-          <p className="text-muted-foreground">
-            View all trades across your exchange accounts
-          </p>
-        </div>
-        <SyncButton
-          lastRefreshTime={lastRefreshTime}
-          onRefresh={refresh}
-          isLoading={isLoading}
-        />
-      </div>
+      <PageHeader
+        title="Trade History"
+        description="View all trades across your exchange accounts"
+        action={
+          <SyncButton
+            lastRefreshTime={lastRefreshTime}
+            onRefresh={refresh}
+            isLoading={isLoading}
+          />
+        }
+      />
 
       <StatsGrid>
         <StatCard
@@ -128,38 +128,45 @@ export default function TradesPage() {
       </StatsGrid>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <CardTitle>
-            {selectedAccountId === "all" ? "All Trades" : "Filtered Trades"}
-          </CardTitle>
-          <div className="flex items-center gap-4">
+        <CardHeader className="space-y-3 px-3 md:px-6">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base md:text-lg">
+              {selectedAccountId === "all" ? "All Trades" : "Filtered Trades"}
+            </CardTitle>
+          </div>
+          <FilterBar
+            compact={
+              <>
+                <AssetFilter
+                  assets={availableAssets}
+                  selectedAssets={selectedAssets}
+                  onSelectionChange={handleAssetChange}
+                  isLoading={isLoadingAssets}
+                />
+                <Select value={selectedAccountId} onValueChange={handleAccountChange}>
+                  <SelectTrigger className="w-full sm:w-[200px]">
+                    <SelectValue placeholder="Filter by account" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Accounts</SelectItem>
+                    {accounts.map((account) => (
+                      <SelectItem key={account.id} value={account.id}>
+                        {account.exchange?.display_name || "Unknown"} - {account.account_identifier.slice(0, 10)}...
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
+            }
+          >
             <MarketTypeFilter
               value={selectedMarketTypes}
               onChange={handleMarketTypeChange}
             />
-            <AssetFilter
-              assets={availableAssets}
-              selectedAssets={selectedAssets}
-              onSelectionChange={handleAssetChange}
-              isLoading={isLoadingAssets}
-            />
             <DateRangeFilter value={dateRange} onChange={handleDateRangeChange} />
-            <Select value={selectedAccountId} onValueChange={handleAccountChange}>
-              <SelectTrigger className="w-[280px]">
-                <SelectValue placeholder="Filter by account" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Accounts</SelectItem>
-                {accounts.map((account) => (
-                  <SelectItem key={account.id} value={account.id}>
-                    {account.exchange?.display_name || "Unknown"} - {account.account_identifier.slice(0, 10)}...
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          </FilterBar>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-2 md:px-6">
           <TradesTable
             trades={trades}
             totalCount={totalCount}

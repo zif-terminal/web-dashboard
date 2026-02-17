@@ -16,7 +16,7 @@ export default async function PositionPage({ params }: PositionPageProps) {
           <Link href="/positions">Back</Link>
         </Button>
         <div>
-          <h1 className="text-3xl font-bold">Position Details</h1>
+          <h1 className="text-xl md:text-3xl font-bold">Position Details</h1>
           <p className="text-muted-foreground">
             View the details of this closed position and its trades
           </p>

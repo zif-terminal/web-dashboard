@@ -47,5 +47,5 @@ export function StatsGrid({ children, columns = 2 }: StatsGridProps) {
     4: "md:grid-cols-4",
   }[columns];
 
-  return <div className={cn("grid gap-4", colsClass)}>{children}</div>;
+  return <div className={cn("grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-4", colsClass)}>{children}</div>;
 }

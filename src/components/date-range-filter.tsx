@@ -104,13 +104,13 @@ export function DateRangeFilter({
   };
 
   return (
-    <div className={cn("flex items-center gap-1", className)}>
+    <div className={cn("flex items-center gap-0.5 sm:gap-1 w-full sm:w-auto", className)}>
       {presets.map((preset) => (
         <button
           key={preset.value}
           onClick={() => handlePresetClick(preset.value)}
           className={cn(
-            "px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
+            "flex-1 sm:flex-none px-2 sm:px-3 py-1.5 text-xs sm:text-sm font-medium rounded-md transition-colors",
             value.preset === preset.value
               ? "bg-primary text-primary-foreground"
               : "bg-muted text-muted-foreground hover:bg-muted/80"
@@ -134,7 +134,7 @@ export function DateRangeFilter({
             {formatCustomRange()}
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-auto p-0" align="end">
+        <PopoverContent className="w-auto p-0" align="start" side="bottom">
           <div className="p-3 border-b">
             <p className="text-sm font-medium">Select date range</p>
           </div>

@@ -20,7 +20,7 @@ export function AccountFilter({
   accounts,
   selectedAccountId,
   onAccountChange,
-  className = "w-[280px]",
+  className = "w-full sm:w-[200px]",
 }: AccountFilterProps) {
   return (
     <Select value={selectedAccountId} onValueChange={onAccountChange}>
