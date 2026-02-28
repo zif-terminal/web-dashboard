@@ -114,7 +114,8 @@ export function TradesTable({
                             trade.exchange_account?.label,
                             trade.exchange_account?.account_identifier || trade.exchange_account_id,
                             8,
-                            4
+                            4,
+                            trade.exchange_account?.wallet?.label
                           )}
                         </span>
                       </div>

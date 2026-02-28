@@ -137,7 +137,8 @@ export function PositionsTable({
                               position.exchange_account?.label,
                               position.exchange_account?.account_identifier || position.exchange_account_id,
                               8,
-                              4
+                              4,
+                              position.exchange_account?.wallet?.label
                             )}
                           </span>
                         </div>

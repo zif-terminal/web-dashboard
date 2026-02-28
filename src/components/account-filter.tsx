@@ -31,7 +31,9 @@ export function AccountFilter({
         <SelectItem value="all">All Accounts</SelectItem>
         {accounts.map((account) => (
           <SelectItem key={account.id} value={account.id}>
-            {account.exchange?.display_name || "Unknown"} - {account.account_identifier.slice(0, 10)}...
+            {account.wallet?.label
+              ? `${account.wallet.label} - ${account.exchange?.display_name || "Unknown"}`
+              : `${account.exchange?.display_name || "Unknown"} - ${account.account_identifier.slice(0, 10)}...`}
           </SelectItem>
         ))}
       </SelectContent>

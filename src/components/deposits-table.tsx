@@ -155,7 +155,8 @@ export function DepositsTable({
                               deposit.exchange_account?.label,
                               deposit.exchange_account?.account_identifier || deposit.exchange_account_id,
                               8,
-                              4
+                              4,
+                              deposit.exchange_account?.wallet?.label
                             )}
                           </span>
                         </div>

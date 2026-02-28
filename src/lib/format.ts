@@ -56,9 +56,12 @@ export function truncateAddress(address: string, startChars = 6, endChars = 4): 
   return `${address.slice(0, startChars)}...${address.slice(-endChars)}`;
 }
 
-export function getDisplayName(label: string | null | undefined, address: string, startChars = 6, endChars = 4): string {
+export function getDisplayName(label: string | null | undefined, address: string, startChars = 6, endChars = 4, walletLabel?: string | null): string {
   if (label && label.trim().length > 0) {
     return label.trim();
+  }
+  if (walletLabel && walletLabel.trim().length > 0) {
+    return walletLabel.trim();
   }
   return truncateAddress(address, startChars, endChars);
 }

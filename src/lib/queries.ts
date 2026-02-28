@@ -1000,6 +1000,9 @@ export const GET_TRADES_DYNAMIC = gql`
           name
           display_name
         }
+        wallet {
+          label
+        }
       }
     }
     trades_aggregate(where: $where) {
@@ -1042,6 +1045,9 @@ export const GET_FUNDING_PAYMENTS_DYNAMIC = gql`
           id
           name
           display_name
+        }
+        wallet {
+          label
         }
       }
     }
@@ -1160,6 +1166,9 @@ export const GET_POSITIONS_DYNAMIC = gql`
           id
           name
           display_name
+        }
+        wallet {
+          label
         }
       }
     }
@@ -1285,6 +1294,9 @@ export const GET_DEPOSITS_DYNAMIC = gql`
           id
           name
           display_name
+        }
+        wallet {
+          label
         }
       }
     }

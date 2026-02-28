@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/table";
 import { ExchangeBadge } from "@/components/exchange-badge";
 import { getDisplayName } from "@/lib/format";
-import { cn } from "@/lib/utils";
+import { cn, normalizeTags } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface OpenPositionsTableProps {
@@ -115,16 +115,16 @@ function PerpPositionsSection({
                     className="text-[10px] px-1.5 py-0"
                   />
                   <span className="text-xs text-muted-foreground">
-                    {position.exchange_account?.label || getDisplayName(
+                    {position.exchange_account?.label || position.exchange_account?.wallet?.label || getDisplayName(
                       null,
                       position.exchange_account?.account_identifier || position.exchange_account_id || "",
                       8,
                       4
                     )}
                   </span>
-                  {position.exchange_account?.tags && position.exchange_account.tags.length > 0 && (
+                  {normalizeTags(position.exchange_account?.tags).length > 0 && (
                     <div className="flex gap-1">
-                      {position.exchange_account.tags.map((tag) => (
+                      {normalizeTags(position.exchange_account?.tags).map((tag) => (
                         <span
                           key={tag}
                           className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
@@ -224,9 +224,9 @@ function SpotPositionsSection({
                         4
                       )}
                     </span>
-                    {position.exchange_account?.tags && position.exchange_account.tags.length > 0 && (
+                    {normalizeTags(position.exchange_account?.tags).length > 0 && (
                       <div className="flex gap-1">
-                        {position.exchange_account.tags.map((tag) => (
+                        {normalizeTags(position.exchange_account?.tags).map((tag) => (
                           <span
                             key={tag}
                             className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground"

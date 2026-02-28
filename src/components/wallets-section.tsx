@@ -186,11 +186,16 @@ export function WalletsSection({ refreshKey, detectingWalletId, onWalletDeleted 
             return (
               <TableRow key={wallet.id}>
                 <TableCell>
-                  <LabelInput
-                    label={wallet.label}
-                    fallbackText={truncateAddress(wallet.address, 8, 6)}
-                    onLabelChange={(label) => handleLabelChange(wallet.id, label)}
-                  />
+                  <div className="space-y-0.5">
+                    <LabelInput
+                      label={wallet.label}
+                      fallbackText={truncateAddress(wallet.address, 8, 6)}
+                      onLabelChange={(label) => handleLabelChange(wallet.id, label)}
+                    />
+                    <div className="text-xs text-muted-foreground font-mono break-all">
+                      {wallet.address}
+                    </div>
+                  </div>
                 </TableCell>
                 <TableCell>
                   <Badge variant={getChainBadgeVariant(wallet.chain)}>
