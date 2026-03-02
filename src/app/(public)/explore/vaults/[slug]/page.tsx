@@ -14,9 +14,15 @@ import { VaultPnlBreakdown } from "@/components/vaults/vault-pnl-breakdown";
 import { VaultDepositHistory } from "@/components/vaults/vault-deposit-history";
 import { VaultStatusBadge } from "@/components/vaults/vault-status-badge";
 import { VaultLiveIndicator } from "@/components/vaults/vault-live-indicator";
+import {
+  VaultStrategyDepositDialog,
+  type StrategyVaultInfo,
+} from "@/components/vault-strategy-deposit-dialog";
 import { StatCard, StatsGrid } from "@/components/stat-card";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { PlusCircle } from "lucide-react";
 
 // C1.3: Poll every 5s so the external user sees P&L update in near-real-time.
 const POLL_INTERVAL_MS = 5_000;
@@ -54,12 +60,11 @@ function fmtReturn(val: string | null): { text: string; positive: boolean | null
 
 /**
  * C1.3: Public vault detail page at /explore/vaults/[slug].
+ * C1.1: Adds a "Deposit" button that opens VaultStrategyDepositDialog so
+ *       external users can deposit USDC into the strategy vault.
  *
  * - No auth required — anonymous Hasura role via getPublicGraphQLClient().
  * - Polls vault_performance every 5s so depositors see live P&L.
- * - Matches underlying strategy performance: current_balance and
- *   total_realized_pnl come directly from simulation_run_metrics, which
- *   sim_runner updates on every trade.
  */
 export default function VaultDetailPage({
   params,
@@ -73,6 +78,9 @@ export default function VaultDetailPage({
   const [isLoading, setIsLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [error, setError] = useState<string | null>(null);
+
+  // C1.1: deposit dialog state
+  const [depositDialogOpen, setDepositDialogOpen] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -114,9 +122,7 @@ export default function VaultDetailPage({
     fetchData();
   }, [fetchData]);
 
-  // C1.3: Poll every POLL_INTERVAL_MS — this is the core of the real-time
-  // performance display. setInterval ticks every 5s; each tick re-fetches
-  // vault_performance which reflects the latest simulation_run_metrics data.
+  // C1.3: Poll every POLL_INTERVAL_MS
   useEffect(() => {
     const id = setInterval(fetchData, POLL_INTERVAL_MS);
     return () => clearInterval(id);
@@ -138,6 +144,13 @@ export default function VaultDetailPage({
 
   const ret = fmtReturn(vault?.return_pct ?? null);
   const pnl = fmtPnl(vault?.total_realized_pnl ?? null);
+
+  // Build StrategyVaultInfo for the deposit dialog
+  const vaultInfo: StrategyVaultInfo = {
+    slug,
+    name: vault?.vault_name ?? slug,
+    asset: vault?.asset ?? "USDC",
+  };
 
   return (
     <div className="space-y-6">
@@ -174,7 +187,20 @@ export default function VaultDetailPage({
               )}
             </p>
           </div>
-          <VaultLiveIndicator lastRefresh={lastRefresh} intervalMs={POLL_INTERVAL_MS} />
+          <div className="flex items-center gap-3">
+            <VaultLiveIndicator lastRefresh={lastRefresh} intervalMs={POLL_INTERVAL_MS} />
+            {/* C1.1: Deposit button — only shown for active vaults */}
+            {vault?.vault_status === "active" && (
+              <Button
+                size="sm"
+                onClick={() => setDepositDialogOpen(true)}
+                className="gap-1.5"
+              >
+                <PlusCircle className="h-4 w-4" />
+                Deposit
+              </Button>
+            )}
+          </div>
         </div>
       )}
 
@@ -264,6 +290,18 @@ export default function VaultDetailPage({
       {!isLoading && deposits.length > 0 && (
         <VaultDepositHistory deposits={deposits} />
       )}
+
+      {/* C1.1: Strategy vault deposit dialog */}
+      <VaultStrategyDepositDialog
+        vault={vaultInfo}
+        open={depositDialogOpen}
+        onClose={() => setDepositDialogOpen(false)}
+        onSuccess={() => {
+          setDepositDialogOpen(false);
+          // Refresh data to show the new deposit in the history table.
+          fetchData();
+        }}
+      />
     </div>
   );
 }

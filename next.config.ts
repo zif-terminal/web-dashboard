@@ -18,9 +18,17 @@ const nextConfig: NextConfig = {
         destination: `${HASURA_URL}/v1/graphql`,
       },
       {
-        // C1.1: proxy vault API calls to vault_manager service.
+        // C1.1: proxy Hyperliquid vault listing API calls to vault_manager.
         source: "/api/vault/:path*",
         destination: `${VAULT_MANAGER_URL}/vault/:path*`,
+      },
+      {
+        // C1.1: proxy strategy vault deposit API calls to vault_manager.
+        // Handles: /api/strategy-vault/{slug}/deposit/prepare
+        //          /api/strategy-vault/{slug}/deposit
+        //          /api/strategy-vault/{slug}/deposit/verify
+        source: "/api/strategy-vault/:path*",
+        destination: `${VAULT_MANAGER_URL}/strategy-vault/:path*`,
       },
     ];
   },

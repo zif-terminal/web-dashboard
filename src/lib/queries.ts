@@ -3238,10 +3238,12 @@ export interface VaultPerformance {
   quote_currency: string | null;
 }
 
-/** Deposit record visible to anonymous users (C1.3). */
+/** Deposit record visible to anonymous users (C1.3 + C1.1). */
 export interface VaultDeposit {
   id: string;
   vault_id: string;
+  /** C1.1: Ethereum address of the depositor. Null for platform-internal rows. */
+  user_address: string | null;
   amount: string;
   status: "pending" | "confirmed" | "rejected";
   deposited_at: string;
@@ -3315,7 +3317,7 @@ export const GET_VAULT_PERFORMANCE_BY_SLUG = gql`
   }
 `;
 
-/** Deposit history for a vault (anon-accessible). */
+/** Deposit history for a vault (anon-accessible). C1.1: includes user_address. */
 export const GET_VAULT_DEPOSITS_PUBLIC = gql`
   query GetVaultDepositsPublic($vault_id: uuid!) {
     vault_deposits(
@@ -3325,6 +3327,7 @@ export const GET_VAULT_DEPOSITS_PUBLIC = gql`
     ) {
       id
       vault_id
+      user_address
       amount
       status
       deposited_at
