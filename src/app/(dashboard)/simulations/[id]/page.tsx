@@ -342,6 +342,21 @@ export default function SimulationDetailPage() {
     if (!run) return;
     const prev = prevStatusRef.current;
     prevStatusRef.current = run.status;
+
+    // B4.4: Show a persistent error toast whenever a run transitions to "error".
+    // The toast is not auto-dismissed (duration: Infinity) — the user must
+    // acknowledge it, which matches the severity of a run stopping unexpectedly.
+    if (prev !== "error" && run.status === "error") {
+      const detail = run.error_message
+        ? `${run.error_message}`
+        : "The run stopped due to an unexpected error. Check the overview tab for details.";
+      toast.error(`Run error — ${run.asset ?? run.id.slice(0, 8)}`, {
+        description: detail,
+        duration: Infinity,
+        closeButton: true,
+      });
+    }
+
     if (prev === "resuming" && run.status === "running" && run.config_updated_at) {
       // Confirm config was edited after the most recent pause (not a stale timestamp).
       const configEditedAfterPause = !run.paused_at ||
@@ -359,7 +374,7 @@ export default function SimulationDetailPage() {
         toast.success(`Run resumed in ${run.mode.toUpperCase()} mode`, { duration: 5000 });
       }
     }
-  }, [run?.status, run?.config_updated_at, run?.mode_switched_at, run?.paused_at, run?.mode]);
+  }, [run?.status, run?.config_updated_at, run?.mode_switched_at, run?.paused_at, run?.mode, run?.error_message, run?.asset, run?.id]);
 
   const handleStop = async () => {
     if (!run) return;

@@ -66,3 +66,20 @@ export function getExchangeColorClasses(exchangeName: string): string {
   const colors = getExchangeColors(exchangeName);
   return `${colors.bg} ${colors.text} ${colors.darkBg} ${colors.darkText}`;
 }
+
+/**
+ * B4.5: Returns a CSS hex color for use in the exchange distribution bar.
+ * Uses the 500-weight variant of each exchange's brand color.
+ */
+export function getExchangeBarColor(exchangeName: string): string {
+  const barColors: Record<string, string> = {
+    hyperliquid: "#10b981", // emerald-500
+    lighter:     "#06b6d4", // cyan-500
+    drift:       "#8b5cf6", // violet-500
+    jupiter:     "#f97316", // orange-500
+    binance:     "#eab308", // yellow-500
+    dydx:        "#6366f1", // indigo-500
+    gmx:         "#3b82f6", // blue-500
+  };
+  return barColors[exchangeName.toLowerCase()] ?? "#6b7280"; // gray-500 default
+}

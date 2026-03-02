@@ -4,7 +4,8 @@ import { cn } from "@/lib/utils";
 
 export interface StatCardProps {
   title: string;
-  value: string | number;
+  /** Supports string, number, or arbitrary React nodes (e.g. a clickable link). */
+  value: React.ReactNode;
   description?: string;
   isLoading?: boolean;
   valueClassName?: string;

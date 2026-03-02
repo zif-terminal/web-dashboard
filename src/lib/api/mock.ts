@@ -1,4 +1,4 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionsAggregates, Wallet, WalletWithAccounts, Deposit, DepositsAggregates, OpenPosition, PortfolioSummary, AssetBalance, AssetPnL, AssetFee, FundingAssetBreakdown, ExchangePnLBreakdown, ExchangeFundingBreakdown, SimRunMetrics, SimRunConfig } from "../queries";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionsAggregates, Wallet, WalletWithAccounts, Deposit, DepositsAggregates, OpenPosition, PortfolioSummary, AssetBalance, AssetPnL, AssetFee, FundingAssetBreakdown, ExchangePnLBreakdown, ExchangeFundingBreakdown, ExchangeDistribution, SimRunMetrics, SimRunConfig } from "../queries";
 import { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, PositionsResult, PositionWithTrades, DepositsResult, DataFilters } from "./types";
 
 // Mock wallets
@@ -985,6 +985,8 @@ export const mockApi: ApiClient = {
   },
 
   async getAssetBalances(): Promise<AssetBalance[]> {
+    // B4.5: snapshotAge reflects when portfolio_monitor last captured data
+    const mockSnapshotTime = new Date(Date.now() - 3 * 60 * 1000).toISOString(); // 3 min ago
     return [
       {
         token: "SOL",
@@ -992,8 +994,8 @@ export const mockApi: ApiClient = {
         totalValueUsd: 22575,
         avgOraclePrice: 150,
         exchanges: [
-          { exchangeName: "drift", walletAddress: "HN4x...7Kpq", balance: 100, valueUsd: 15000, oraclePrice: 150 },
-          { exchangeName: "hyperliquid", walletAddress: "HN4x...7Kpq", balance: 50.5, valueUsd: 7575, oraclePrice: 150 },
+          { exchangeName: "drift", walletAddress: "HN4x...7Kpq", balance: 100, valueUsd: 15000, oraclePrice: 150, snapshotAge: mockSnapshotTime },
+          { exchangeName: "hyperliquid", walletAddress: "HN4x...7Kpq", balance: 50.5, valueUsd: 7575, oraclePrice: 150, snapshotAge: mockSnapshotTime },
         ],
       },
       {
@@ -1002,9 +1004,34 @@ export const mockApi: ApiClient = {
         totalValueUsd: 5000,
         avgOraclePrice: 1,
         exchanges: [
-          { exchangeName: "drift", walletAddress: "HN4x...7Kpq", balance: 3000, valueUsd: 3000, oraclePrice: 1 },
-          { exchangeName: "hyperliquid", walletAddress: "HN4x...7Kpq", balance: 2000, valueUsd: 2000, oraclePrice: 1 },
+          { exchangeName: "drift", walletAddress: "HN4x...7Kpq", balance: 3000, valueUsd: 3000, oraclePrice: 1, snapshotAge: mockSnapshotTime },
+          { exchangeName: "hyperliquid", walletAddress: "HN4x...7Kpq", balance: 2000, valueUsd: 2000, oraclePrice: 1, snapshotAge: mockSnapshotTime },
         ],
+      },
+    ];
+  },
+
+  async getExchangeDistribution(): Promise<ExchangeDistribution[]> {
+    // B4.5: Derived from mock getAssetBalances data
+    // drift: SOL 15000 + USDC 3000 = 18000; hyperliquid: SOL 7575 + USDC 2000 = 9575
+    const total = 27575;
+    const mockSnapshotTime = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+    return [
+      {
+        exchangeName: "drift",
+        displayName: "Drift",
+        totalValueUsd: 18000,
+        percentage: (18000 / total) * 100,
+        hasError: false,
+        snapshotAge: mockSnapshotTime,
+      },
+      {
+        exchangeName: "hyperliquid",
+        displayName: "Hyperliquid",
+        totalValueUsd: 9575,
+        percentage: (9575 / total) * 100,
+        hasError: false,
+        snapshotAge: mockSnapshotTime,
       },
     ];
   },
@@ -1256,5 +1283,11 @@ export const mockApi: ApiClient = {
   async getSimulationOrders(_runId: string) {
     await delay(100);
     return { orders: [], totalCount: 0 };
+  },
+
+  // B4.3: Per-run metrics — mock stub (no sim data in mock env).
+  async getRunMetrics(_runIds: string[]): Promise<SimRunMetrics[]> {
+    await delay(100);
+    return [];
   },
 };

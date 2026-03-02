@@ -11,10 +11,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { SimulationRun } from "@/lib/queries";
+import { SimulationRun, SimRunMetrics } from "@/lib/queries";
 import { RunStatusIndicator } from "@/components/simulations/run-status-indicator";
 import { api } from "@/lib/api";
 import { useState } from "react";
+import { formatPnL, pnlClass } from "@/lib/format-utils";
 
 interface SimRunsTableProps {
   runs: SimulationRun[];
@@ -24,6 +25,8 @@ interface SimRunsTableProps {
   onRunPaused?: (id: string) => void;
   /** B3.5: Called after a resume request is sent (optimistic update). */
   onRunResumed?: (id: string) => void;
+  /** B4.3: Per-run metrics map keyed by run ID. */
+  metricsMap?: Map<string, SimRunMetrics>;
 }
 
 function formatDuration(start?: string, stop?: string, status?: string): string {
@@ -37,7 +40,29 @@ function formatDuration(start?: string, stop?: string, status?: string): string 
   return str;
 }
 
-export function SimRunsTable({ runs, isLoading, onRunStopped, onRunPaused, onRunResumed }: SimRunsTableProps) {
+/** B4.3: Format return percentage with +/- sign. */
+function formatReturnPct(value: number | undefined | null): string {
+  if (value == null) return "—";
+  const n = Number(value);
+  const sign = n >= 0 ? "+" : "";
+  return `${sign}${n.toFixed(2)}%`;
+}
+
+/** B4.3: Format win/loss ratio as "W / L". */
+function formatWL(metrics: SimRunMetrics | undefined): string {
+  if (!metrics) return "—";
+  if (metrics.closed_positions === 0) return "—";
+  return `${metrics.winning_positions} / ${metrics.losing_positions}`;
+}
+
+export function SimRunsTable({
+  runs,
+  isLoading,
+  onRunStopped,
+  onRunPaused,
+  onRunResumed,
+  metricsMap,
+}: SimRunsTableProps) {
   const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set());
   const [pausingIds,  setPausingIds]  = useState<Set<string>>(new Set());
   const [resumingIds, setResumingIds] = useState<Set<string>>(new Set());
@@ -121,104 +146,125 @@ export function SimRunsTable({ runs, isLoading, onRunStopped, onRunPaused, onRun
           {/* B4.1: "Status / Mode" replaces separate "Status" + "Mode" columns */}
           <TableHead>Status / Mode</TableHead>
           <TableHead>Markets</TableHead>
+          {/* B4.3: PnL analytics columns */}
+          <TableHead>Realized PnL</TableHead>
+          <TableHead>Return %</TableHead>
+          <TableHead>W / L</TableHead>
           <TableHead>Duration</TableHead>
           <TableHead>Created</TableHead>
           <TableHead />
         </TableRow>
       </TableHeader>
       <TableBody>
-        {runs.map((run) => (
-          <TableRow key={run.id}>
-            <TableCell className="font-mono font-semibold">
-              <Link href={`/simulations/${run.id}`} className="hover:underline">
-                {run.asset}
-              </Link>
-            </TableCell>
-            <TableCell className="text-sm">
-              {run.label && (
-                <span className="block text-muted-foreground">{run.label}</span>
-              )}
-              {run.comparison_group_id && (
-                <Link
-                  href={`/simulations/compare/${run.comparison_group_id}`}
-                  className="text-xs text-blue-600 hover:underline dark:text-blue-400"
-                >
-                  View comparison →
+        {runs.map((run) => {
+          const metrics = metricsMap?.get(run.id);
+          return (
+            <TableRow key={run.id}>
+              <TableCell className="font-mono font-semibold">
+                <Link href={`/simulations/${run.id}`} className="hover:underline">
+                  {run.asset}
                 </Link>
-              )}
-              {!run.label && !run.comparison_group_id && (
-                <span className="text-muted-foreground">—</span>
-              )}
-            </TableCell>
-            {/* B3.1: Exchanges (empty = All) */}
-            <TableCell className="text-sm text-muted-foreground">
-              {run.exchanges && run.exchanges.length > 0
-                ? run.exchanges.join(", ")
-                : "All"}
-            </TableCell>
-            {/* B3.1: Market types (empty = All) */}
-            <TableCell className="text-sm text-muted-foreground">
-              {run.market_types && run.market_types.length > 0
-                ? run.market_types.join(", ")
-                : "All"}
-            </TableCell>
-            {/* B4.1: RunStatusIndicator — animated dot + status text + mode pill */}
-            <TableCell>
-              <RunStatusIndicator
-                status={run.status}
-                mode={run.mode}
-                errorMessage={run.error_message}
-              />
-            </TableCell>
-            <TableCell>{run.markets_found ?? "—"}</TableCell>
-            <TableCell>{formatDuration(run.started_at, run.stopped_at, run.status)}</TableCell>
-            <TableCell className="text-muted-foreground text-sm">
-              {new Date(run.created_at).toLocaleString()}
-            </TableCell>
-            <TableCell>
-              <div className="flex items-center gap-1">
-                {/* B3.5: Pause button — shown for running runs */}
-                {run.status === "running" && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handlePause(run.id)}
-                    disabled={pausingIds.has(run.id)}
-                  >
-                    {pausingIds.has(run.id) ? "Pausing…" : "Pause"}
-                  </Button>
+              </TableCell>
+              <TableCell className="text-sm">
+                {run.label && (
+                  <span className="block text-muted-foreground">{run.label}</span>
                 )}
-                {/* B3.5: Resume button — shown for paused runs */}
-                {(run.status === "paused" || run.status === "pausing") && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleResume(run.id)}
-                    disabled={resumingIds.has(run.id) || run.status === "pausing"}
+                {run.comparison_group_id && (
+                  <Link
+                    href={`/simulations/compare/${run.comparison_group_id}`}
+                    className="text-xs text-blue-600 hover:underline dark:text-blue-400"
                   >
-                    {resumingIds.has(run.id) ? "Resuming…" : "Resume"}
-                  </Button>
-                )}
-                {/* Stop button — shown for active runs */}
-                {(run.status === "running" || run.status === "initializing" || run.status === "pending" || run.status === "paused" || run.status === "pausing" || run.status === "resuming") && (
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => handleStop(run.id)}
-                    disabled={stoppingIds.has(run.id) || (run.status as string) === "stopping"}
-                  >
-                    {stoppingIds.has(run.id) ? "Stopping…" : "Stop"}
-                  </Button>
-                )}
-                {(run.status === "stopped" || run.status === "error") && (
-                  <Link href={`/simulations/${run.id}`}>
-                    <Button size="sm" variant="ghost">View</Button>
+                    View comparison →
                   </Link>
                 )}
-              </div>
-            </TableCell>
-          </TableRow>
-        ))}
+                {!run.label && !run.comparison_group_id && (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </TableCell>
+              {/* B3.1: Exchanges (empty = All) */}
+              <TableCell className="text-sm text-muted-foreground">
+                {run.exchanges && run.exchanges.length > 0
+                  ? run.exchanges.join(", ")
+                  : "All"}
+              </TableCell>
+              {/* B3.1: Market types (empty = All) */}
+              <TableCell className="text-sm text-muted-foreground">
+                {run.market_types && run.market_types.length > 0
+                  ? run.market_types.join(", ")
+                  : "All"}
+              </TableCell>
+              {/* B4.1: RunStatusIndicator — animated dot + status text + mode pill */}
+              <TableCell>
+                <RunStatusIndicator
+                  status={run.status}
+                  mode={run.mode}
+                  errorMessage={run.error_message}
+                />
+              </TableCell>
+              <TableCell>{run.markets_found ?? "—"}</TableCell>
+              {/* B4.3: Realized PnL — from simulation_run_metrics VIEW */}
+              <TableCell className={`font-mono text-sm ${metrics ? pnlClass(metrics.total_realized_pnl) : "text-muted-foreground"}`}>
+                {metrics
+                  ? formatPnL(metrics.total_realized_pnl, metrics.quote_currency)
+                  : "—"}
+              </TableCell>
+              {/* B4.3: Return % */}
+              <TableCell className={`font-mono text-sm ${metrics ? pnlClass(metrics.return_pct) : "text-muted-foreground"}`}>
+                {metrics ? formatReturnPct(metrics.return_pct) : "—"}
+              </TableCell>
+              {/* B4.3: Win / Loss count */}
+              <TableCell className="text-sm text-muted-foreground">
+                {formatWL(metrics)}
+              </TableCell>
+              <TableCell>{formatDuration(run.started_at, run.stopped_at, run.status)}</TableCell>
+              <TableCell className="text-muted-foreground text-sm">
+                {new Date(run.created_at).toLocaleString()}
+              </TableCell>
+              <TableCell>
+                <div className="flex items-center gap-1">
+                  {/* B3.5: Pause button — shown for running runs */}
+                  {run.status === "running" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handlePause(run.id)}
+                      disabled={pausingIds.has(run.id)}
+                    >
+                      {pausingIds.has(run.id) ? "Pausing…" : "Pause"}
+                    </Button>
+                  )}
+                  {/* B3.5: Resume button — shown for paused runs */}
+                  {(run.status === "paused" || run.status === "pausing") && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleResume(run.id)}
+                      disabled={resumingIds.has(run.id) || run.status === "pausing"}
+                    >
+                      {resumingIds.has(run.id) ? "Resuming…" : "Resume"}
+                    </Button>
+                  )}
+                  {/* Stop button — shown for active runs */}
+                  {(run.status === "running" || run.status === "initializing" || run.status === "pending" || run.status === "paused" || run.status === "pausing" || run.status === "resuming") && (
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => handleStop(run.id)}
+                      disabled={stoppingIds.has(run.id) || (run.status as string) === "stopping"}
+                    >
+                      {stoppingIds.has(run.id) ? "Stopping…" : "Stop"}
+                    </Button>
+                  )}
+                  {(run.status === "stopped" || run.status === "error") && (
+                    <Link href={`/simulations/${run.id}`}>
+                      <Button size="sm" variant="ghost">View</Button>
+                    </Link>
+                  )}
+                </div>
+              </TableCell>
+            </TableRow>
+          );
+        })}
       </TableBody>
     </Table>
   );

@@ -2112,6 +2112,27 @@ export interface AssetExchangeBalance {
   balance: number;
   valueUsd: number;
   oraclePrice: number;
+  /** B4.5: ISO timestamp of the snapshot this balance was read from. */
+  snapshotAge?: string | null;
+}
+
+/**
+ * B4.5: Per-exchange inventory distribution across the whole portfolio.
+ * Each entry represents one exchange's share of total USD value.
+ */
+export interface ExchangeDistribution {
+  /** Internal exchange identifier, e.g. "hyperliquid", "drift" */
+  exchangeName: string;
+  /** Human-readable name from exchanges.display_name, e.g. "Hyperliquid" */
+  displayName: string;
+  /** Total USD value of all spot balances on this exchange */
+  totalValueUsd: number;
+  /** Percentage share of total portfolio value across all exchanges (0-100) */
+  percentage: number;
+  /** True when account_snapshots.error is set for this exchange */
+  hasError: boolean;
+  /** ISO timestamp of the latest snapshot captured for this exchange */
+  snapshotAge: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2833,6 +2854,43 @@ export const GET_COMPARISON_ANALYSIS = gql`
     simulation_run_metrics(
       where: { comparison_group_id: { _eq: $groupId } }
       order_by: { spread_threshold_bps: asc }
+    ) {
+      simulation_run_id
+      asset
+      label
+      status
+      comparison_group_id
+      starting_balance
+      quote_currency
+      created_at
+      started_at
+      stopped_at
+      spread_threshold_bps
+      total_realized_pnl
+      total_fees
+      total_funding
+      total_positions
+      closed_positions
+      winning_positions
+      losing_positions
+      winning_pnl
+      losing_pnl
+      trade_count
+      total_notional
+      current_balance
+      return_pct
+      profit_factor
+      fee_efficiency
+      avg_pnl_per_position
+    }
+  }
+`;
+
+// B4.3: Fetch aggregated metrics for a batch of run IDs (used by the simulations list page).
+export const GET_ALL_RUN_METRICS = gql`
+  query GetAllRunMetrics($runIds: [uuid!]!) {
+    simulation_run_metrics(
+      where: { simulation_run_id: { _in: $runIds } }
     ) {
       simulation_run_id
       asset

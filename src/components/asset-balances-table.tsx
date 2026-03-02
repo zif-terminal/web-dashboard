@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { AssetBalance } from "@/lib/queries";
+import { formatDistanceToNowStrict } from "date-fns";
 import {
   Table,
   TableBody,
@@ -75,11 +76,25 @@ function AssetBalancesTableSkeleton({ rows = 5 }: { rows?: number }) {
   );
 }
 
+function formatSnapshotAge(isoTimestamp: string | null | undefined): string | null {
+  if (!isoTimestamp) return null;
+  try {
+    return formatDistanceToNowStrict(new Date(isoTimestamp), { addSuffix: true });
+  } catch {
+    return null;
+  }
+}
+
 function ExchangeBreakdownRow({
   exchange,
 }: {
-  exchange: { exchangeName: string; walletAddress: string; balance: number; valueUsd: number };
+  exchange: { exchangeName: string; walletAddress: string; balance: number; valueUsd: number; snapshotAge?: string | null };
 }) {
+  const ageLabel = formatSnapshotAge(exchange.snapshotAge);
+  const isStale =
+    exchange.snapshotAge != null &&
+    Date.now() - new Date(exchange.snapshotAge).getTime() > 15 * 60 * 1000;
+
   return (
     <TableRow className="bg-muted/30 hover:bg-muted/50">
       <TableCell className="py-1.5 pl-8">
@@ -91,6 +106,18 @@ function ExchangeBreakdownRow({
           <span className="text-xs text-muted-foreground font-mono">
             {truncateAddress(exchange.walletAddress)}
           </span>
+          {/* B4.5: snapshot freshness indicator */}
+          {ageLabel && (
+            <span
+              className={cn(
+                "text-[10px] font-mono",
+                isStale ? "text-destructive" : "text-muted-foreground/60"
+              )}
+              title={exchange.snapshotAge ?? undefined}
+            >
+              {isStale ? "⚠ " : ""}{ageLabel}
+            </span>
+          )}
         </div>
       </TableCell>
       <TableCell className="py-1.5 text-right font-mono text-sm text-muted-foreground">

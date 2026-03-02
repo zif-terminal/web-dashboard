@@ -1,4 +1,4 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionTrade, PositionsAggregates, Wallet, WalletWithAccounts, Deposit, DepositsAggregates, OpenPosition, PortfolioSummary, AssetBalance, AssetPnL, AssetFee, FundingAssetBreakdown, ExchangePnLBreakdown, ExchangeFundingBreakdown, SimulationRun, SimulationMarket, SimulationBalance, SimRunConfig, SimulationTrade, SimulationPosition, SimulationFundingPayment, SimulationRestingOrder, SimRunMetrics } from "../queries";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionTrade, PositionsAggregates, Wallet, WalletWithAccounts, Deposit, DepositsAggregates, OpenPosition, PortfolioSummary, AssetBalance, AssetPnL, AssetFee, FundingAssetBreakdown, ExchangePnLBreakdown, ExchangeFundingBreakdown, ExchangeDistribution, SimulationRun, SimulationMarket, SimulationBalance, SimRunConfig, SimulationTrade, SimulationPosition, SimulationFundingPayment, SimulationRestingOrder, SimRunMetrics } from "../queries";
 
 // B1.6: Input for a single run within a comparison batch.
 export interface ComparisonRunInput {
@@ -137,6 +137,8 @@ export interface ApiClient {
   getTotalUnrealizedPnL(): Promise<{ total: number; positionCount: number; snapshotAge: string | null }>;
   // Asset balances (aggregated from latest snapshots across all exchanges)
   getAssetBalances(): Promise<AssetBalance[]>;
+  // B4.5: Per-exchange inventory distribution (value + percentage per exchange)
+  getExchangeDistribution(): Promise<ExchangeDistribution[]>;
   // Portfolio summary (aggregated across all wallets)
   getPortfolioSummary(filters?: DataFilters): Promise<PortfolioSummary>;
   // Per-asset PnL breakdown (realized + funding grouped by asset)
@@ -189,6 +191,8 @@ export interface ApiClient {
   getActiveRunCount(): Promise<number>;
   // B4.2: Resting orders placed by the simulation runner (with status: resting/filled/cancelled)
   getSimulationOrders(runId: string): Promise<SimOrdersResult>;
+  // B4.3: Fetch per-run PnL metrics for a list of run IDs (for the simulations list dashboard).
+  getRunMetrics(runIds: string[]): Promise<SimRunMetrics[]>;
 }
 
-export type { SimulationRun, SimulationMarket, SimulationBalance, SimRunConfig, SimulationTrade, SimulationPosition, SimulationFundingPayment, SimulationRestingOrder, SimRunMetrics };
+export type { SimulationRun, SimulationMarket, SimulationBalance, SimRunConfig, SimulationTrade, SimulationPosition, SimulationFundingPayment, SimulationRestingOrder, SimRunMetrics, ExchangeDistribution };

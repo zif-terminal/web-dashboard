@@ -57,6 +57,7 @@ import {
   AccountSnapshot,
   AssetBalance,
   AssetExchangeBalance,
+  ExchangeDistribution,
   SnapshotPosition,
   AssetPnL,
   AssetFee,
@@ -76,6 +77,7 @@ import {
   GET_SIMULATION_FUNDING,
   GET_SIMULATION_BALANCE_HISTORY,
   GET_SIMULATION_ORDERS,
+  GET_ALL_RUN_METRICS,
   CREATE_COMPARISON_RUNS,
   GET_COMPARISON_GROUP_RUNS,
   GET_COMPARISON_ANALYSIS,
@@ -345,6 +347,20 @@ function parseSnapshotSymbol(
   // Plain token: "BTC", "SOL" — perps quote USD, spot/swap quote USDC
   const quote = marketType === "perp" ? "USD" : "USDC";
   return { base: symbol, quote };
+}
+
+/**
+ * B4.5: Shared helper — fetches the latest account snapshot per
+ * (wallet_address, exchange_name) pair across all wallets.
+ * Used by both getAssetBalances() and getExchangeDistribution() so the
+ * underlying GraphQL round-trip is only written once.
+ */
+async function _fetchLatestSnapshots(): Promise<AccountSnapshot[]> {
+  const client = getGraphQLClient();
+  const data = await client.request<{
+    account_snapshots: AccountSnapshot[];
+  }>(GET_ALL_LATEST_ACCOUNT_SNAPSHOTS);
+  return data.account_snapshots;
 }
 
 export const graphqlApi: ApiClient = {
@@ -1072,11 +1088,7 @@ export const graphqlApi: ApiClient = {
 
   async getAssetBalances(): Promise<AssetBalance[]> {
     return withErrorHandling(async () => {
-      const client = getGraphQLClient();
-
-      const data = await client.request<{
-        account_snapshots: AccountSnapshot[];
-      }>(GET_ALL_LATEST_ACCOUNT_SNAPSHOTS);
+      const snapshots = await _fetchLatestSnapshots();
 
       // Aggregate balances per token across all snapshots
       const assetMap = new Map<
@@ -1089,7 +1101,7 @@ export const graphqlApi: ApiClient = {
         }
       >();
 
-      for (const snapshot of data.account_snapshots) {
+      for (const snapshot of snapshots) {
         if (snapshot.error || !snapshot.balances_json) continue;
 
         const balances = snapshot.balances_json as Array<{
@@ -1125,6 +1137,8 @@ export const graphqlApi: ApiClient = {
             balance,
             valueUsd,
             oraclePrice,
+            // B4.5: propagate snapshot timestamp so UI can show data freshness
+            snapshotAge: snapshot.created_at ?? null,
           });
         }
       }
@@ -1151,6 +1165,85 @@ export const graphqlApi: ApiClient = {
       // Sort by USD value descending, then by token name
       result.sort((a, b) => b.totalValueUsd - a.totalValueUsd || a.token.localeCompare(b.token));
 
+      return result;
+    });
+  },
+
+  /**
+   * B4.5: Returns per-exchange inventory distribution across the whole portfolio.
+   * Each entry shows total USD value, percentage share, and snapshot freshness
+   * for one exchange. Sorted highest value first.
+   */
+  async getExchangeDistribution(): Promise<ExchangeDistribution[]> {
+    return withErrorHandling(async () => {
+      const snapshots = await _fetchLatestSnapshots();
+
+      // Aggregate per-exchange: one row per (wallet_address, exchange_name) pair
+      const exchangeMap = new Map<
+        string,
+        {
+          displayName: string;
+          totalValueUsd: number;
+          hasError: boolean;
+          snapshotAge: string | null;
+        }
+      >();
+
+      for (const snapshot of snapshots) {
+        let valueForSnapshot = 0;
+
+        if (!snapshot.error && snapshot.balances_json) {
+          const balances = snapshot.balances_json as Array<{
+            token: string;
+            balance: number;
+            value_usd?: number;
+          }>;
+          for (const bal of balances) {
+            if (bal.balance !== 0) {
+              valueForSnapshot += bal.value_usd ?? 0;
+            }
+          }
+        }
+
+        const existing = exchangeMap.get(snapshot.exchange_name);
+        if (existing) {
+          existing.totalValueUsd += valueForSnapshot;
+          if (snapshot.error) existing.hasError = true;
+          // Keep the most recent snapshot timestamp for this exchange
+          if (snapshot.created_at && (!existing.snapshotAge || snapshot.created_at > existing.snapshotAge)) {
+            existing.snapshotAge = snapshot.created_at;
+          }
+        } else {
+          exchangeMap.set(snapshot.exchange_name, {
+            displayName: snapshot.exchange?.display_name ?? snapshot.exchange_name,
+            totalValueUsd: valueForSnapshot,
+            hasError: !!snapshot.error,
+            snapshotAge: snapshot.created_at ?? null,
+          });
+        }
+      }
+
+      // Calculate total portfolio value across all exchanges
+      let grandTotal = 0;
+      for (const entry of exchangeMap.values()) {
+        grandTotal += entry.totalValueUsd;
+      }
+
+      // Build result array with percentages
+      const result: ExchangeDistribution[] = [];
+      for (const [exchangeName, entry] of exchangeMap) {
+        result.push({
+          exchangeName,
+          displayName: entry.displayName,
+          totalValueUsd: entry.totalValueUsd,
+          percentage: grandTotal > 0 ? (entry.totalValueUsd / grandTotal) * 100 : 0,
+          hasError: entry.hasError,
+          snapshotAge: entry.snapshotAge,
+        });
+      }
+
+      // Sort by value descending
+      result.sort((a, b) => b.totalValueUsd - a.totalValueUsd);
       return result;
     });
   },
@@ -1663,6 +1756,18 @@ export const graphqlApi: ApiClient = {
         orders: data.simulation_resting_orders,
         totalCount: data.simulation_resting_orders_aggregate.aggregate.count,
       };
+    });
+  },
+
+  // B4.3: Fetch per-run PnL metrics for the simulations list page.
+  async getRunMetrics(runIds: string[]): Promise<SimRunMetrics[]> {
+    return withErrorHandling(async () => {
+      if (runIds.length === 0) return [];
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        simulation_run_metrics: SimRunMetrics[];
+      }>(GET_ALL_RUN_METRICS, { runIds });
+      return data.simulation_run_metrics;
     });
   },
 
