@@ -75,6 +75,7 @@ import {
   GET_SIMULATION_POSITIONS,
   GET_SIMULATION_FUNDING,
   GET_SIMULATION_BALANCE_HISTORY,
+  GET_SIMULATION_ORDERS,
   CREATE_COMPARISON_RUNS,
   GET_COMPARISON_GROUP_RUNS,
   GET_COMPARISON_ANALYSIS,
@@ -82,10 +83,11 @@ import {
   SimulationTrade,
   SimulationPosition,
   SimulationFundingPayment,
+  SimulationRestingOrder,
   SimulationRun,
   SimRunMetrics,
 } from "../queries";
-import { ApiClient, ComparisonRunInput, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, PositionsResult, PositionWithTrades, DepositsResult, DataFilters, SimTradesResult, SimFundingResult } from "./types";
+import { ApiClient, ComparisonRunInput, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, PositionsResult, PositionWithTrades, DepositsResult, DataFilters, SimTradesResult, SimFundingResult, SimOrdersResult } from "./types";
 import { ApiError } from "./errors";
 
 function isAuthError(error: unknown): boolean {
@@ -1644,6 +1646,23 @@ export const graphqlApi: ApiClient = {
         simulation_balances: import("../queries").SimulationBalance[];
       }>(GET_SIMULATION_BALANCE_HISTORY, { runId });
       return data.simulation_balances;
+    });
+  },
+
+  // B4.2: Fetch all resting orders for a simulation run.
+  async getSimulationOrders(runId: string): Promise<SimOrdersResult> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        simulation_resting_orders: SimulationRestingOrder[];
+        simulation_resting_orders_aggregate: {
+          aggregate: { count: number };
+        };
+      }>(GET_SIMULATION_ORDERS, { runId });
+      return {
+        orders: data.simulation_resting_orders,
+        totalCount: data.simulation_resting_orders_aggregate.aggregate.count,
+      };
     });
   },
 

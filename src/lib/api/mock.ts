@@ -1241,9 +1241,20 @@ export const mockApi: ApiClient = {
     return { id, config };
   },
 
+  async switchRunMode(id: string, mode: string): Promise<{ id: string; mode: string; mode_switched_at?: string }> {
+    await delay(50);
+    return { id, mode, mode_switched_at: new Date().toISOString() };
+  },
+
   // B3.4: Returns the count of active simulation runs (mock — always 0).
   async getActiveRunCount(): Promise<number> {
     await delay(50);
     return 0;
+  },
+
+  // B4.2: Resting orders — mock stub (no sim runner in mock env).
+  async getSimulationOrders(_runId: string) {
+    await delay(100);
+    return { orders: [], totalCount: 0 };
   },
 };

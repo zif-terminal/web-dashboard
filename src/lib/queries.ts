@@ -2490,7 +2490,36 @@ export interface SimulationTrade {
   fee_rate: number;
   fee_usd: number;
   fee_type: string;
+  /** B4.2: "market" | "limit" — how this fill was triggered */
+  order_type?: string;
+  /** B4.2: limit price of the resting order that was filled (null for market orders) */
+  limit_price?: number;
   created_at: string;
+  simulation_market?: {
+    exchange: string;
+    symbol: string;
+    market_type: string;
+    base_asset: string;
+    quote_asset: string;
+  };
+}
+
+// B4.2: Resting order placed on an exchange (may be filled, cancelled, or still resting)
+export interface SimulationRestingOrder {
+  id: string;
+  simulation_run_id: string;
+  simulation_market_id: string;
+  /** "resting" | "filled" | "cancelled" */
+  status: string;
+  side: string;        // "buy" | "sell"
+  quantity: number;
+  limit_price: number;
+  /** Exchange-internal order ID */
+  order_id?: string;
+  exchange_order_id?: string;
+  created_at: string;
+  filled_at?: string;
+  cancelled_at?: string;
   simulation_market?: {
     exchange: string;
     symbol: string;
@@ -2574,6 +2603,8 @@ export const GET_SIMULATION_TRADES = gql`
       fee_rate
       fee_usd
       fee_type
+      order_type
+      limit_price
       created_at
       simulation_market {
         exchange
@@ -2674,6 +2705,41 @@ export const GET_SIMULATION_BALANCE_HISTORY = gql`
       delta
       note
       created_at
+    }
+  }
+`;
+
+// B4.2: Resting orders placed by the simulation runner
+export const GET_SIMULATION_ORDERS = gql`
+  query GetSimulationOrders($runId: uuid!) {
+    simulation_resting_orders(
+      where: { simulation_run_id: { _eq: $runId } }
+      order_by: { created_at: desc }
+    ) {
+      id
+      simulation_run_id
+      simulation_market_id
+      status
+      side
+      quantity
+      limit_price
+      order_id
+      exchange_order_id
+      created_at
+      filled_at
+      cancelled_at
+      simulation_market {
+        exchange
+        symbol
+        market_type
+        base_asset
+        quote_asset
+      }
+    }
+    simulation_resting_orders_aggregate(where: { simulation_run_id: { _eq: $runId } }) {
+      aggregate {
+        count
+      }
     }
   }
 `;

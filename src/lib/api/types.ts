@@ -1,4 +1,4 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionTrade, PositionsAggregates, Wallet, WalletWithAccounts, Deposit, DepositsAggregates, OpenPosition, PortfolioSummary, AssetBalance, AssetPnL, AssetFee, FundingAssetBreakdown, ExchangePnLBreakdown, ExchangeFundingBreakdown, SimulationRun, SimulationMarket, SimulationBalance, SimRunConfig, SimulationTrade, SimulationPosition, SimulationFundingPayment, SimRunMetrics } from "../queries";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionTrade, PositionsAggregates, Wallet, WalletWithAccounts, Deposit, DepositsAggregates, OpenPosition, PortfolioSummary, AssetBalance, AssetPnL, AssetFee, FundingAssetBreakdown, ExchangePnLBreakdown, ExchangeFundingBreakdown, SimulationRun, SimulationMarket, SimulationBalance, SimRunConfig, SimulationTrade, SimulationPosition, SimulationFundingPayment, SimulationRestingOrder, SimRunMetrics } from "../queries";
 
 // B1.6: Input for a single run within a comparison batch.
 export interface ComparisonRunInput {
@@ -92,6 +92,12 @@ export interface SimFundingResult {
   totalAmount: number;
 }
 
+// B4.2: Resting orders result
+export interface SimOrdersResult {
+  orders: SimulationRestingOrder[];
+  totalCount: number;
+}
+
 export interface ApiClient {
   getExchanges(): Promise<Exchange[]>;
   getAccountTypes(): Promise<ExchangeAccountType[]>;
@@ -155,6 +161,8 @@ export interface ApiClient {
    * The runner will hot-swap the new config when the run is resumed.
    */
   updatePausedRunConfig(id: string, config: SimRunConfig): Promise<{ id: string; config: SimRunConfig; config_updated_at?: string }>;
+  /** B3.7: Switch execution mode for a paused run (simulation ↔ live). */
+  switchRunMode(id: string, mode: string): Promise<{ id: string; mode: string; mode_switched_at?: string }>;
   getSimulationMarkets(runId: string): Promise<SimulationMarket[]>;
   // B1.3: Get the current (latest) virtual balance for a simulation run
   getSimulationBalance(runId: string): Promise<SimulationBalance | null>;
@@ -179,6 +187,8 @@ export interface ApiClient {
   getComparisonAnalysis(groupId: string): Promise<SimRunMetrics[]>;
   // B3.4: Returns the count of active simulation runs (pending + initializing + running).
   getActiveRunCount(): Promise<number>;
+  // B4.2: Resting orders placed by the simulation runner (with status: resting/filled/cancelled)
+  getSimulationOrders(runId: string): Promise<SimOrdersResult>;
 }
 
-export type { SimulationRun, SimulationMarket, SimulationBalance, SimRunConfig, SimulationTrade, SimulationPosition, SimulationFundingPayment, SimRunMetrics };
+export type { SimulationRun, SimulationMarket, SimulationBalance, SimRunConfig, SimulationTrade, SimulationPosition, SimulationFundingPayment, SimulationRestingOrder, SimRunMetrics };

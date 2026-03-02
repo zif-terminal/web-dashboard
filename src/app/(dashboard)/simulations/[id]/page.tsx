@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { SimulationRun, SimulationMarket, SimulationBalance, SimulationPosition } from "@/lib/queries";
-import { SimTradesResult, SimFundingResult } from "@/lib/api/types";
+import { SimTradesResult, SimFundingResult, SimOrdersResult } from "@/lib/api/types";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard, StatsGrid } from "@/components/stat-card";
@@ -18,6 +18,7 @@ import { SimPositionsTable } from "@/components/simulations/sim-positions-table"
 import { SimFundingTable } from "@/components/simulations/sim-funding-table";
 import { SimBalancesTable } from "@/components/simulations/sim-balances-table";
 import { EditPausedRunConfig } from "@/components/simulations/edit-paused-config";
+import { SimOrdersTable } from "@/components/simulations/sim-orders-table";
 import {
   Table,
   TableBody,
@@ -33,7 +34,7 @@ import { useRunStatusSubscription } from "@/hooks/use-run-status-subscription";
 const POLL_INTERVAL_MS = 5000;
 const PAGE_SIZE = 25;
 
-type TabId = "overview" | "trades" | "positions" | "funding" | "markets" | "balance";
+type TabId = "overview" | "trades" | "orders" | "positions" | "funding" | "markets" | "balance";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -202,6 +203,7 @@ export default function SimulationDetailPage() {
   const [positions, setPositions] = useState<SimulationPosition[]>([]);
   const [tradesData, setTradesData] = useState<SimTradesResult>({ trades: [], totalCount: 0, totalFeesPaid: 0, totalNotional: 0 });
   const [fundingData, setFundingData] = useState<SimFundingResult>({ payments: [], totalCount: 0, totalAmount: 0 });
+  const [ordersData, setOrdersData] = useState<SimOrdersResult>({ orders: [], totalCount: 0 });
 
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [tradesPage, setTradesPage] = useState(0);
@@ -212,6 +214,7 @@ export default function SimulationDetailPage() {
   const [isLoadingPositions, setIsLoadingPositions] = useState(false);
   const [isLoadingFunding, setIsLoadingFunding] = useState(false);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
+  const [isLoadingOrders, setIsLoadingOrders] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const [isPausing, setIsPausing] = useState(false);          // B3.5
   const [isResuming, setIsResuming] = useState(false);        // B3.5
@@ -289,12 +292,25 @@ export default function SimulationDetailPage() {
     }
   }, [id]);
 
+  // B4.2: Fetch resting orders for the run.
+  const fetchOrders = useCallback(async () => {
+    setIsLoadingOrders(true);
+    try {
+      setOrdersData(await api.getSimulationOrders(id));
+    } catch (err) {
+      console.error("Failed to fetch orders:", err);
+    } finally {
+      setIsLoadingOrders(false);
+    }
+  }, [id]);
+
   useEffect(() => {
     fetchCore();
     fetchTrades(0);
     fetchFunding();
     fetchBalanceHistory();
-  }, [fetchCore, fetchTrades, fetchFunding, fetchBalanceHistory]);
+    fetchOrders();
+  }, [fetchCore, fetchTrades, fetchFunding, fetchBalanceHistory, fetchOrders]);
 
   // B4.1: Poll analytics data (trades, positions, funding, balance, markets) while the run
   // is active. Run status itself is now delivered via WebSocket subscription — we no longer
@@ -310,9 +326,10 @@ export default function SimulationDetailPage() {
       fetchTrades(tradesPage);
       fetchFunding();
       fetchBalanceHistory();
+      fetchOrders();
     }, POLL_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [run?.status, fetchCore, fetchTrades, fetchFunding, fetchBalanceHistory, tradesPage]);
+  }, [run?.status, fetchCore, fetchTrades, fetchFunding, fetchBalanceHistory, fetchOrders, tradesPage]);
 
   useEffect(() => {
     fetchTrades(tradesPage);
@@ -424,6 +441,7 @@ export default function SimulationDetailPage() {
     fetchTrades(tradesPage);
     fetchFunding();
     fetchBalanceHistory();
+    fetchOrders();
   };
 
   // ── Derived analytics ─────────────────────────────────────────────────────
@@ -460,6 +478,7 @@ export default function SimulationDetailPage() {
   const TABS: { id: TabId; label: string; count?: number }[] = [
     { id: "overview", label: "Overview" },
     { id: "trades", label: "Trades", count: tradesData.totalCount },
+    { id: "orders", label: "Orders", count: ordersData.totalCount },
     { id: "positions", label: "Positions", count: positions.length },
     { id: "funding", label: "Funding", count: fundingData.totalCount },
     { id: "markets", label: "Markets", count: markets.length },
@@ -962,10 +981,25 @@ export default function SimulationDetailPage() {
                 trades={tradesData.trades}
                 totalCount={tradesData.totalCount}
                 totalFeesPaid={tradesData.totalFeesPaid}
+                totalNotional={tradesData.totalNotional}
                 page={tradesPage}
                 pageSize={PAGE_SIZE}
                 onPageChange={setTradesPage}
                 isLoading={isLoadingTrades}
+                quoteCurrency={quoteCurrency}
+              />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ── Orders tab (B4.2: Resting orders log) ────────────────────── */}
+        {activeTab === "orders" && (
+          <Card className="rounded-tl-none">
+            <CardHeader><CardTitle>Resting Orders</CardTitle></CardHeader>
+            <CardContent>
+              <SimOrdersTable
+                orders={ordersData.orders}
+                isLoading={isLoadingOrders}
                 quoteCurrency={quoteCurrency}
               />
             </CardContent>

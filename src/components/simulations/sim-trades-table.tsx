@@ -18,6 +18,7 @@ interface SimTradesTableProps {
   trades: SimulationTrade[];
   totalCount: number;
   totalFeesPaid: number;
+  totalNotional?: number;
   page: number;
   pageSize: number;
   onPageChange: (page: number) => void;
@@ -51,6 +52,7 @@ export function SimTradesTable({
   trades,
   totalCount,
   totalFeesPaid,
+  totalNotional,
   page,
   pageSize,
   onPageChange,
@@ -82,10 +84,16 @@ export function SimTradesTable({
   return (
     <div className="space-y-4">
       {/* Summary row */}
-      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+      <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
         <span>{totalCount} trade{totalCount !== 1 ? "s" : ""}</span>
         <span>·</span>
         <span>Total fees: <span className="text-red-500 font-medium">{formatUSD(totalFeesPaid)} {quoteCurrency}</span></span>
+        {totalNotional != null && totalNotional > 0 && (
+          <>
+            <span>·</span>
+            <span>Total notional: <span className="font-medium text-foreground">{formatUSD(totalNotional)} {quoteCurrency}</span></span>
+          </>
+        )}
       </div>
 
       <Table>
@@ -95,6 +103,8 @@ export function SimTradesTable({
             <TableHead>Exchange</TableHead>
             <TableHead>Market</TableHead>
             <TableHead>Side</TableHead>
+            <TableHead>Order Type</TableHead>
+            <TableHead>Status</TableHead>
             <TableHead className="text-right">Price</TableHead>
             <TableHead className="text-right">Qty</TableHead>
             <TableHead className="text-right">Notional</TableHead>
@@ -140,8 +150,26 @@ export function SimTradesTable({
                   {trade.side.toUpperCase()}
                 </span>
               </TableCell>
+              <TableCell>
+                <span className="text-sm capitalize text-muted-foreground">
+                  {trade.order_type ?? "market"}
+                </span>
+              </TableCell>
+              <TableCell>
+                <Badge
+                  variant="outline"
+                  className="text-[10px] px-1.5 py-0 border-green-600 text-green-600"
+                >
+                  Filled
+                </Badge>
+              </TableCell>
               <TableCell className="text-right font-mono text-sm">
-                {formatUSD(trade.price)}
+                <div>{formatUSD(trade.price)}</div>
+                {trade.order_type === "limit" && trade.limit_price != null && (
+                  <div className="text-[10px] text-muted-foreground">
+                    lim {formatUSD(trade.limit_price)}
+                  </div>
+                )}
               </TableCell>
               <TableCell className="text-right font-mono text-sm">
                 {formatNum(trade.quantity, 6)}
