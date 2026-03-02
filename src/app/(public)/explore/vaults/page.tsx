@@ -47,11 +47,11 @@ function formatReturn(val: string | null): { text: string; positive: boolean | n
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 /**
- * C1.3: Public vault list at /vaults.
+ * C1.3: Public vault list at /explore/vaults.
  *
  * - No auth required — uses the anonymous Hasura role via getPublicGraphQLClient().
  * - Polls vault_performance every 5s; shows live PnL stats per vault.
- * - Each card links to /vaults/[slug] for the full detail view.
+ * - Each card links to /explore/vaults/[slug] for the full detail view.
  */
 export default function VaultsPage() {
   const [vaults, setVaults] = useState<VaultPerformance[]>([]);
@@ -146,7 +146,7 @@ export default function VaultsPage() {
             return (
               <Link
                 key={vault.vault_id}
-                href={`/vaults/${vault.vault_slug}`}
+                href={`/explore/vaults/${vault.vault_slug}`}
                 className="block group"
               >
                 <Card className="h-full hover:border-primary/50 transition-colors cursor-pointer">

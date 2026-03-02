@@ -1296,4 +1296,15 @@ export const mockApi: ApiClient = {
     await delay(100);
     return { snapshots: [], totalCount: 0 };
   },
+
+  // C1.1: Vault listings — mock stub (no Hyperliquid integration in mock env).
+  async getVaultListings() {
+    await delay(200);
+    return [];
+  },
+
+  async getVaultListing(_address: string) {
+    await delay(200);
+    return null;
+  },
 };

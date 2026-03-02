@@ -18,7 +18,7 @@ function formatApr(value: number): string {
 }
 
 export default function VaultsPage() {
-  const { user } = useAuth();
+  const { isLoggedIn } = useAuth();
   const [vaults, setVaults] = useState<VaultListing[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -161,7 +161,7 @@ export default function VaultsPage() {
                   <td className="px-4 py-3 text-right">
                     <button
                       onClick={() => handleDeposit(vault)}
-                      disabled={vault.is_closed || !user}
+                      disabled={vault.is_closed || !isLoggedIn}
                       className="inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     >
                       Deposit

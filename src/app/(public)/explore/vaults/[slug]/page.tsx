@@ -53,7 +53,7 @@ function fmtReturn(val: string | null): { text: string; positive: boolean | null
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 /**
- * C1.3: Public vault detail page at /vaults/[slug].
+ * C1.3: Public vault detail page at /explore/vaults/[slug].
  *
  * - No auth required — anonymous Hasura role via getPublicGraphQLClient().
  * - Polls vault_performance every 5s so depositors see live P&L.
@@ -79,7 +79,7 @@ export default function VaultDetailPage({
       const client = getPublicGraphQLClient();
 
       // Fetch performance and deposits in parallel
-      const [perfData, depositsData] = await Promise.all([
+      const [perfData] = await Promise.all([
         client.request<{ vault_performance: VaultPerformance[] }>(
           GET_VAULT_PERFORMANCE_BY_SLUG,
           { slug }
@@ -125,7 +125,7 @@ export default function VaultDetailPage({
   if (!isLoading && !vault && !error) {
     return (
       <div className="space-y-4">
-        <Link href="/vaults" className="text-sm text-muted-foreground hover:text-primary">
+        <Link href="/explore/vaults" className="text-sm text-muted-foreground hover:text-primary">
           ← Back to Vaults
         </Link>
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-16 text-center text-muted-foreground">
@@ -142,7 +142,7 @@ export default function VaultDetailPage({
   return (
     <div className="space-y-6">
       {/* Breadcrumb */}
-      <Link href="/vaults" className="text-sm text-muted-foreground hover:text-primary">
+      <Link href="/explore/vaults" className="text-sm text-muted-foreground hover:text-primary">
         ← Back to Vaults
       </Link>
 

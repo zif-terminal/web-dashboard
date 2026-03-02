@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 };
 
 /**
- * C1.3: Public vault layout.
+ * C1.3: Public vault layout at /explore/vaults.
  *
  * No authentication required — Hasura "anon" role provides read-only access
  * to vault_performance view. External depositors can monitor their vault's
@@ -31,7 +31,7 @@ export default function VaultsLayout({
               <nav className="hidden sm:flex items-center gap-1 text-sm text-muted-foreground">
                 <span>/</span>
                 <Link
-                  href="/vaults"
+                  href="/explore/vaults"
                   className="hover:text-primary transition-colors px-2 py-1 rounded"
                 >
                   Vaults
