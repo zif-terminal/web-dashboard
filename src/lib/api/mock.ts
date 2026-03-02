@@ -1290,4 +1290,10 @@ export const mockApi: ApiClient = {
     await delay(100);
     return [];
   },
+
+  // B4.6: Opportunity queue — mock stub (no sim runner in mock env).
+  async getSimulationOpportunityQueue(_runId: string) {
+    await delay(100);
+    return { snapshots: [], totalCount: 0 };
+  },
 };

@@ -1885,6 +1885,11 @@ export interface AccountSnapshot {
    * Admin-role only — not returned for anonymous or user roles.
    */
   orders_json?: unknown[] | null;
+  /**
+   * A2.3: Raw JSONB blob of full wallet data from the exchange API; null when none.
+   * Admin-role only — not returned for anonymous or user roles.
+   */
+  wallet_data_json?: Record<string, unknown> | null;
   /** Set by portfolio_monitor when fetch fails for this exchange. */
   error: string | null;
   created_at: string;
@@ -1980,6 +1985,7 @@ export const GET_LATEST_ACCOUNT_SNAPSHOTS_AUTH = gql`
       positions_json
       balances_json
       orders_json
+      wallet_data_json
       error
       created_at
       exchange_account_id
@@ -2919,6 +2925,72 @@ export const GET_ALL_RUN_METRICS = gql`
       profit_factor
       fee_efficiency
       avg_pnl_per_position
+    }
+  }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// B4.6: Opportunity queue — what the bot is watching, entering, or exiting
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** One row in the opportunity queue (latest snapshot per market per run). */
+export interface SimulationOpportunitySnapshot {
+  id: string;
+  simulation_run_id: string;
+  simulation_market_id: string;
+  symbol: string;
+  exchange: string;
+  /**
+   * Current classification:
+   *   "watching"           — spread monitored, threshold not yet crossed
+   *   "threshold_triggered" — spread < threshold, all entry checks pass
+   *   "pending_entry"      — resting entry limit order placed for this market
+   *   "position_open"      — open position held, evaluating exit
+   *   "pending_exit"       — open position + resting exit limit order
+   *   "blocked"            — threshold crossed but entry blocked (thin depth / low PnL)
+   */
+  queue_status: string;
+  spread_bps?: number;
+  /** Estimated net USD profit for a round-trip trade at the current spread. */
+  expected_profit_usd?: number;
+  /** Same as above, expressed as a decimal fraction of position notional. */
+  expected_profit_pct?: number;
+  bid_depth_usd?: number;
+  ask_depth_usd?: number;
+  /** Human-readable reason why entry is blocked (only set when queue_status = "blocked"). */
+  block_reason?: string;
+  created_at: string;
+}
+
+export const GET_SIMULATION_OPPORTUNITY_QUEUE = gql`
+  query GetSimulationOpportunityQueue($runId: uuid!) {
+    simulation_opportunity_queue(
+      where: { simulation_run_id: { _eq: $runId } }
+      order_by: [
+        { queue_status: asc }
+        { spread_bps: asc_nulls_last }
+      ]
+    ) {
+      id
+      simulation_run_id
+      simulation_market_id
+      symbol
+      exchange
+      queue_status
+      spread_bps
+      expected_profit_usd
+      expected_profit_pct
+      bid_depth_usd
+      ask_depth_usd
+      block_reason
+      created_at
+    }
+    simulation_opportunity_queue_aggregate(
+      where: { simulation_run_id: { _eq: $runId } }
+    ) {
+      aggregate {
+        count
+      }
     }
   }
 `;

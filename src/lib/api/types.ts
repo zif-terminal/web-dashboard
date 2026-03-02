@@ -1,4 +1,4 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionTrade, PositionsAggregates, Wallet, WalletWithAccounts, Deposit, DepositsAggregates, OpenPosition, PortfolioSummary, AssetBalance, AssetPnL, AssetFee, FundingAssetBreakdown, ExchangePnLBreakdown, ExchangeFundingBreakdown, ExchangeDistribution, SimulationRun, SimulationMarket, SimulationBalance, SimRunConfig, SimulationTrade, SimulationPosition, SimulationFundingPayment, SimulationRestingOrder, SimRunMetrics } from "../queries";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionTrade, PositionsAggregates, Wallet, WalletWithAccounts, Deposit, DepositsAggregates, OpenPosition, PortfolioSummary, AssetBalance, AssetPnL, AssetFee, FundingAssetBreakdown, ExchangePnLBreakdown, ExchangeFundingBreakdown, ExchangeDistribution, SimulationRun, SimulationMarket, SimulationBalance, SimRunConfig, SimulationTrade, SimulationPosition, SimulationFundingPayment, SimulationRestingOrder, SimRunMetrics, SimulationOpportunitySnapshot } from "../queries";
 
 // B1.6: Input for a single run within a comparison batch.
 export interface ComparisonRunInput {
@@ -98,6 +98,12 @@ export interface SimOrdersResult {
   totalCount: number;
 }
 
+// B4.6: Opportunity queue result
+export interface SimOpportunityResult {
+  snapshots: SimulationOpportunitySnapshot[];
+  totalCount: number;
+}
+
 export interface ApiClient {
   getExchanges(): Promise<Exchange[]>;
   getAccountTypes(): Promise<ExchangeAccountType[]>;
@@ -193,6 +199,9 @@ export interface ApiClient {
   getSimulationOrders(runId: string): Promise<SimOrdersResult>;
   // B4.3: Fetch per-run PnL metrics for a list of run IDs (for the simulations list dashboard).
   getRunMetrics(runIds: string[]): Promise<SimRunMetrics[]>;
+  // B4.6: Opportunity queue — current state of what the bot is watching, entering, or exiting.
+  // Returns one entry per market (latest snapshot from the simulation_opportunity_queue view).
+  getSimulationOpportunityQueue(runId: string): Promise<SimOpportunityResult>;
 }
 
-export type { SimulationRun, SimulationMarket, SimulationBalance, SimRunConfig, SimulationTrade, SimulationPosition, SimulationFundingPayment, SimulationRestingOrder, SimRunMetrics, ExchangeDistribution };
+export type { SimulationRun, SimulationMarket, SimulationBalance, SimRunConfig, SimulationTrade, SimulationPosition, SimulationFundingPayment, SimulationRestingOrder, SimRunMetrics, ExchangeDistribution, SimulationOpportunitySnapshot };

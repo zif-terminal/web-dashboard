@@ -82,14 +82,16 @@ import {
   GET_COMPARISON_GROUP_RUNS,
   GET_COMPARISON_ANALYSIS,
   GET_ACTIVE_RUN_COUNT,
+  GET_SIMULATION_OPPORTUNITY_QUEUE,
   SimulationTrade,
   SimulationPosition,
   SimulationFundingPayment,
   SimulationRestingOrder,
   SimulationRun,
   SimRunMetrics,
+  SimulationOpportunitySnapshot,
 } from "../queries";
-import { ApiClient, ComparisonRunInput, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, PositionsResult, PositionWithTrades, DepositsResult, DataFilters, SimTradesResult, SimFundingResult, SimOrdersResult } from "./types";
+import { ApiClient, ComparisonRunInput, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, PositionsResult, PositionWithTrades, DepositsResult, DataFilters, SimTradesResult, SimFundingResult, SimOrdersResult, SimOpportunityResult } from "./types";
 import { ApiError } from "./errors";
 
 function isAuthError(error: unknown): boolean {
@@ -1848,6 +1850,24 @@ export const graphqlApi: ApiClient = {
         };
       }>(GET_ACTIVE_RUN_COUNT);
       return data.simulation_runs_aggregate.aggregate.count;
+    });
+  },
+
+  // B4.6: Fetch the current opportunity queue for a simulation run.
+  // Returns the latest snapshot per market (from the simulation_opportunity_queue view).
+  async getSimulationOpportunityQueue(runId: string): Promise<SimOpportunityResult> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        simulation_opportunity_queue: SimulationOpportunitySnapshot[];
+        simulation_opportunity_queue_aggregate: {
+          aggregate: { count: number };
+        };
+      }>(GET_SIMULATION_OPPORTUNITY_QUEUE, { runId });
+      return {
+        snapshots: data.simulation_opportunity_queue,
+        totalCount: data.simulation_opportunity_queue_aggregate.aggregate.count,
+      };
     });
   },
 };

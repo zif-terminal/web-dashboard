@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { SimulationRun, SimulationMarket, SimulationBalance, SimulationPosition } from "@/lib/queries";
-import { SimTradesResult, SimFundingResult, SimOrdersResult } from "@/lib/api/types";
+import { SimTradesResult, SimFundingResult, SimOrdersResult, SimOpportunityResult } from "@/lib/api/types";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard, StatsGrid } from "@/components/stat-card";
@@ -19,6 +19,7 @@ import { SimFundingTable } from "@/components/simulations/sim-funding-table";
 import { SimBalancesTable } from "@/components/simulations/sim-balances-table";
 import { EditPausedRunConfig } from "@/components/simulations/edit-paused-config";
 import { SimOrdersTable } from "@/components/simulations/sim-orders-table";
+import { OpportunityQueueTable } from "@/components/simulations/opportunity-queue-table";
 import {
   Table,
   TableBody,
@@ -34,7 +35,7 @@ import { useRunStatusSubscription } from "@/hooks/use-run-status-subscription";
 const POLL_INTERVAL_MS = 5000;
 const PAGE_SIZE = 25;
 
-type TabId = "overview" | "trades" | "orders" | "positions" | "funding" | "markets" | "balance";
+type TabId = "overview" | "trades" | "orders" | "queue" | "positions" | "funding" | "markets" | "balance";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -204,6 +205,7 @@ export default function SimulationDetailPage() {
   const [tradesData, setTradesData] = useState<SimTradesResult>({ trades: [], totalCount: 0, totalFeesPaid: 0, totalNotional: 0 });
   const [fundingData, setFundingData] = useState<SimFundingResult>({ payments: [], totalCount: 0, totalAmount: 0 });
   const [ordersData, setOrdersData] = useState<SimOrdersResult>({ orders: [], totalCount: 0 });
+  const [queueData, setQueueData] = useState<SimOpportunityResult>({ snapshots: [], totalCount: 0 });
 
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [tradesPage, setTradesPage] = useState(0);
@@ -215,6 +217,7 @@ export default function SimulationDetailPage() {
   const [isLoadingFunding, setIsLoadingFunding] = useState(false);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
+  const [isLoadingQueue, setIsLoadingQueue] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const [isPausing, setIsPausing] = useState(false);          // B3.5
   const [isResuming, setIsResuming] = useState(false);        // B3.5
@@ -304,13 +307,26 @@ export default function SimulationDetailPage() {
     }
   }, [id]);
 
+  // B4.6: Fetch the current opportunity queue for the run.
+  const fetchQueue = useCallback(async () => {
+    setIsLoadingQueue(true);
+    try {
+      setQueueData(await api.getSimulationOpportunityQueue(id));
+    } catch (err) {
+      console.error("Failed to fetch opportunity queue:", err);
+    } finally {
+      setIsLoadingQueue(false);
+    }
+  }, [id]);
+
   useEffect(() => {
     fetchCore();
     fetchTrades(0);
     fetchFunding();
     fetchBalanceHistory();
     fetchOrders();
-  }, [fetchCore, fetchTrades, fetchFunding, fetchBalanceHistory, fetchOrders]);
+    fetchQueue();
+  }, [fetchCore, fetchTrades, fetchFunding, fetchBalanceHistory, fetchOrders, fetchQueue]);
 
   // B4.1: Poll analytics data (trades, positions, funding, balance, markets) while the run
   // is active. Run status itself is now delivered via WebSocket subscription — we no longer
@@ -327,9 +343,10 @@ export default function SimulationDetailPage() {
       fetchFunding();
       fetchBalanceHistory();
       fetchOrders();
+      fetchQueue();
     }, POLL_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [run?.status, fetchCore, fetchTrades, fetchFunding, fetchBalanceHistory, fetchOrders, tradesPage]);
+  }, [run?.status, fetchCore, fetchTrades, fetchFunding, fetchBalanceHistory, fetchOrders, fetchQueue, tradesPage]);
 
   useEffect(() => {
     fetchTrades(tradesPage);
@@ -457,6 +474,7 @@ export default function SimulationDetailPage() {
     fetchFunding();
     fetchBalanceHistory();
     fetchOrders();
+    fetchQueue();
   };
 
   // ── Derived analytics ─────────────────────────────────────────────────────
@@ -494,6 +512,7 @@ export default function SimulationDetailPage() {
     { id: "overview", label: "Overview" },
     { id: "trades", label: "Trades", count: tradesData.totalCount },
     { id: "orders", label: "Orders", count: ordersData.totalCount },
+    { id: "queue", label: "Queue", count: queueData.totalCount },
     { id: "positions", label: "Positions", count: positions.length },
     { id: "funding", label: "Funding", count: fundingData.totalCount },
     { id: "markets", label: "Markets", count: markets.length },
@@ -717,6 +736,52 @@ export default function SimulationDetailPage() {
           />
         </StatsGrid>
       </div>
+
+      {/* ── B4.6: Opportunity Queue Summary ─── counts by status ─────────── */}
+      {queueData.totalCount > 0 && (
+        <div>
+          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-2">Opportunity Queue (B4.6)</p>
+          <StatsGrid columns={4}>
+            {(() => {
+              const counts = queueData.snapshots.reduce<Record<string, number>>((acc, s) => {
+                acc[s.queue_status] = (acc[s.queue_status] ?? 0) + 1;
+                return acc;
+              }, {});
+              const topOpportunity = queueData.snapshots
+                .filter((s) => s.queue_status === "threshold_triggered" && s.expected_profit_usd != null)
+                .sort((a, b) => (b.expected_profit_usd ?? 0) - (a.expected_profit_usd ?? 0))[0];
+              return (
+                <>
+                  <StatCard
+                    title="Triggered"
+                    value={counts["threshold_triggered"] ?? 0}
+                    isLoading={isLoadingQueue}
+                    valueClassName={counts["threshold_triggered"] ? "text-green-500" : undefined}
+                    description={topOpportunity ? `Best: ${topOpportunity.symbol} ${formatUSD(topOpportunity.expected_profit_usd)}` : undefined}
+                  />
+                  <StatCard
+                    title="Pending Entry"
+                    value={counts["pending_entry"] ?? 0}
+                    isLoading={isLoadingQueue}
+                    valueClassName={counts["pending_entry"] ? "text-yellow-500" : undefined}
+                  />
+                  <StatCard
+                    title="Pending Exit"
+                    value={counts["pending_exit"] ?? 0}
+                    isLoading={isLoadingQueue}
+                    valueClassName={counts["pending_exit"] ? "text-purple-500" : undefined}
+                  />
+                  <StatCard
+                    title="Watching"
+                    value={counts["watching"] ?? 0}
+                    isLoading={isLoadingQueue}
+                  />
+                </>
+              );
+            })()}
+          </StatsGrid>
+        </div>
+      )}
 
       {/* ── Tab Navigation ───────────────────────────────────────────────── */}
       <div>
@@ -1015,6 +1080,22 @@ export default function SimulationDetailPage() {
               <SimOrdersTable
                 orders={ordersData.orders}
                 isLoading={isLoadingOrders}
+                quoteCurrency={quoteCurrency}
+              />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ── Queue tab (B4.6: Opportunity queue) ──────────────────────── */}
+        {activeTab === "queue" && (
+          <Card className="rounded-tl-none">
+            <CardHeader>
+              <CardTitle>Opportunity Queue</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <OpportunityQueueTable
+                snapshots={queueData.snapshots}
+                isLoading={isLoadingQueue}
                 quoteCurrency={quoteCurrency}
               />
             </CardContent>

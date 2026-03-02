@@ -542,7 +542,9 @@ export default function PublicWalletPage() {
     if (!address || !wallet) return;
     setTradesLoading(true);
     try {
-      const client = getPublicGraphQLClient();
+      // A2.3: Auth owner sees trades from ALL exchanges (including API-key-gated);
+      // anonymous viewers see only non-API-key-gated exchange trades.
+      const client = isOwner ? getGraphQLClient() : getPublicGraphQLClient();
       const where = buildWalletAddressFilter(address);
       const data = await client.request<{
         trades: Trade[];
@@ -555,14 +557,16 @@ export default function PublicWalletPage() {
     } finally {
       setTradesLoading(false);
     }
-  }, [address, wallet, tradesOffset]);
+  }, [address, wallet, tradesOffset, isOwner]);
 
   // ── Fetch positions (closed PnL journal) ────────────────────────────────────
   const fetchPositions = useCallback(async () => {
     if (!address || !wallet) return;
     setPositionsLoading(true);
     try {
-      const client = getPublicGraphQLClient();
+      // A2.3: Auth owner sees positions from ALL exchanges (including API-key-gated);
+      // anonymous viewers see only non-API-key-gated exchange positions.
+      const client = isOwner ? getGraphQLClient() : getPublicGraphQLClient();
       const where = buildWalletAddressFilter(address);
       const data = await client.request<{
         positions: Position[];
@@ -575,14 +579,16 @@ export default function PublicWalletPage() {
     } finally {
       setPositionsLoading(false);
     }
-  }, [address, wallet, positionsOffset]);
+  }, [address, wallet, positionsOffset, isOwner]);
 
   // ── Fetch funding ───────────────────────────────────────────────────────────
   const fetchFunding = useCallback(async () => {
     if (!address || !wallet) return;
     setFundingLoading(true);
     try {
-      const client = getPublicGraphQLClient();
+      // A2.3: Auth owner sees funding payments from ALL exchanges (including API-key-gated);
+      // anonymous viewers see only non-API-key-gated exchange funding payments.
+      const client = isOwner ? getGraphQLClient() : getPublicGraphQLClient();
       const where = buildWalletAddressFilter(address);
       const data = await client.request<{
         funding_payments: FundingPayment[];
@@ -595,14 +601,16 @@ export default function PublicWalletPage() {
     } finally {
       setFundingLoading(false);
     }
-  }, [address, wallet, fundingOffset]);
+  }, [address, wallet, fundingOffset, isOwner]);
 
   // ── Fetch deposits ──────────────────────────────────────────────────────────
   const fetchDeposits = useCallback(async () => {
     if (!address || !wallet) return;
     setDepositsLoading(true);
     try {
-      const client = getPublicGraphQLClient();
+      // A2.3: Auth owner sees deposits from ALL exchanges (including API-key-gated);
+      // anonymous viewers see only non-API-key-gated exchange deposits.
+      const client = isOwner ? getGraphQLClient() : getPublicGraphQLClient();
       const where = buildWalletAddressFilter(address);
       const data = await client.request<{
         deposits: Deposit[];
@@ -615,7 +623,7 @@ export default function PublicWalletPage() {
     } finally {
       setDepositsLoading(false);
     }
-  }, [address, wallet, depositsOffset]);
+  }, [address, wallet, depositsOffset, isOwner]);
 
   // ── A1.6: Check for API-key-gated exchanges ─────────────────────────────────
   // Fetch the exchanges list once on mount. The anonymous role has read access
