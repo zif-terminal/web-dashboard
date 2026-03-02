@@ -90,6 +90,9 @@ import {
   SimulationRun,
   SimRunMetrics,
   SimulationOpportunitySnapshot,
+  GET_VAULT_LISTINGS,
+  GET_VAULT_LISTING,
+  VaultListing,
 } from "../queries";
 import { ApiClient, ComparisonRunInput, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, PositionsResult, PositionWithTrades, DepositsResult, DataFilters, SimTradesResult, SimFundingResult, SimOrdersResult, SimOpportunityResult } from "./types";
 import { ApiError } from "./errors";
@@ -1868,6 +1871,28 @@ export const graphqlApi: ApiClient = {
         snapshots: data.simulation_opportunity_queue,
         totalCount: data.simulation_opportunity_queue_aggregate.aggregate.count,
       };
+    });
+  },
+
+  // C1.1: Vault listings — list all Hyperliquid vaults cached in vault_listings.
+  async getVaultListings(): Promise<VaultListing[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{ vault_listings: VaultListing[] }>(
+        GET_VAULT_LISTINGS,
+      );
+      return data.vault_listings;
+    });
+  },
+
+  // C1.1: Get a single vault listing by address.
+  async getVaultListing(address: string): Promise<VaultListing | null> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        vault_listings_by_pk: VaultListing | null;
+      }>(GET_VAULT_LISTING, { address });
+      return data.vault_listings_by_pk;
     });
   },
 };

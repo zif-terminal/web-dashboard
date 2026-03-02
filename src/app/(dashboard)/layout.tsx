@@ -18,6 +18,7 @@ const navigation = [
   { name: "Positions", href: "/positions" },
   { name: "Funding", href: "/funding" },
   { name: "Deposits", href: "/deposits" },
+  { name: "Vaults", href: "/vaults" },
   { name: "Simulations", href: "/simulations" },
   { name: "Tax Report", href: "/tax-report" },
 ];

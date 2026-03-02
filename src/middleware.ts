@@ -8,7 +8,7 @@ const TOKEN_COOKIE_NAME = `zif_auth_token${COOKIE_SUFFIX}`;
 // Paths accessible to everyone regardless of auth state (A1.5, A1.7).
 // Authenticated users are NOT bounced away from these routes — an authenticated
 // user should be able to view any public wallet page or their watchlist.
-const openPaths = ["/w/", "/home"];
+const openPaths = ["/w/", "/home", "/vaults"];
 
 // Paths that should redirect to the dashboard when the user is already logged in.
 // Only /login qualifies: there is no point showing the login form to a logged-in user.

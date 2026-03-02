@@ -3062,3 +3062,228 @@ export const SUBSCRIBE_RUN_STATUS = `
     }
   }
 `;
+
+// ---------------------------------------------------------------------------
+// C1.1: Vault listings (Hyperliquid external vaults)
+// ---------------------------------------------------------------------------
+
+/** A cached entry from Hyperliquid's public vault list. */
+export interface VaultListing {
+  address: string;
+  name: string;
+  description: string | null;
+  leader: string | null;
+  tvl: number;
+  apr: number;
+  is_closed: boolean;
+  last_refreshed_at: string;
+}
+
+/** A recorded user deposit into a vault listing. */
+export interface VaultListingDeposit {
+  id: string;
+  vault_address: string;
+  user_address: string;
+  amount_usd: number;
+  status: "confirmed" | "pending" | "failed";
+  tx_nonce: number | null;
+  created_at: string;
+}
+
+export const GET_VAULT_LISTINGS = gql`
+  query GetVaultListings {
+    vault_listings(order_by: { tvl: desc }, limit: 100) {
+      address
+      name
+      description
+      leader
+      tvl
+      apr
+      is_closed
+      last_refreshed_at
+    }
+  }
+`;
+
+export const GET_VAULT_LISTING = gql`
+  query GetVaultListing($address: String!) {
+    vault_listings_by_pk(address: $address) {
+      address
+      name
+      description
+      leader
+      tvl
+      apr
+      is_closed
+      last_refreshed_at
+      vault_listing_deposits(order_by: { created_at: desc }, limit: 20) {
+        id
+        user_address
+        amount_usd
+        status
+        created_at
+      }
+    }
+  }
+`;
+
+export const GET_VAULT_LISTING_DEPOSITS = gql`
+  query GetVaultListingDeposits($vault_address: String!) {
+    vault_listing_deposits(
+      where: { vault_address: { _eq: $vault_address } }
+      order_by: { created_at: desc }
+    ) {
+      id
+      user_address
+      amount_usd
+      status
+      tx_nonce
+      created_at
+    }
+  }
+`;
+
+// ---------------------------------------------------------------------------
+// C1.3: Vault performance (public read — anon role, no auth required)
+// ---------------------------------------------------------------------------
+
+/**
+ * Live performance snapshot for a vault, joining vault metadata with its
+ * active simulation run metrics and aggregated deposit totals.
+ * Queryable by the "anon" Hasura role (no Bearer token needed).
+ */
+export interface VaultPerformance {
+  vault_id: string;
+  vault_slug: string;
+  vault_name: string;
+  vault_description: string | null;
+  asset: string;
+  exchanges: string[];
+  market_types: string[];
+  vault_status: "active" | "paused" | "disabled";
+  active_run_id: string | null;
+  vault_created_at: string;
+
+  // Deposit aggregates
+  total_deposited: string;
+  deposit_count: number;
+
+  // Live run metrics (null when no active run)
+  starting_balance: string | null;
+  current_balance: string | null;
+  total_realized_pnl: string | null;
+  total_fees: string | null;
+  total_funding: string | null;
+  return_pct: string | null;
+  profit_factor: string | null;
+  fee_efficiency: string | null;
+  trade_count: number | null;
+  total_positions: number | null;
+  closed_positions: number | null;
+  winning_positions: number | null;
+  losing_positions: number | null;
+  winning_pnl: string | null;
+  losing_pnl: string | null;
+  total_notional: string | null;
+  avg_pnl_per_position: string | null;
+  spread_threshold_bps: number | null;
+  run_started_at: string | null;
+  run_stopped_at: string | null;
+  run_status: string | null;
+  quote_currency: string | null;
+}
+
+/** Deposit record visible to anonymous users (C1.3). */
+export interface VaultDeposit {
+  id: string;
+  vault_id: string;
+  amount: string;
+  status: "pending" | "confirmed" | "rejected";
+  deposited_at: string;
+  created_at: string;
+}
+
+/** All vault performance rows — used on the /vaults list page. */
+export const GET_ALL_VAULT_PERFORMANCE = gql`
+  query GetAllVaultPerformance {
+    vault_performance(order_by: { vault_created_at: asc }) {
+      vault_id
+      vault_slug
+      vault_name
+      vault_description
+      asset
+      vault_status
+      active_run_id
+      vault_created_at
+      total_deposited
+      deposit_count
+      current_balance
+      total_realized_pnl
+      return_pct
+      trade_count
+      run_started_at
+      run_status
+      quote_currency
+    }
+  }
+`;
+
+/** Single vault performance row by slug — used on the /vaults/[slug] detail page. */
+export const GET_VAULT_PERFORMANCE_BY_SLUG = gql`
+  query GetVaultPerformanceBySlug($slug: String!) {
+    vault_performance(where: { vault_slug: { _eq: $slug } }, limit: 1) {
+      vault_id
+      vault_slug
+      vault_name
+      vault_description
+      asset
+      exchanges
+      market_types
+      vault_status
+      active_run_id
+      vault_created_at
+      total_deposited
+      deposit_count
+      starting_balance
+      current_balance
+      total_realized_pnl
+      total_fees
+      total_funding
+      return_pct
+      profit_factor
+      fee_efficiency
+      trade_count
+      total_positions
+      closed_positions
+      winning_positions
+      losing_positions
+      winning_pnl
+      losing_pnl
+      total_notional
+      avg_pnl_per_position
+      spread_threshold_bps
+      run_started_at
+      run_stopped_at
+      run_status
+      quote_currency
+    }
+  }
+`;
+
+/** Deposit history for a vault (anon-accessible). */
+export const GET_VAULT_DEPOSITS_PUBLIC = gql`
+  query GetVaultDepositsPublic($vault_id: uuid!) {
+    vault_deposits(
+      where: { vault_id: { _eq: $vault_id }, status: { _eq: "confirmed" } }
+      order_by: { deposited_at: desc }
+      limit: 50
+    ) {
+      id
+      vault_id
+      amount
+      status
+      deposited_at
+      created_at
+    }
+  }
+`;
