@@ -5,6 +5,8 @@ export interface Exchange {
   id: string;
   name: string;
   display_name: string;
+  /** A1.6: true when the exchange requires an API key to access account data. */
+  requires_api_key: boolean;
 }
 
 export interface ExchangeAccountType {
@@ -35,6 +37,8 @@ export interface Wallet {
   created_at: string;
   last_detected_at?: string;
   label?: string;
+  verified_at?: string;
+  verification_method?: "signature" | "api_key";
 }
 
 // Queries
@@ -44,6 +48,7 @@ export const GET_EXCHANGES = gql`
       id
       name
       display_name
+      requires_api_key
     }
   }
 `;
@@ -74,6 +79,7 @@ export const GET_ACCOUNTS = gql`
         id
         name
         display_name
+        requires_api_key
       }
       wallet {
         id
@@ -95,6 +101,8 @@ export const GET_WALLETS = gql`
       created_at
       last_detected_at
       label
+      verified_at
+      verification_method
     }
   }
 `;
@@ -103,7 +111,7 @@ export const CREATE_WALLET = gql`
   mutation CreateWallet($address: String!, $chain: String!) {
     insert_wallets_one(
       object: { address: $address, chain: $chain }
-      on_conflict: { constraint: wallets_address_chain_key, update_columns: [] }
+      on_conflict: { constraint: wallets_user_address_chain_key, update_columns: [] }
     ) {
       id
       address
@@ -130,13 +138,20 @@ export const UPDATE_WALLET_LABEL = gql`
   }
 `;
 
-// Wallet with account count (for wallets section)
+// Wallet with account count and exchange info (for wallets section)
 export interface WalletWithAccounts extends Wallet {
   exchange_accounts_aggregate: {
     aggregate: {
       count: number;
     };
   };
+  exchange_accounts: {
+    id: string;
+    exchange: {
+      id: string;
+      display_name: string;
+    } | null;
+  }[];
 }
 
 export const GET_WALLETS_WITH_COUNTS = gql`
@@ -148,9 +163,18 @@ export const GET_WALLETS_WITH_COUNTS = gql`
       created_at
       last_detected_at
       label
+      verified_at
+      verification_method
       exchange_accounts_aggregate {
         aggregate {
           count
+        }
+      }
+      exchange_accounts {
+        id
+        exchange {
+          id
+          display_name
         }
       }
     }
@@ -178,6 +202,7 @@ export const GET_ACCOUNTS_BY_WALLET = gql`
         id
         name
         display_name
+        requires_api_key
       }
       wallet {
         id
@@ -207,6 +232,7 @@ export const GET_ACCOUNT_BY_ID = gql`
         id
         name
         display_name
+        requires_api_key
       }
       wallet {
         id
@@ -876,6 +902,10 @@ export const GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT_WITH_RANGE_FILTER = gql`
 export interface FundingAggregates {
   totalAmount: string;
   count: number;
+  totalReceived: string;
+  totalPaid: string;
+  receivedCount: number;
+  paidCount: number;
 }
 
 // Funding aggregate queries
@@ -1069,6 +1099,26 @@ export const GET_FUNDING_AGGREGATES_DYNAMIC = gql`
         }
       }
     }
+    funding_received: funding_payments_aggregate(
+      where: { _and: [$where, { amount: { _gt: "0" } }] }
+    ) {
+      aggregate {
+        count
+        sum {
+          amount
+        }
+      }
+    }
+    funding_paid: funding_payments_aggregate(
+      where: { _and: [$where, { amount: { _lt: "0" } }] }
+    ) {
+      aggregate {
+        count
+        sum {
+          amount
+        }
+      }
+    }
   }
 `;
 
@@ -1086,7 +1136,8 @@ export interface Position {
   exit_avg_price: string;
   total_quantity: string;
   total_fees: string;
-  realized_pnl: string;
+  realized_pnl: string; // gross_pnl - fees + funding
+  total_funding: string; // Net funding received/paid; positive = received, negative = paid
   exchange_account?: ExchangeAccount;
 }
 
@@ -1127,6 +1178,7 @@ export const GET_POSITIONS = gql`
       total_quantity
       total_fees
       realized_pnl
+      total_funding
       exchange_account {
         id
         account_identifier
@@ -1142,8 +1194,8 @@ export const GET_POSITIONS = gql`
 `;
 
 export const GET_POSITIONS_DYNAMIC = gql`
-  query GetPositionsDynamic($limit: Int!, $offset: Int!, $where: positions_bool_exp!) {
-    positions(limit: $limit, offset: $offset, order_by: { end_time: desc }, where: $where) {
+  query GetPositionsDynamic($limit: Int!, $offset: Int!, $where: positions_bool_exp!, $order_by: [positions_order_by!]) {
+    positions(limit: $limit, offset: $offset, order_by: $order_by, where: $where) {
       id
       exchange_account_id
       base_asset
@@ -1157,6 +1209,7 @@ export const GET_POSITIONS_DYNAMIC = gql`
       total_quantity
       total_fees
       realized_pnl
+      total_funding
       exchange_account {
         id
         account_identifier
@@ -1210,6 +1263,7 @@ export const GET_POSITION_WITH_TRADES = gql`
       total_quantity
       total_fees
       realized_pnl
+      total_funding
       exchange_account {
         id
         account_identifier
@@ -1345,7 +1399,7 @@ export const GET_DISTINCT_DEPOSIT_ASSETS = gql`
   }
 `;
 
-// Open Position types (derived from trades)
+// Open Position types (derived from exchange snapshots, enriched with trade data where available)
 export interface OpenPosition {
   base_asset: string;
   quote_asset: string;
@@ -1358,6 +1412,27 @@ export interface OpenPosition {
   exchange_account?: ExchangeAccount;
   // For spot positions traded against non-USD (e.g., bSOL/SOL)
   native_quote_asset?: string; // The actual quote asset (e.g., "SOL" for bSOL/SOL)
+  // Mark-to-market fields (from exchange snapshots)
+  mark_price?: number;
+  unrealized_pnl?: number;
+  // Exchange identification from snapshot data (populated when exchange_account is not available)
+  /** Raw exchange name from snapshot (e.g., "hyperliquid") — last-resort fallback for display */
+  exchange_name?: string;
+  /** Human-readable display name from exchange record (e.g., "Hyperliquid") */
+  exchange_display_name?: string;
+}
+
+// Position snapshot from exchange API (stored in account_snapshots.positions_json)
+export interface SnapshotPosition {
+  symbol: string;
+  size: number;
+  side: "long" | "short";
+  entry_price: number;
+  mark_price: number;
+  liquidation_price?: number;
+  unrealized_pnl: number;
+  leverage?: number;
+  market_type?: string;
 }
 
 // Query to get open positions by aggregating trades
@@ -1380,6 +1455,9 @@ export const GET_OPEN_POSITIONS = gql`
           name
           display_name
         }
+        wallet {
+          label
+        }
       }
     }
     spot_positions: trades(
@@ -1397,6 +1475,9 @@ export const GET_OPEN_POSITIONS = gql`
           id
           name
           display_name
+        }
+        wallet {
+          label
         }
       }
     }
@@ -1477,6 +1558,264 @@ export const GET_TRADE_TOTALS_BY_ASSET = gql`
   }
 `;
 
+// Per-exchange PnL breakdown (used on positions page)
+export interface ExchangePnLBreakdown {
+  exchangeId: string;
+  exchangeName: string;
+  displayName: string;
+  realizedPnL: string;
+  totalFees: string;
+  count: number;
+}
+
+// Per-exchange funding breakdown (used on funding page, A6.2)
+export interface ExchangeFundingBreakdown {
+  exchangeId: string;
+  exchangeName: string;
+  displayName: string;
+  totalFunding: string;
+  count: number;
+}
+
+// Per-exchange breakdown of account value
+export interface ExchangeBreakdown {
+  exchangeId: string;
+  exchangeName: string;
+  displayName: string;
+  totalDeposits: string;
+  totalWithdrawals: string;
+  realizedPnL: string;
+  fundingPnL: string;
+  totalFees: string;
+  accountValue: string;
+  /** A5.2: Number of trades on this exchange in the selected time window */
+  tradeCount: number;
+}
+
+// Portfolio summary interface (aggregated across all wallets)
+export interface PortfolioSummary {
+  totalDeposits: string;
+  totalWithdrawals: string;
+  realizedPnL: string;
+  fundingPnL: string;
+  totalFees: string;
+  totalTradeCount: number;
+  totalAccountValue: string;
+  exchangeBreakdowns: ExchangeBreakdown[];
+  assetBreakdowns?: AssetPnL[];
+}
+
+// Per-asset PnL breakdown
+export interface AssetPnL {
+  asset: string;
+  realizedPnL: number;
+  fundingPnL: number;
+  totalPnL: number;
+  positionCount: number;
+  fundingCount: number;
+}
+
+// Per-asset fee breakdown (A5.3)
+export interface AssetFee {
+  /** The base asset, e.g. "BTC", "ETH" */
+  asset: string;
+  /** Market type: "perp", "spot", or "swap" */
+  marketType: string;
+  /** Total fees paid in USD for this asset/market combination */
+  totalFees: number;
+  /** Number of trades contributing to this fee total */
+  tradeCount: number;
+}
+
+// Per-asset funding breakdown (A6.3)
+export interface FundingAssetBreakdown {
+  /** The base asset, e.g. "BTC", "ETH" */
+  asset: string;
+  /** Total funding received (positive amounts) in USD */
+  received: number;
+  /** Total funding paid (negative amounts) in USD, stored as positive value */
+  paid: number;
+  /** Net funding = received - paid (signed) */
+  net: number;
+  /** Total number of funding payments for this asset */
+  paymentCount: number;
+}
+
+// Lightweight query to fetch per-trade fee data for client-side aggregation by asset/market (A5.3)
+export const GET_TRADES_FEES_BY_ASSET = gql`
+  query GetTradesFeesByAsset($where: trades_bool_exp!) {
+    trades(where: $where) {
+      base_asset
+      market_type
+      fee
+    }
+  }
+`;
+
+// Lightweight queries to fetch per-asset PnL data for client-side aggregation
+export const GET_POSITIONS_PNL_BY_ASSET = gql`
+  query GetPositionsPnLByAsset($where: positions_bool_exp!) {
+    positions(where: $where) {
+      base_asset
+      realized_pnl
+    }
+  }
+`;
+
+export const GET_FUNDING_PNL_BY_ASSET = gql`
+  query GetFundingPnLByAsset($where: funding_payments_bool_exp!) {
+    funding_payments(where: $where) {
+      base_asset
+      amount
+    }
+  }
+`;
+
+// Combined query to fetch all aggregates for portfolio summary in one request
+export const GET_PORTFOLIO_SUMMARY = gql`
+  query GetPortfolioSummary($depositsWhere: deposits_bool_exp!, $positionsWhere: positions_bool_exp!, $fundingWhere: funding_payments_bool_exp!, $tradesWhere: trades_bool_exp!) {
+    deposit_totals: deposits_aggregate(where: { _and: [$depositsWhere, { direction: { _eq: "deposit" } }] }) {
+      aggregate {
+        sum {
+          amount
+        }
+      }
+    }
+    withdrawal_totals: deposits_aggregate(where: { _and: [$depositsWhere, { direction: { _eq: "withdraw" } }] }) {
+      aggregate {
+        sum {
+          amount
+        }
+      }
+    }
+    positions_aggregate(where: $positionsWhere) {
+      aggregate {
+        sum {
+          realized_pnl
+          total_fees
+        }
+      }
+    }
+    funding_payments_aggregate(where: $fundingWhere) {
+      aggregate {
+        sum {
+          amount
+        }
+      }
+    }
+    trades_aggregate(where: $tradesWhere) {
+      aggregate {
+        count
+        sum {
+          fee
+        }
+      }
+    }
+  }
+`;
+
+// ─── A1.5: Public wallet queries (no auth required) ─────────────────────────
+
+/**
+ * Look up a wallet by address (case-insensitive).
+ * Used by the public /w/[address] page.
+ */
+export const GET_WALLET_BY_ADDRESS = gql`
+  query GetWalletByAddress($address: String!) {
+    wallets(
+      where: { address: { _ilike: $address } }
+      order_by: { created_at: desc }
+      limit: 1
+    ) {
+      id
+      address
+      chain
+      created_at
+      last_detected_at
+      label
+      exchange_accounts(order_by: { exchange: { name: asc } }) {
+        id
+        exchange_id
+        account_identifier
+        account_type
+        account_type_metadata
+        wallet_id
+        status
+        detected_at
+        last_synced_at
+        tags
+        label
+        exchange {
+          id
+          name
+          display_name
+        }
+      }
+    }
+  }
+`;
+
+/**
+ * A2.3: Auth-aware wallet lookup — identical field selection to GET_WALLET_BY_ADDRESS
+ * but intended for use with the authenticated GraphQL client (admin role).
+ * Sent with a Bearer token so Hasura applies the admin role, bypassing row-level
+ * filters and returning full exchange_account metadata.
+ */
+export const GET_WALLET_BY_ADDRESS_AUTH = gql`
+  query GetWalletByAddressAuth($address: String!) {
+    wallets(
+      where: { address: { _ilike: $address } }
+      order_by: { created_at: desc }
+      limit: 1
+    ) {
+      id
+      address
+      chain
+      created_at
+      last_detected_at
+      label
+      exchange_accounts(order_by: { exchange: { name: asc } }) {
+        id
+        exchange_id
+        account_identifier
+        account_type
+        account_type_metadata
+        wallet_id
+        status
+        detected_at
+        last_synced_at
+        tags
+        label
+        exchange {
+          id
+          name
+          display_name
+        }
+      }
+    }
+  }
+`;
+
+/**
+ * A1.7: Batch-fetch wallets by a list of addresses.
+ * Used by the public /home watchlist page to hydrate wallet metadata
+ * for all locally-tracked addresses at once.
+ * Returns only basic metadata — no exchange_accounts — for performance.
+ */
+export const GET_WALLETS_BY_ADDRESSES = gql`
+  query GetWalletsByAddresses($addresses: [String!]!) {
+    wallets(where: { address: { _in: $addresses } }) {
+      id
+      address
+      chain
+      created_at
+      label
+    }
+  }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Combined query for spot+swap positions
 export const GET_TRADE_TOTALS_SPOT_SWAP = gql`
   query GetTradeTotalsSpotSwap(
@@ -1515,6 +1854,899 @@ export const GET_TRADE_TOTALS_SPOT_SWAP = gql`
         }
         count
       }
+    }
+  }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A1.5: Account Snapshot types and queries
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A1.5: One row from account_snapshots — the latest portfolio state written by
+ * portfolio_monitor for a single (wallet_address, exchange_name) pair.
+ *
+ * positions_json  → []Position  (see portfolio_monitor/types.go)
+ * balances_json   → []SpotBalance
+ */
+export interface AccountSnapshot {
+  id: string;
+  snapshot_id: string;
+  wallet_address: string;
+  exchange_name: string;
+  /** Hasura serialises NUMERIC as a string to preserve precision. */
+  account_value: string;
+  /** Raw JSONB array of open positions; null when no positions. */
+  positions_json: unknown[] | null;
+  /** Raw JSONB array of spot/token balances; null when none. */
+  balances_json: unknown[] | null;
+  /**
+   * A2.3: Raw JSONB array of open orders; null when none.
+   * Admin-role only — not returned for anonymous or user roles.
+   */
+  orders_json?: unknown[] | null;
+  /** Set by portfolio_monitor when fetch fails for this exchange. */
+  error: string | null;
+  created_at: string;
+  /**
+   * Related exchange record joined via the Hasura manual relationship
+   * (account_snapshots.exchange_name → exchanges.name).
+   * Populated when the GraphQL query includes the exchange sub-selection.
+   * Anonymous users can read exchanges.display_name (see public_exchanges.yaml).
+   */
+  exchange?: { id: string; display_name: string };
+  /**
+   * Admin-only column: the exchange account UUID for this snapshot row.
+   * Null/absent for anonymous and user roles; present when authenticated as admin.
+   */
+  exchange_account_id?: string;
+}
+
+/**
+ * A2.3: Shape of each element in account_snapshots.orders_json.
+ * Mirrors lib/models/snapshot.go OpenOrder struct.
+ * Returned only for authenticated requests (admin role); absent for anonymous/user.
+ */
+export interface SnapshotOrder {
+  symbol: string;
+  /** "buy" or "sell" */
+  side: "buy" | "sell";
+  size: number;
+  price: number;
+  order_type: string;
+  reduce_only: boolean;
+}
+
+/**
+ * A1.5: Fetch the latest account snapshot per (wallet_address, exchange_name)
+ * for a given wallet address.
+ *
+ * Uses distinct_on + order_by so Hasura returns only the most-recent row per
+ * exchange — equivalent to a "SELECT DISTINCT ON (wallet_address, exchange_name)
+ * … ORDER BY wallet_address, exchange_name, created_at DESC" query.
+ *
+ * Requires anonymous SELECT permission on account_snapshots (see Hasura metadata).
+ */
+export const GET_LATEST_ACCOUNT_SNAPSHOTS = gql`
+  query GetLatestAccountSnapshots($address: String!) {
+    account_snapshots(
+      distinct_on: [wallet_address, exchange_name]
+      where: { wallet_address: { _ilike: $address } }
+      order_by: [
+        { wallet_address: asc }
+        { exchange_name: asc }
+        { created_at: desc }
+      ]
+    ) {
+      id
+      snapshot_id
+      wallet_address
+      exchange_name
+      account_value
+      positions_json
+      balances_json
+      error
+      created_at
+      exchange {
+        id
+        display_name
+      }
+    }
+  }
+`;
+
+/**
+ * A2.3: Auth-aware snapshot query — extends GET_LATEST_ACCOUNT_SNAPSHOTS with
+ * orders_json and exchange_account_id. Requires admin role (authenticated request).
+ * Returns ALL exchanges including API-key-gated ones (e.g. Lighter) because the
+ * admin role has no row-level filter on account_snapshots.
+ */
+export const GET_LATEST_ACCOUNT_SNAPSHOTS_AUTH = gql`
+  query GetLatestAccountSnapshotsAuth($address: String!) {
+    account_snapshots(
+      distinct_on: [wallet_address, exchange_name]
+      where: { wallet_address: { _ilike: $address } }
+      order_by: [
+        { wallet_address: asc }
+        { exchange_name: asc }
+        { created_at: desc }
+      ]
+    ) {
+      id
+      snapshot_id
+      wallet_address
+      exchange_name
+      account_value
+      positions_json
+      balances_json
+      orders_json
+      error
+      created_at
+      exchange_account_id
+      exchange {
+        id
+        display_name
+      }
+    }
+  }
+`;
+
+/**
+ * A3.3: Fetch the latest account snapshot per (wallet_address, exchange_name)
+ * across ALL wallets. Used by the /balances page to aggregate token balances
+ * across all exchanges.
+ *
+ * Uses distinct_on + order_by so Hasura returns only the most-recent row per
+ * (wallet_address, exchange_name) pair.
+ */
+export const GET_ALL_LATEST_ACCOUNT_SNAPSHOTS = gql`
+  query GetAllLatestAccountSnapshots {
+    account_snapshots(
+      distinct_on: [wallet_address, exchange_name]
+      order_by: [
+        { wallet_address: asc }
+        { exchange_name: asc }
+        { created_at: desc }
+      ]
+    ) {
+      id
+      snapshot_id
+      wallet_address
+      exchange_name
+      account_value
+      positions_json
+      balances_json
+      error
+      created_at
+      exchange {
+        id
+        display_name
+      }
+    }
+  }
+`;
+
+/**
+ * A7.1: Admin-only variant of GET_ALL_LATEST_ACCOUNT_SNAPSHOTS that also
+ * selects exchange_account_id (restricted to the admin role in Hasura).
+ * Used by getOpenPositions() to enrich positions with account metadata
+ * (label, tags) when authenticated as admin. Falls back to the standard
+ * query for anonymous / user roles.
+ */
+export const GET_ALL_LATEST_ACCOUNT_SNAPSHOTS_ADMIN = gql`
+  query GetAllLatestAccountSnapshotsAdmin {
+    account_snapshots(
+      distinct_on: [wallet_address, exchange_name]
+      order_by: [
+        { wallet_address: asc }
+        { exchange_name: asc }
+        { created_at: desc }
+      ]
+    ) {
+      id
+      snapshot_id
+      wallet_address
+      exchange_name
+      account_value
+      positions_json
+      balances_json
+      error
+      created_at
+      exchange_account_id
+      exchange {
+        id
+        display_name
+      }
+    }
+  }
+`;
+
+/**
+ * A7.1: Fetch exchange_accounts by a list of UUIDs so we can enrich open
+ * positions with account metadata (label, tags, exchange display name, wallet label).
+ *
+ * Used by getOpenPositions() after the main snapshot loop to perform a single
+ * batch lookup rather than N individual queries.
+ */
+export const GET_ACCOUNTS_BY_IDS = gql`
+  query GetAccountsByIds($ids: [uuid!]!) {
+    exchange_accounts(where: { id: { _in: $ids } }) {
+      id
+      account_identifier
+      label
+      tags
+      exchange {
+        id
+        name
+        display_name
+      }
+      wallet {
+        label
+      }
+    }
+  }
+`;
+
+/**
+ * A3.3: A single token's aggregated balance across all exchanges.
+ */
+export interface AssetBalance {
+  /** Token symbol, e.g. "BTC", "SOL", "USDC" */
+  token: string;
+  /** Total balance across all exchanges */
+  totalBalance: number;
+  /** Total USD value across all exchanges */
+  totalValueUsd: number;
+  /** Weighted-average oracle price (by balance) */
+  avgOraclePrice: number;
+  /** Per-exchange breakdown */
+  exchanges: AssetExchangeBalance[];
+}
+
+/**
+ * A3.3: A single token's balance on one exchange (one wallet+exchange pair).
+ */
+export interface AssetExchangeBalance {
+  exchangeName: string;
+  walletAddress: string;
+  balance: number;
+  valueUsd: number;
+  oraclePrice: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// B1.1 + B1.3: Simulation types & queries
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface SimRunConfig {
+  poll_interval_ms?: number;
+  snapshot_interval_ms?: number;
+  orderbook_depth?: number;
+  /** B1.6: Flag markets where spread_bps < this value. 0 = disabled. */
+  spread_threshold_bps?: number;
+  /** B3.2: Maximum notional position size in USD. 0 = unlimited. */
+  max_position_notional_usd?: number;
+  /** B3.2: Maximum aggregate exposure across all open positions in USD. 0 = unlimited. */
+  max_total_exposure_usd?: number;
+  /**
+   * B3.3: Enable funding-aware exit timing (B2.11 logic).
+   * When absent or true, the engine delays/accelerates exits based on the next
+   * funding payment. Set to false to disable — exits are driven purely by the
+   * B2.10 dynamic threshold without any funding-rate consideration.
+   */
+  enable_funding_aware_exit?: boolean;
+}
+
+export interface SimulationRun {
+  id: string;
+  asset: string;
+  /** B3.5: "pending" | "initializing" | "running" | "pausing" | "paused" | "resuming" | "stopping" | "stopped" | "error" */
+  status: string;
+  config: SimRunConfig;
+  starting_balance: number;   // B1.3: user-defined virtual starting balance
+  quote_currency: string;     // B1.3: quote currency (e.g. "USDC")
+  markets_found?: number;
+  error_message?: string;
+  started_at?: string;
+  stopped_at?: string;
+  /** B3.5: timestamp when the run was most recently paused */
+  paused_at?: string;
+  created_at: string;
+  simulation_markets?: SimulationMarket[];
+  /** B1.6: links this run to other runs started as a comparison group */
+  comparison_group_id?: string;
+  /** B1.6: human-readable name distinguishing this run within a comparison group */
+  label?: string;
+  /** B3.1: exchanges to restrict discovery to (empty = all). e.g. ["drift","hyperliquid"] */
+  exchanges: string[];
+  /** B3.1: market types to discover (empty = all). e.g. ["perp","spot"] */
+  market_types: string[];
+  /** B3.1: "simulation" (paper trading) or "live" (real order placement) */
+  mode: string;
+}
+
+// B1.3: Tracks the virtual balance across the lifetime of a simulation run.
+export interface SimulationBalance {
+  id: string;
+  simulation_run_id: string;
+  event: string;          // "init" | "trade" | "fee" | "adjustment"
+  balance: number;
+  available_balance: number;
+  delta: number;
+  note?: string;
+  created_at: string;
+}
+
+export interface SimulationMarket {
+  id: string;
+  simulation_run_id: string;
+  exchange: string;
+  market_type: string; // "perp" | "spot"
+  symbol: string;
+  exchange_market_id: string;
+  base_asset: string;
+  quote_asset: string;
+  status: string; // "active" | "error" | "no_data" | "stale"
+  last_bid?: number;
+  last_ask?: number;
+  last_mid_price?: number;
+  last_spread_bps?: number;
+  last_updated_at?: string;
+  error_message?: string;
+  created_at: string;
+}
+
+export const GET_SIMULATION_RUNS = gql`
+  query GetSimulationRuns($limit: Int, $offset: Int) {
+    simulation_runs(
+      order_by: { created_at: desc }
+      limit: $limit
+      offset: $offset
+    ) {
+      id
+      asset
+      status
+      config
+      starting_balance
+      quote_currency
+      markets_found
+      error_message
+      started_at
+      stopped_at
+      paused_at
+      created_at
+      comparison_group_id
+      label
+      exchanges
+      market_types
+      mode
+    }
+    simulation_runs_aggregate {
+      aggregate {
+        count
+      }
+    }
+  }
+`;
+
+export const CREATE_SIMULATION_RUN = gql`
+  mutation CreateSimulationRun($asset: String!, $config: jsonb, $starting_balance: numeric, $quote_currency: String, $comparison_group_id: uuid, $label: String, $exchanges: [String!], $market_types: [String!], $mode: String) {
+    insert_simulation_runs_one(object: {
+      asset: $asset,
+      status: "pending",
+      config: $config,
+      starting_balance: $starting_balance,
+      quote_currency: $quote_currency,
+      comparison_group_id: $comparison_group_id,
+      label: $label,
+      exchanges: $exchanges,
+      market_types: $market_types,
+      mode: $mode
+    }) {
+      id
+      asset
+      status
+      config
+      starting_balance
+      quote_currency
+      comparison_group_id
+      label
+      exchanges
+      market_types
+      mode
+      created_at
+    }
+  }
+`;
+
+// B1.6: Batch-insert multiple simulation runs sharing a comparison_group_id.
+export const CREATE_COMPARISON_RUNS = gql`
+  mutation CreateComparisonRuns($runs: [simulation_runs_insert_input!]!) {
+    insert_simulation_runs(objects: $runs) {
+      returning {
+        id
+        asset
+        label
+        status
+        config
+        starting_balance
+        quote_currency
+        comparison_group_id
+        exchanges
+        market_types
+        mode
+        created_at
+      }
+    }
+  }
+`;
+
+// B1.6: Fetch all runs belonging to a comparison group, ordered by creation time.
+export const GET_COMPARISON_GROUP_RUNS = gql`
+  query GetComparisonGroupRuns($groupId: uuid!) {
+    simulation_runs(
+      where: { comparison_group_id: { _eq: $groupId } }
+      order_by: { created_at: asc }
+    ) {
+      id
+      asset
+      label
+      status
+      config
+      starting_balance
+      quote_currency
+      markets_found
+      error_message
+      started_at
+      stopped_at
+      paused_at
+      created_at
+      comparison_group_id
+      exchanges
+      market_types
+      mode
+    }
+  }
+`;
+
+export const STOP_SIMULATION_RUN = gql`
+  mutation StopSimulationRun($id: uuid!) {
+    update_simulation_runs_by_pk(pk_columns: { id: $id }, _set: { status: "stopping" }) {
+      id
+      status
+    }
+  }
+`;
+
+// B3.5: Set status to "pausing" so the runner goroutine suspends polling.
+export const PAUSE_SIMULATION_RUN = gql`
+  mutation PauseSimulationRun($id: uuid!) {
+    update_simulation_runs_by_pk(pk_columns: { id: $id }, _set: { status: "pausing" }) {
+      id
+      status
+    }
+  }
+`;
+
+// B3.5: Set status to "resuming" so the runner goroutine resumes polling.
+export const RESUME_SIMULATION_RUN = gql`
+  mutation ResumeSimulationRun($id: uuid!) {
+    update_simulation_runs_by_pk(pk_columns: { id: $id }, _set: { status: "resuming" }) {
+      id
+      status
+    }
+  }
+`;
+
+// B3.6: Update config for a paused run.
+// The where clause guards that only runs with status="paused" can be updated —
+// prevents editing a run that is actively running (which would race the market data loop).
+export const UPDATE_PAUSED_RUN_CONFIG = gql`
+  mutation UpdatePausedRunConfig($id: uuid!, $config: jsonb!) {
+    update_simulation_runs(
+      where: { id: { _eq: $id }, status: { _eq: "paused" } }
+      _set: { config: $config }
+    ) {
+      affected_rows
+      returning {
+        id
+        config
+        status
+      }
+    }
+  }
+`;
+
+export const GET_SIMULATION_MARKETS = gql`
+  query GetSimulationMarkets($runId: uuid!) {
+    simulation_markets(
+      where: { simulation_run_id: { _eq: $runId } }
+      order_by: [{ exchange: asc }, { symbol: asc }]
+    ) {
+      id
+      simulation_run_id
+      exchange
+      market_type
+      symbol
+      exchange_market_id
+      base_asset
+      quote_asset
+      status
+      last_bid
+      last_ask
+      last_mid_price
+      last_spread_bps
+      last_updated_at
+      error_message
+      created_at
+    }
+  }
+`;
+
+export const GET_SIMULATION_RUN = gql`
+  query GetSimulationRun($id: uuid!) {
+    simulation_runs_by_pk(id: $id) {
+      id
+      asset
+      status
+      config
+      starting_balance
+      quote_currency
+      markets_found
+      error_message
+      started_at
+      stopped_at
+      paused_at
+      created_at
+      comparison_group_id
+      label
+      exchanges
+      market_types
+      mode
+    }
+  }
+`;
+
+// B1.3: Fetch the current (latest) balance for a simulation run.
+export const GET_SIMULATION_BALANCE = gql`
+  query GetSimulationBalance($runId: uuid!) {
+    simulation_balances(
+      where: { simulation_run_id: { _eq: $runId } }
+      order_by: { created_at: desc }
+      limit: 1
+    ) {
+      id
+      simulation_run_id
+      event
+      balance
+      available_balance
+      delta
+      note
+      created_at
+    }
+  }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// B1.5: Simulation trades, positions, funding types & queries
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface SimulationTrade {
+  id: string;
+  simulation_run_id: string;
+  simulation_market_id: string;
+  side: string;        // "buy" | "sell"
+  quantity: number;
+  price: number;
+  notional: number;
+  fee_rate: number;
+  fee_usd: number;
+  fee_type: string;
+  created_at: string;
+  simulation_market?: {
+    exchange: string;
+    symbol: string;
+    market_type: string;
+    base_asset: string;
+    quote_asset: string;
+  };
+}
+
+export interface SimulationPosition {
+  id: string;
+  simulation_run_id: string;
+  simulation_market_id: string;
+  side: string;          // "long" | "short"
+  status: string;        // "open" | "closed"
+  quantity: number;
+  entry_price: number;
+  entry_notional: number;
+  exit_price?: number;
+  exit_notional?: number;
+  total_fees: number;
+  total_funding: number;
+  realized_pnl?: number;
+  opened_at: string;
+  closed_at?: string;
+  created_at: string;
+  simulation_market?: {
+    exchange: string;
+    symbol: string;
+    market_type: string;
+    base_asset: string;
+    quote_asset: string;
+    last_mid_price?: number;
+  };
+}
+
+export interface SimulationFundingPayment {
+  id: string;
+  simulation_run_id: string;
+  simulation_position_id: string;
+  simulation_market_id: string;
+  amount: number;
+  funding_rate: number;
+  mark_price: number;
+  notional: number;
+  created_at: string;
+  simulation_market?: {
+    exchange: string;
+    symbol: string;
+  };
+}
+
+export interface SimulationAnalytics {
+  totalTrades: number;
+  totalFeesPaid: number;
+  totalFunding: number;
+  realizedPnL: number;
+  unrealizedPnL: number;
+  openPositions: number;
+  closedPositions: number;
+  startingBalance: number;
+  currentBalance: number;
+  balancePnL: number;
+}
+
+export const GET_SIMULATION_TRADES = gql`
+  query GetSimulationTrades($runId: uuid!, $limit: Int, $offset: Int) {
+    simulation_trades(
+      where: { simulation_run_id: { _eq: $runId } }
+      order_by: { created_at: desc }
+      limit: $limit
+      offset: $offset
+    ) {
+      id
+      simulation_run_id
+      simulation_market_id
+      side
+      quantity
+      price
+      notional
+      fee_rate
+      fee_usd
+      fee_type
+      created_at
+      simulation_market {
+        exchange
+        symbol
+        market_type
+        base_asset
+        quote_asset
+      }
+    }
+    simulation_trades_aggregate(where: { simulation_run_id: { _eq: $runId } }) {
+      aggregate {
+        count
+        sum {
+          fee_usd
+          notional
+        }
+      }
+    }
+  }
+`;
+
+export const GET_SIMULATION_POSITIONS = gql`
+  query GetSimulationPositions($runId: uuid!) {
+    simulation_positions(
+      where: { simulation_run_id: { _eq: $runId } }
+      order_by: { opened_at: desc }
+    ) {
+      id
+      simulation_run_id
+      simulation_market_id
+      side
+      status
+      quantity
+      entry_price
+      entry_notional
+      exit_price
+      exit_notional
+      total_fees
+      total_funding
+      realized_pnl
+      opened_at
+      closed_at
+      created_at
+      simulation_market {
+        exchange
+        symbol
+        market_type
+        base_asset
+        quote_asset
+        last_mid_price
+      }
+    }
+  }
+`;
+
+export const GET_SIMULATION_FUNDING = gql`
+  query GetSimulationFunding($runId: uuid!) {
+    simulation_funding_payments(
+      where: { simulation_run_id: { _eq: $runId } }
+      order_by: { created_at: desc }
+    ) {
+      id
+      simulation_run_id
+      simulation_position_id
+      simulation_market_id
+      amount
+      funding_rate
+      mark_price
+      notional
+      created_at
+      simulation_market {
+        exchange
+        symbol
+      }
+    }
+    simulation_funding_payments_aggregate(where: { simulation_run_id: { _eq: $runId } }) {
+      aggregate {
+        count
+        sum {
+          amount
+        }
+      }
+    }
+  }
+`;
+
+export const GET_SIMULATION_BALANCE_HISTORY = gql`
+  query GetSimulationBalanceHistory($runId: uuid!) {
+    simulation_balances(
+      where: { simulation_run_id: { _eq: $runId } }
+      order_by: { created_at: asc }
+    ) {
+      id
+      simulation_run_id
+      event
+      balance
+      available_balance
+      delta
+      note
+      created_at
+    }
+  }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// B1.7: Optimal entry threshold identification
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Aggregated metrics for a single simulation run, sourced from the
+ *  `simulation_run_metrics` PostgreSQL VIEW (migration 1760000000). */
+export interface SimRunMetrics {
+  simulation_run_id: string;
+  asset: string;
+  label?: string;
+  status: string;
+  comparison_group_id?: string;
+  starting_balance: number;
+  quote_currency: string;
+  created_at: string;
+  started_at?: string;
+  stopped_at?: string;
+  /** The spread threshold (bps) configured for this run. */
+  spread_threshold_bps: number;
+  // PnL components
+  total_realized_pnl: number;
+  total_fees: number;
+  total_funding: number;
+  // Position breakdown
+  total_positions: number;
+  closed_positions: number;
+  winning_positions: number;
+  losing_positions: number;
+  winning_pnl: number;
+  losing_pnl: number;
+  // Trade breakdown
+  trade_count: number;
+  total_notional: number;
+  // Balance & return
+  current_balance: number;
+  /** (current_balance - starting_balance) / starting_balance * 100 */
+  return_pct: number;
+  // Derived ratios
+  /** gross_profit / abs(gross_loss). 0 = no data; 999 = all wins. */
+  profit_factor: number;
+  /** net_pnl / total_fees. Negative = fees exceed profits. */
+  fee_efficiency: number;
+  /** total_realized_pnl / closed_positions. 0 = no closed positions. */
+  avg_pnl_per_position: number;
+}
+
+/** A run ranked within its comparison group. */
+export interface RankedRun {
+  metrics: SimRunMetrics;
+  /** Composite score in [0, 1]. Higher is better. */
+  score: number;
+  /** 1-based rank within the comparison group (1 = best). */
+  rank: number;
+  /** True only for the top-ranked run. */
+  isOptimal: boolean;
+}
+
+/** Full analysis result returned by `rankRunsByRiskAdjustedReturn`. */
+export interface ThresholdAnalysis {
+  groupId: string;
+  asset: string;
+  quoteCurrency: string;
+  runCount: number;
+  rankedRuns: RankedRun[];
+  /** Convenience reference to rankedRuns[0], or null if rankedRuns is empty. */
+  optimalRun: RankedRun | null;
+  analyzedAt: string;
+}
+
+// B3.4: Count runs currently occupying a runner slot (pending + initializing + running).
+// Used by the UI to enforce the MaxConcurrentRuns=5 capacity limit.
+export const GET_ACTIVE_RUN_COUNT = gql`
+  query GetActiveRunCount {
+    simulation_runs_aggregate(
+      where: { status: { _in: ["pending", "initializing", "running"] } }
+    ) {
+      aggregate {
+        count
+      }
+    }
+  }
+`;
+
+// B1.7: Fetch aggregated metrics for every run in a comparison group.
+export const GET_COMPARISON_ANALYSIS = gql`
+  query GetComparisonAnalysis($groupId: uuid!) {
+    simulation_run_metrics(
+      where: { comparison_group_id: { _eq: $groupId } }
+      order_by: { spread_threshold_bps: asc }
+    ) {
+      simulation_run_id
+      asset
+      label
+      status
+      comparison_group_id
+      starting_balance
+      quote_currency
+      created_at
+      started_at
+      stopped_at
+      spread_threshold_bps
+      total_realized_pnl
+      total_fees
+      total_funding
+      total_positions
+      closed_positions
+      winning_positions
+      losing_positions
+      winning_pnl
+      losing_pnl
+      trade_count
+      total_notional
+      current_balance
+      return_pct
+      profit_factor
+      fee_efficiency
+      avg_pnl_per_position
     }
   }
 `;

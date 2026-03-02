@@ -63,6 +63,32 @@ function formatPercentage(value: string): string {
   return `${num.toFixed(2)}%`;
 }
 
+/**
+ * Formats a duration between two Unix-millisecond timestamps into a readable string.
+ * E.g. "3d 5h", "2h 30m", "45m", "< 1m"
+ */
+function formatDuration(startMs: number, endMs: number): string {
+  const durationMs = endMs - startMs;
+  if (durationMs <= 0) return "< 1m";
+
+  const totalMinutes = Math.floor(durationMs / (1000 * 60));
+  const totalHours = Math.floor(durationMs / (1000 * 60 * 60));
+  const totalDays = Math.floor(durationMs / (1000 * 60 * 60 * 24));
+
+  if (totalDays >= 1) {
+    const remainingHours = totalHours - totalDays * 24;
+    return remainingHours > 0 ? `${totalDays}d ${remainingHours}h` : `${totalDays}d`;
+  }
+  if (totalHours >= 1) {
+    const remainingMinutes = totalMinutes - totalHours * 60;
+    return remainingMinutes > 0 ? `${totalHours}h ${remainingMinutes}m` : `${totalHours}h`;
+  }
+  if (totalMinutes >= 1) {
+    return `${totalMinutes}m`;
+  }
+  return "< 1m";
+}
+
 export function PositionDetail({ positionId }: PositionDetailProps) {
   const router = useRouter();
   const { withErrorReporting } = useApi();
@@ -96,7 +122,7 @@ export function PositionDetail({ positionId }: PositionDetailProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {[...Array(9)].map((_, i) => (
+            {[...Array(11)].map((_, i) => (
               <div key={i}>
                 <Skeleton className="h-4 w-20 mb-2" />
                 <Skeleton className="h-6 w-32" />
@@ -120,6 +146,16 @@ export function PositionDetail({ positionId }: PositionDetailProps) {
   }
 
   const pnl = formatPnL(position.realized_pnl);
+  const fundingNum = parseFloat(position.total_funding ?? "0");
+  const fundingText = isNaN(fundingNum) || fundingNum === 0
+    ? "—"
+    : `${fundingNum >= 0 ? "+" : ""}${fundingNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`;
+  const fundingClass = fundingNum > 0
+    ? "text-green-600"
+    : fundingNum < 0
+    ? "text-red-600"
+    : "text-muted-foreground";
+  const duration = formatDuration(position.start_time, position.end_time);
 
   return (
     <div className="space-y-6">
@@ -221,6 +257,14 @@ export function PositionDetail({ positionId }: PositionDetailProps) {
             </div>
             <div>
               <p className="text-sm font-medium text-muted-foreground">
+                Duration
+              </p>
+              <p className="text-lg">
+                {duration}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">
                 Total Fees
               </p>
               <p className={cn(
@@ -228,6 +272,17 @@ export function PositionDetail({ positionId }: PositionDetailProps) {
                 parseFloat(position.total_fees) >= 0 ? "text-red-600" : "text-green-600"
               )}>
                 {formatNumber(position.total_fees, 6)}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">
+                Funding Received/Paid
+              </p>
+              <p className={cn("text-lg font-mono", fundingClass)}>
+                {fundingText}
+                {position.market_type === "perp" && fundingNum === 0 && (
+                  <span className="text-sm text-muted-foreground ml-1">(no funding)</span>
+                )}
               </p>
             </div>
           </div>
@@ -239,6 +294,11 @@ export function PositionDetail({ positionId }: PositionDetailProps) {
             <p className={cn("text-3xl font-bold font-mono", pnl.className)}>
               {pnl.text} {position.quote_asset}
             </p>
+            {position.market_type === "perp" && (
+              <p className="text-xs text-muted-foreground mt-1">
+                = gross PnL − fees + funding
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>

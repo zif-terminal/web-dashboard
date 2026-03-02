@@ -1,4 +1,4 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionsAggregates, Wallet, WalletWithAccounts, Deposit, DepositsAggregates, OpenPosition } from "../queries";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionsAggregates, Wallet, WalletWithAccounts, Deposit, DepositsAggregates, OpenPosition, PortfolioSummary, AssetBalance, AssetPnL, AssetFee, FundingAssetBreakdown, ExchangePnLBreakdown, ExchangeFundingBreakdown, SimRunMetrics, SimRunConfig } from "../queries";
 import { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, PositionsResult, PositionWithTrades, DepositsResult, DataFilters } from "./types";
 
 // Mock wallets
@@ -14,9 +14,9 @@ const mockWallets: Wallet[] = [
 
 // Mock exchanges
 const mockExchanges: Exchange[] = [
-  { id: "hyperliquid", name: "hyperliquid", display_name: "Hyperliquid" },
-  { id: "lighter", name: "lighter", display_name: "Lighter" },
-  { id: "drift", name: "drift", display_name: "Drift" },
+  { id: "hyperliquid", name: "hyperliquid", display_name: "Hyperliquid", requires_api_key: false },
+  { id: "lighter",     name: "lighter",     display_name: "Lighter",     requires_api_key: true  },
+  { id: "drift",       name: "drift",       display_name: "Drift",       requires_api_key: false },
 ];
 
 // Mock account types
@@ -61,7 +61,16 @@ const mockAccounts: ExchangeAccount[] = [
 ];
 
 // Mock trades
+// A8.5: Spot trades with multiple buy lots at different prices make FIFO/LIFO
+//        divergence visible in the tax report.
+//        SOL:  buy 30@$150 (Jan), buy 20@$180 (Feb), sell 25@$200 (Mar)
+//              FIFO gain: (200-150)×25 = $1,250
+//              LIFO gain: (200-180)×20 + (200-150)×5 = $400+$250 = $650
+//        ETH spot: buy 2@$3,000 (Jan), buy 1@$3,500 (Feb), sell 2@$3,800 (Mar)
+//              FIFO gain: (3800-3000)×2 = $1,600
+//              LIFO gain: (3800-3500)×1 + (3800-3000)×1 = $1,100
 const mockTrades: Trade[] = [
+  // ── Existing perp trades (display/aggregation) ──────────────────────────
   {
     id: "mock-trade-001",
     base_asset: "ETH",
@@ -93,21 +102,6 @@ const mockTrades: Trade[] = [
     exchange_account: mockAccounts[0],
   },
   {
-    id: "mock-trade-003",
-    base_asset: "SOL",
-    quote_asset: "USDC",
-    side: "buy",
-    price: "185.25",
-    quantity: "50",
-    timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-    fee: "0.025",
-    order_id: "ord-mno345pqr678",
-    trade_id: "trd-003",
-    exchange_account_id: "mock-acc-003",
-    market_type: "spot",
-    exchange_account: mockAccounts[2],
-  },
-  {
     id: "mock-trade-004",
     base_asset: "ARB",
     quote_asset: "USDC",
@@ -135,6 +129,106 @@ const mockTrades: Trade[] = [
     trade_id: "trd-005",
     exchange_account_id: "mock-acc-001",
     market_type: "perp",
+    exchange_account: mockAccounts[0],
+  },
+
+  // ── A8.5: SOL spot — two buy lots at different prices, then partial sell ──
+  // Lot A (older, lower): 30 SOL @ $150
+  {
+    id: "mock-trade-sol-buy-1",
+    base_asset: "SOL",
+    quote_asset: "USDC",
+    side: "buy",
+    price: "150.00",
+    quantity: "30",
+    timestamp: new Date("2026-01-15T12:00:00Z").toISOString(),
+    fee: "1.50",
+    order_id: "ord-sol-b1",
+    trade_id: "trd-sol-b1",
+    exchange_account_id: "mock-acc-003",
+    market_type: "spot",
+    exchange_account: mockAccounts[2],
+  },
+  // Lot B (newer, higher): 20 SOL @ $180
+  {
+    id: "mock-trade-sol-buy-2",
+    base_asset: "SOL",
+    quote_asset: "USDC",
+    side: "buy",
+    price: "180.00",
+    quantity: "20",
+    timestamp: new Date("2026-02-01T12:00:00Z").toISOString(),
+    fee: "1.80",
+    order_id: "ord-sol-b2",
+    trade_id: "trd-sol-b2",
+    exchange_account_id: "mock-acc-003",
+    market_type: "spot",
+    exchange_account: mockAccounts[2],
+  },
+  // Sell 25 SOL @ $200 — spans both lots (FIFO: all from lot A; LIFO: 20 from B + 5 from A)
+  {
+    id: "mock-trade-sol-sell-1",
+    base_asset: "SOL",
+    quote_asset: "USDC",
+    side: "sell",
+    price: "200.00",
+    quantity: "25",
+    timestamp: new Date("2026-02-20T12:00:00Z").toISOString(),
+    fee: "2.50",
+    order_id: "ord-sol-s1",
+    trade_id: "trd-sol-s1",
+    exchange_account_id: "mock-acc-003",
+    market_type: "spot",
+    exchange_account: mockAccounts[2],
+  },
+
+  // ── A8.5: ETH spot — two buy lots at different prices, then partial sell ─
+  // Lot A (older, lower): 2 ETH @ $3,000
+  {
+    id: "mock-trade-eth-spot-buy-1",
+    base_asset: "ETH",
+    quote_asset: "USDC",
+    side: "buy",
+    price: "3000.00",
+    quantity: "2",
+    timestamp: new Date("2026-01-20T12:00:00Z").toISOString(),
+    fee: "3.00",
+    order_id: "ord-eth-sb1",
+    trade_id: "trd-eth-sb1",
+    exchange_account_id: "mock-acc-001",
+    market_type: "spot",
+    exchange_account: mockAccounts[0],
+  },
+  // Lot B (newer, higher): 1 ETH @ $3,500
+  {
+    id: "mock-trade-eth-spot-buy-2",
+    base_asset: "ETH",
+    quote_asset: "USDC",
+    side: "buy",
+    price: "3500.00",
+    quantity: "1",
+    timestamp: new Date("2026-02-10T12:00:00Z").toISOString(),
+    fee: "3.50",
+    order_id: "ord-eth-sb2",
+    trade_id: "trd-eth-sb2",
+    exchange_account_id: "mock-acc-001",
+    market_type: "spot",
+    exchange_account: mockAccounts[0],
+  },
+  // Sell 2 ETH @ $3,800 — FIFO closes lot A (basis $3000); LIFO closes lot B + 1 from A
+  {
+    id: "mock-trade-eth-spot-sell-1",
+    base_asset: "ETH",
+    quote_asset: "USDC",
+    side: "sell",
+    price: "3800.00",
+    quantity: "2",
+    timestamp: new Date("2026-02-25T12:00:00Z").toISOString(),
+    fee: "3.80",
+    order_id: "ord-eth-ss1",
+    trade_id: "trd-eth-ss1",
+    exchange_account_id: "mock-acc-001",
+    market_type: "spot",
     exchange_account: mockAccounts[0],
   },
 ];
@@ -219,6 +313,7 @@ const mockPositions: Position[] = [
     total_quantity: "2.5",
     total_fees: "0.00125",
     realized_pnl: "199.99",
+    total_funding: "5.50",
     exchange_account: mockAccounts[0],
   },
   {
@@ -235,6 +330,7 @@ const mockPositions: Position[] = [
     total_quantity: "0.5",
     total_fees: "0.00025",
     realized_pnl: "499.99",
+    total_funding: "-12.30",
     exchange_account: mockAccounts[0],
   },
   {
@@ -251,6 +347,7 @@ const mockPositions: Position[] = [
     total_quantity: "50",
     total_fees: "0.025",
     realized_pnl: "-250.02",
+    total_funding: "3.00",
     exchange_account: mockAccounts[1],
   },
   {
@@ -267,6 +364,7 @@ const mockPositions: Position[] = [
     total_quantity: "1.0",
     total_fees: "0.0005",
     realized_pnl: "-50.05",
+    total_funding: "0.00",
     exchange_account: mockAccounts[2],
   },
 ];
@@ -521,14 +619,28 @@ export const mockApi: ApiClient = {
   async getFundingAggregates(filters?: DataFilters): Promise<FundingAggregates> {
     await delay(200);
     const filteredPayments = filterFundingPayments(mockFundingPayments, filters);
-    const totalAmount = filteredPayments.reduce(
-      (sum, payment) => sum + parseFloat(payment.amount),
-      0
-    );
+    const totalAmount = filteredPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+    const received = filteredPayments.filter(p => parseFloat(p.amount) > 0);
+    const paid = filteredPayments.filter(p => parseFloat(p.amount) < 0);
     return {
       totalAmount: totalAmount.toString(),
       count: filteredPayments.length,
+      totalReceived: received.reduce((sum, p) => sum + parseFloat(p.amount), 0).toString(),
+      totalPaid: paid.reduce((sum, p) => sum + parseFloat(p.amount), 0).toString(),
+      receivedCount: received.length,
+      paidCount: paid.length,
     };
+  },
+
+  async getFundingAggregatesByExchange(_filters?: DataFilters): Promise<ExchangeFundingBreakdown[]> {
+    await delay(200);
+    return mockExchanges.map((ex) => ({
+      exchangeId: ex.id,
+      exchangeName: ex.name,
+      displayName: ex.display_name,
+      totalFunding: "0",
+      count: 0,
+    }));
   },
 
   async getPositions(limit: number, offset: number, filters?: DataFilters): Promise<PositionsResult> {
@@ -557,6 +669,18 @@ export const mockApi: ApiClient = {
       totalFees: totalFees.toString(),
       count: filteredPositions.length,
     };
+  },
+
+  async getPositionsAggregatesByExchange(_filters?: DataFilters): Promise<ExchangePnLBreakdown[]> {
+    await delay(200);
+    return mockExchanges.map((ex) => ({
+      exchangeId: ex.id,
+      exchangeName: ex.name,
+      displayName: ex.display_name,
+      realizedPnL: "0",
+      totalFees: "0",
+      count: 0,
+    }));
   },
 
   async getPositionById(id: string): Promise<PositionWithTrades | null> {
@@ -613,14 +737,21 @@ export const mockApi: ApiClient = {
 
   async getWalletsWithCounts(): Promise<WalletWithAccounts[]> {
     await delay(200);
-    return mockWallets.map((wallet) => ({
-      ...wallet,
-      exchange_accounts_aggregate: {
-        aggregate: {
-          count: mockAccounts.filter((a) => a.wallet_id === wallet.id).length,
+    return mockWallets.map((wallet) => {
+      const walletAccounts = mockAccounts.filter((a) => a.wallet_id === wallet.id);
+      return {
+        ...wallet,
+        exchange_accounts_aggregate: {
+          aggregate: { count: walletAccounts.length },
         },
-      },
-    }));
+        exchange_accounts: walletAccounts.map((a) => ({
+          id: a.id,
+          exchange: a.exchange
+            ? { id: a.exchange.id, display_name: a.exchange.display_name }
+            : null,
+        })),
+      };
+    });
   },
 
   async createWallet(input: CreateWalletInput): Promise<Wallet> {
@@ -682,6 +813,34 @@ export const mockApi: ApiClient = {
     }
     account.label = label || undefined;
     return { id, label };
+  },
+
+  // A2.1: Mock wallet ownership verification
+  async requestWalletChallenge(address: string, chain: string): Promise<import("./types").WalletChallengeResponse> {
+    await delay(200);
+    return {
+      nonce: "mock-nonce-1234abcd",
+      message: `ZIF Terminal wants you to sign in with your ${chain} account:\n${address}\n\nNonce: mock-nonce-1234abcd\nIssued At: ${new Date().toISOString()}`,
+    };
+  },
+
+  async verifyWalletSignature(
+    address: string,
+    chain: string,
+    _signature: string,
+    _nonce: string,
+  ): Promise<import("./types").WalletVerifyResponse> {
+    await delay(500);
+    return { wallet_id: "mock-wallet-id", address, chain, verified: true };
+  },
+
+  async verifyWalletAPIKey(
+    address: string,
+    chain: string,
+    _apiKey: string,
+  ): Promise<import("./types").WalletVerifyResponse> {
+    await delay(500);
+    return { wallet_id: "mock-wallet-id", address, chain, verified: true, method: "api_key" };
   },
 
   async getOpenPositions(filters?: DataFilters): Promise<OpenPosition[]> {
@@ -819,5 +978,272 @@ export const mockApi: ApiClient = {
 
     openPositions.sort((a, b) => b.net_quantity - a.net_quantity);
     return openPositions;
+  },
+
+  async getTotalUnrealizedPnL(): Promise<{ total: number; positionCount: number; snapshotAge: string | null }> {
+    return { total: 0, positionCount: 0, snapshotAge: null };
+  },
+
+  async getAssetBalances(): Promise<AssetBalance[]> {
+    return [
+      {
+        token: "SOL",
+        totalBalance: 150.5,
+        totalValueUsd: 22575,
+        avgOraclePrice: 150,
+        exchanges: [
+          { exchangeName: "drift", walletAddress: "HN4x...7Kpq", balance: 100, valueUsd: 15000, oraclePrice: 150 },
+          { exchangeName: "hyperliquid", walletAddress: "HN4x...7Kpq", balance: 50.5, valueUsd: 7575, oraclePrice: 150 },
+        ],
+      },
+      {
+        token: "USDC",
+        totalBalance: 5000,
+        totalValueUsd: 5000,
+        avgOraclePrice: 1,
+        exchanges: [
+          { exchangeName: "drift", walletAddress: "HN4x...7Kpq", balance: 3000, valueUsd: 3000, oraclePrice: 1 },
+          { exchangeName: "hyperliquid", walletAddress: "HN4x...7Kpq", balance: 2000, valueUsd: 2000, oraclePrice: 1 },
+        ],
+      },
+    ];
+  },
+
+  async getPortfolioSummary(): Promise<PortfolioSummary> {
+    // A5.2: Per-exchange fees must sum exactly to totalFees (85.23 + 64.77 = 150.00)
+    return {
+      totalDeposits: "10000",
+      totalWithdrawals: "2000",
+      realizedPnL: "1500",
+      fundingPnL: "250",
+      totalFees: "150",
+      totalTradeCount: 42,
+      totalAccountValue: "9750",
+      exchangeBreakdowns: [
+        {
+          exchangeId: "1",
+          exchangeName: "hyperliquid",
+          displayName: "Hyperliquid",
+          totalDeposits: "5000",
+          totalWithdrawals: "1000",
+          realizedPnL: "800",
+          fundingPnL: "150",
+          totalFees: "85.23",
+          accountValue: "4950",
+          tradeCount: 28,
+        },
+        {
+          exchangeId: "2",
+          exchangeName: "drift",
+          displayName: "Drift",
+          totalDeposits: "5000",
+          totalWithdrawals: "1000",
+          realizedPnL: "700",
+          fundingPnL: "100",
+          totalFees: "64.77",
+          accountValue: "4800",
+          tradeCount: 14,
+        },
+      ],
+    };
+  },
+
+  async getAssetPnLBreakdown(filters?: DataFilters): Promise<AssetPnL[]> {
+    await delay(300);
+    const filteredPositions = filterPositions(mockPositions, filters);
+    const filteredFunding = filterFundingPayments(mockFundingPayments, filters);
+
+    const assetMap = new Map<string, { realizedPnL: number; fundingPnL: number; positionCount: number; fundingCount: number }>();
+
+    for (const pos of filteredPositions) {
+      const entry = assetMap.get(pos.base_asset) || { realizedPnL: 0, fundingPnL: 0, positionCount: 0, fundingCount: 0 };
+      entry.realizedPnL += parseFloat(pos.realized_pnl) || 0;
+      entry.positionCount += 1;
+      assetMap.set(pos.base_asset, entry);
+    }
+
+    for (const fp of filteredFunding) {
+      const entry = assetMap.get(fp.base_asset) || { realizedPnL: 0, fundingPnL: 0, positionCount: 0, fundingCount: 0 };
+      entry.fundingPnL += parseFloat(fp.amount) || 0;
+      entry.fundingCount += 1;
+      assetMap.set(fp.base_asset, entry);
+    }
+
+    const result: AssetPnL[] = [];
+    for (const [asset, entry] of assetMap) {
+      result.push({
+        asset,
+        realizedPnL: entry.realizedPnL,
+        fundingPnL: entry.fundingPnL,
+        totalPnL: entry.realizedPnL + entry.fundingPnL,
+        positionCount: entry.positionCount,
+        fundingCount: entry.fundingCount,
+      });
+    }
+
+    result.sort((a, b) => Math.abs(b.totalPnL) - Math.abs(a.totalPnL));
+    return result;
+  },
+
+  // A5.3: Per-asset fee breakdown mock
+  async getAssetFeeBreakdown(filters?: DataFilters): Promise<AssetFee[]> {
+    await delay(300);
+    // Suppress unused warning; filters would be applied in a real implementation
+    void filters;
+    return [
+      { asset: "BTC", marketType: "perp", totalFees: 48.32, tradeCount: 120 },
+      { asset: "ETH", marketType: "perp", totalFees: 31.17, tradeCount: 89 },
+      { asset: "SOL", marketType: "perp", totalFees: 18.45, tradeCount: 54 },
+      { asset: "BTC", marketType: "spot", totalFees: 12.80, tradeCount: 32 },
+      { asset: "ETH", marketType: "spot", totalFees: 7.26, tradeCount: 21 },
+    ];
+  },
+
+  // A6.3: Per-asset funding breakdown mock
+  async getFundingByAssetBreakdown(filters?: DataFilters): Promise<FundingAssetBreakdown[]> {
+    await delay(300);
+    const filteredFunding = filterFundingPayments(mockFundingPayments, filters);
+
+    const assetMap = new Map<string, { received: number; paid: number; paymentCount: number }>();
+
+    for (const fp of filteredFunding) {
+      const amount = parseFloat(fp.amount) || 0;
+      const entry = assetMap.get(fp.base_asset) || { received: 0, paid: 0, paymentCount: 0 };
+      if (amount >= 0) {
+        entry.received += amount;
+      } else {
+        entry.paid += Math.abs(amount);
+      }
+      entry.paymentCount += 1;
+      assetMap.set(fp.base_asset, entry);
+    }
+
+    const result: FundingAssetBreakdown[] = [];
+    for (const [asset, entry] of assetMap) {
+      result.push({
+        asset,
+        received: entry.received,
+        paid: entry.paid,
+        net: entry.received - entry.paid,
+        paymentCount: entry.paymentCount,
+      });
+    }
+
+    // Sort by absolute net descending
+    result.sort((a, b) => Math.abs(b.net) - Math.abs(a.net));
+    return result;
+  },
+
+  // B1.1 + B1.3: Simulation stubs (mock environment has no sim runner)
+  async getSimulationRuns() {
+    await delay(100);
+    return { runs: [], totalCount: 0 };
+  },
+
+  async getSimulationRun(_id: string) {
+    await delay(100);
+    return null;
+  },
+
+  async createSimulationRun(asset: string, config?: import("../queries").SimRunConfig, startingBalance?: number, quoteCurrency?: string, exchanges?: string[], marketTypes?: string[], mode?: string) {
+    await delay(400);
+    return {
+      id: crypto.randomUUID(),
+      asset: asset.toUpperCase(),
+      status: "pending",
+      // B3.2: persist the full config (including risk params) so callers can read it back
+      config: config ?? {},
+      starting_balance: startingBalance ?? 10000,
+      quote_currency: quoteCurrency ?? "USDC",
+      // B3.1: persist exchange/market type selection and mode
+      exchanges: exchanges ?? [],
+      market_types: marketTypes ?? [],
+      mode: mode ?? "simulation",
+      created_at: new Date().toISOString(),
+    } as import("../queries").SimulationRun;
+  },
+
+  async stopSimulationRun(id: string) {
+    await delay(200);
+    return { id, status: "stopping" };
+  },
+
+  // B3.5: Mock pause/resume
+  async pauseSimulationRun(id: string) {
+    await delay(200);
+    return { id, status: "pausing" };
+  },
+
+  async resumeSimulationRun(id: string) {
+    await delay(200);
+    return { id, status: "resuming" };
+  },
+
+  async getSimulationMarkets(_runId: string) {
+    await delay(100);
+    return [];
+  },
+
+  async getSimulationBalance(_runId: string) {
+    await delay(100);
+    return null;
+  },
+
+  // B1.5: Simulation analytics — mock stubs returning empty data
+  async getSimulationTrades(_runId: string, _limit?: number, _offset?: number) {
+    await delay(100);
+    return { trades: [], totalCount: 0, totalFeesPaid: 0, totalNotional: 0 };
+  },
+
+  async getSimulationPositions(_runId: string) {
+    await delay(100);
+    return [];
+  },
+
+  async getSimulationFunding(_runId: string) {
+    await delay(100);
+    return { payments: [], totalCount: 0, totalAmount: 0 };
+  },
+
+  async getSimulationBalanceHistory(_runId: string) {
+    await delay(100);
+    return [];
+  },
+
+  // B1.6: Comparison groups — mock stubs
+  async createComparisonRuns(
+    _asset: string,
+    _startingBalance: number,
+    _quoteCurrency: string,
+    _runs: import("./types").ComparisonRunInput[],
+    _exchanges?: string[],
+    _marketTypes?: string[],
+    _mode?: string,
+  ) {
+    await delay(200);
+    return { groupId: "mock-group-id", runs: [] };
+  },
+
+  async getComparisonGroupRuns(_groupId: string) {
+    await delay(100);
+    return [];
+  },
+
+  // B1.7: Comparison analysis — mock stub
+  async getComparisonAnalysis(_groupId: string): Promise<SimRunMetrics[]> {
+    await delay(100);
+    return [];
+  },
+
+  // B3.3: Update config for a paused run (mock — returns identity).
+  async updatePausedRunConfig(id: string, config: SimRunConfig): Promise<{ id: string; config: SimRunConfig }> {
+    await delay(50);
+    return { id, config };
+  },
+
+  // B3.4: Returns the count of active simulation runs (mock — always 0).
+  async getActiveRunCount(): Promise<number> {
+    await delay(50);
+    return 0;
   },
 };

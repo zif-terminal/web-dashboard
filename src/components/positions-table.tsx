@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { Position } from "@/lib/queries";
+import { SortConfig } from "@/lib/api";
 import {
   Table,
   TableBody,
@@ -15,6 +16,7 @@ import { PositionsTableSkeleton } from "@/components/table-skeleton";
 import { ExchangeBadge } from "@/components/exchange-badge";
 import { getDisplayName } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 
 interface PositionsTableProps {
   positions: Position[];
@@ -25,6 +27,8 @@ interface PositionsTableProps {
   showAccount?: boolean;
   isLoading?: boolean;
   isNewItem?: (id: string) => boolean;
+  sort?: SortConfig | null;
+  onSortChange?: (sort: SortConfig | null) => void;
 }
 
 function formatTimestamp(timestamp: number): string {
@@ -54,6 +58,96 @@ function formatPnL(value: string): { text: string; className: string } {
   return { text, className };
 }
 
+/**
+ * Formats a funding amount string with sign and color.
+ * Positive = received (green), negative = paid (red), zero = neutral dash.
+ */
+function formatFunding(value: string): { text: string; className: string } {
+  const num = parseFloat(value);
+  if (isNaN(num) || num === 0) return { text: "\u2014", className: "text-muted-foreground" };
+
+  const sign = num >= 0 ? "+" : "";
+  const text = `${sign}${num.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  })}`;
+  const className = num >= 0 ? "text-green-600" : "text-red-600";
+  return { text, className };
+}
+
+/**
+ * Formats a duration in milliseconds to a human-readable string.
+ * Examples: "3d 5h", "45m", "2h 30m", "< 1m"
+ */
+function formatDuration(startMs: number, endMs: number): string {
+  const durationMs = endMs - startMs;
+  if (durationMs <= 0) return "< 1m";
+
+  const totalMinutes = Math.floor(durationMs / (1000 * 60));
+  const totalHours = Math.floor(durationMs / (1000 * 60 * 60));
+  const totalDays = Math.floor(durationMs / (1000 * 60 * 60 * 24));
+
+  if (totalDays >= 1) {
+    const remainingHours = totalHours - totalDays * 24;
+    return remainingHours > 0 ? `${totalDays}d ${remainingHours}h` : `${totalDays}d`;
+  }
+  if (totalHours >= 1) {
+    const remainingMinutes = totalMinutes - totalHours * 60;
+    return remainingMinutes > 0 ? `${totalHours}h ${remainingMinutes}m` : `${totalHours}h`;
+  }
+  if (totalMinutes >= 1) {
+    return `${totalMinutes}m`;
+  }
+  return "< 1m";
+}
+
+function SortIcon({ column, sort }: { column: string; sort?: SortConfig | null }) {
+  if (!sort || sort.column !== column) {
+    return <ArrowUpDown className="ml-1 h-3 w-3 text-muted-foreground/50" />;
+  }
+  return sort.direction === "asc"
+    ? <ArrowUp className="ml-1 h-3 w-3" />
+    : <ArrowDown className="ml-1 h-3 w-3" />;
+}
+
+function SortableHeader({
+  column,
+  label,
+  sort,
+  onSortChange,
+  className,
+}: {
+  column: string;
+  label: string;
+  sort?: SortConfig | null;
+  onSortChange?: (sort: SortConfig | null) => void;
+  className?: string;
+}) {
+  const handleClick = () => {
+    if (!onSortChange) return;
+    if (!sort || sort.column !== column) {
+      onSortChange({ column, direction: "desc" });
+    } else if (sort.direction === "desc") {
+      onSortChange({ column, direction: "asc" });
+    } else {
+      onSortChange(null);
+    }
+  };
+
+  return (
+    <TableHead className={className}>
+      <button
+        type="button"
+        className="inline-flex items-center gap-0 hover:text-foreground transition-colors -ml-1 px-1 py-0.5 rounded hover:bg-muted/50"
+        onClick={handleClick}
+      >
+        {label}
+        <SortIcon column={column} sort={sort} />
+      </button>
+    </TableHead>
+  );
+}
+
 export function PositionsTable({
   positions,
   totalCount,
@@ -63,6 +157,8 @@ export function PositionsTable({
   showAccount = false,
   isLoading = false,
   isNewItem,
+  sort,
+  onSortChange,
 }: PositionsTableProps) {
   const router = useRouter();
   const totalPages = Math.ceil(totalCount / pageSize);
@@ -93,18 +189,22 @@ export function PositionsTable({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Closed At</TableHead>
-            <TableHead>Pair</TableHead>
-            <TableHead>Side</TableHead>
-            <TableHead className="text-right">Entry / Exit</TableHead>
-            <TableHead className="text-right">Quantity</TableHead>
-            <TableHead className="text-right">Fees</TableHead>
-            <TableHead className="text-right">Realized PnL</TableHead>
+            <SortableHeader column="end_time" label="Closed At" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader column="base_asset" label="Pair" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader column="side" label="Side" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader column="entry_avg_price" label="Entry / Exit" sort={sort} onSortChange={onSortChange} className="text-right" />
+            <SortableHeader column="total_quantity" label="Quantity" sort={sort} onSortChange={onSortChange} className="text-right" />
+            <SortableHeader column="total_fees" label="Fees" sort={sort} onSortChange={onSortChange} className="text-right" />
+            <SortableHeader column="total_funding" label="Funding" sort={sort} onSortChange={onSortChange} className="text-right" />
+            <SortableHeader column="start_time" label="Duration" sort={sort} onSortChange={onSortChange} className="text-right" />
+            <SortableHeader column="realized_pnl" label="Realized PnL" sort={sort} onSortChange={onSortChange} className="text-right" />
           </TableRow>
         </TableHeader>
         <TableBody>
           {positions.map((position) => {
             const pnl = formatPnL(position.realized_pnl);
+            const funding = formatFunding(position.total_funding ?? "0");
+            const duration = formatDuration(position.start_time, position.end_time);
             return (
               <TableRow
                 key={position.id}
@@ -188,6 +288,12 @@ export function PositionsTable({
                   )}>
                     {formatNumber(position.total_fees, 6)}
                   </span>
+                </TableCell>
+                <TableCell className={cn("py-3 text-right font-mono text-sm", funding.className)}>
+                  {funding.text}
+                </TableCell>
+                <TableCell className="py-3 text-right text-sm text-muted-foreground">
+                  {duration}
                 </TableCell>
                 <TableCell className={cn("py-3 text-right font-mono font-medium", pnl.className)}>
                   {pnl.text}

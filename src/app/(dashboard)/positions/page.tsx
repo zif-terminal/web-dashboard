@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { api, DataFilters } from "@/lib/api";
-import { Position, ExchangeAccount, PositionsAggregates, OpenPosition } from "@/lib/queries";
+import { Position, ExchangeAccount, PositionsAggregates, FundingAggregates, OpenPosition, ExchangePnLBreakdown } from "@/lib/queries";
 import { PositionsTable } from "@/components/positions-table";
 import { OpenPositionsTable } from "@/components/open-positions-table";
 import { SyncButton } from "@/components/sync-button";
@@ -20,7 +20,10 @@ import {
 import { DateRangeFilter } from "@/components/date-range-filter";
 import { AssetFilter } from "@/components/asset-filter";
 import { MarketTypeFilter } from "@/components/market-type-filter";
+import { ExchangeFilter } from "@/components/exchange-filter";
 import { usePaginatedData } from "@/hooks/use-paginated-data";
+import { getTimestampsFromDateRange } from "@/components/date-range-filter";
+import { useFilters } from "@/contexts/filters-context";
 
 const PAGE_SIZE = 100;
 
@@ -43,6 +46,13 @@ export default function PositionsPage() {
   const [isLoadingAssets, setIsLoadingAssets] = useState(true);
   const [openPositions, setOpenPositions] = useState<OpenPosition[]>([]);
   const [isLoadingOpenPositions, setIsLoadingOpenPositions] = useState(true);
+  const [totalUnrealizedPnL, setTotalUnrealizedPnL] = useState<number>(0);
+  const [isLoadingUnrealizedPnL, setIsLoadingUnrealizedPnL] = useState(true);
+  const [exchangeBreakdowns, setExchangeBreakdowns] = useState<ExchangePnLBreakdown[]>([]);
+  const [isLoadingExchangeBreakdowns, setIsLoadingExchangeBreakdowns] = useState(true);
+  const [fundingAggregates, setFundingAggregates] = useState<FundingAggregates | null>(null);
+  const [isLoadingFunding, setIsLoadingFunding] = useState(true);
+  const { globalTags } = useFilters();
 
   const {
     items: positions,
@@ -55,12 +65,18 @@ export default function PositionsPage() {
     dateRange,
     selectedAssets,
     selectedMarketTypes,
+    selectedExchangeIds,
+    timeField,
+    sort,
     isNew,
     handlePageChange,
     handleAccountChange,
     handleDateRangeChange,
     handleAssetChange,
     handleMarketTypeChange,
+    handleExchangeChange,
+    handleTimeFieldChange,
+    handleSortChange,
     refresh,
     lastRefreshTime,
   } = usePaginatedData<Position, PositionsAggregates>({
@@ -69,6 +85,9 @@ export default function PositionsPage() {
     pageSize: PAGE_SIZE,
     useGlobalTags: true,
   });
+
+  // When a time-range preset is active (not "all"), open positions are not meaningful
+  const isHistoricalFilter = dateRange.preset !== "all";
 
   useEffect(() => {
     const fetchAccounts = async () => {
@@ -97,6 +116,22 @@ export default function PositionsPage() {
     fetchAssets();
   }, []);
 
+  // Fetch total unrealized PnL from snapshots
+  useEffect(() => {
+    const fetchUnrealizedPnL = async () => {
+      setIsLoadingUnrealizedPnL(true);
+      try {
+        const data = await api.getTotalUnrealizedPnL();
+        setTotalUnrealizedPnL(data.total);
+      } catch (error) {
+        console.error("Failed to fetch unrealized PnL:", error);
+      } finally {
+        setIsLoadingUnrealizedPnL(false);
+      }
+    };
+    fetchUnrealizedPnL();
+  }, [lastRefreshTime]);
+
   // Fetch open positions
   useEffect(() => {
     const fetchOpenPositions = async () => {
@@ -112,6 +147,9 @@ export default function PositionsPage() {
         if (selectedMarketTypes.length > 0) {
           filters.marketTypes = selectedMarketTypes;
         }
+        if (selectedExchangeIds.length > 0) {
+          filters.exchangeIds = selectedExchangeIds;
+        }
         const positions = await api.getOpenPositions(filters);
         setOpenPositions(positions);
       } catch (error) {
@@ -121,7 +159,89 @@ export default function PositionsPage() {
       }
     };
     fetchOpenPositions();
-  }, [selectedAccountId, selectedAssets, selectedMarketTypes, lastRefreshTime]);
+  }, [selectedAccountId, selectedAssets, selectedMarketTypes, selectedExchangeIds, lastRefreshTime]);
+
+  // Fetch per-exchange PnL breakdowns
+  useEffect(() => {
+    const fetchExchangeBreakdowns = async () => {
+      setIsLoadingExchangeBreakdowns(true);
+      try {
+        const filters: DataFilters = {};
+        if (selectedAccountId && selectedAccountId !== "all") {
+          filters.accountId = selectedAccountId;
+        }
+        const { since, until } = getTimestampsFromDateRange(dateRange);
+        if (since) filters.since = since;
+        if (until) filters.until = until;
+        if (selectedAssets.length > 0) {
+          filters.baseAssets = selectedAssets;
+        }
+        if (selectedMarketTypes.length > 0) {
+          filters.marketTypes = selectedMarketTypes;
+        }
+        if (selectedExchangeIds.length > 0) {
+          filters.exchangeIds = selectedExchangeIds;
+        }
+        if (globalTags.length > 0) {
+          filters.tags = globalTags;
+        }
+        filters.timeField = timeField;
+        const breakdowns = await api.getPositionsAggregatesByExchange(filters);
+        setExchangeBreakdowns(breakdowns);
+      } catch (error) {
+        console.error("Failed to fetch exchange PnL breakdowns:", error);
+      } finally {
+        setIsLoadingExchangeBreakdowns(false);
+      }
+    };
+    fetchExchangeBreakdowns();
+  }, [selectedAccountId, dateRange, selectedAssets, selectedMarketTypes, selectedExchangeIds, globalTags, timeField, lastRefreshTime]);
+
+  // Fetch funding aggregates (perp-only; funding_payments has no market_type column)
+  useEffect(() => {
+    const fetchFundingAggregates = async () => {
+      // If the user has filtered to market types that exclude perps, skip the query
+      // and show zero — funding only exists for perpetual contracts.
+      const hasNonPerpFilter =
+        selectedMarketTypes.length > 0 &&
+        !selectedMarketTypes.some((t) =>
+          /perp|perpetual|future|swap/i.test(t)
+        );
+      if (hasNonPerpFilter) {
+        setFundingAggregates({ totalAmount: "0", count: 0, totalReceived: "0", totalPaid: "0", receivedCount: 0, paidCount: 0 });
+        setIsLoadingFunding(false);
+        return;
+      }
+
+      setIsLoadingFunding(true);
+      try {
+        const filters: DataFilters = {};
+        if (selectedAccountId && selectedAccountId !== "all") {
+          filters.accountId = selectedAccountId;
+        }
+        const { since, until } = getTimestampsFromDateRange(dateRange);
+        if (since) filters.since = since;
+        if (until) filters.until = until;
+        if (selectedAssets.length > 0) {
+          filters.baseAssets = selectedAssets;
+        }
+        if (selectedExchangeIds.length > 0) {
+          filters.exchangeIds = selectedExchangeIds;
+        }
+        if (globalTags.length > 0) {
+          filters.tags = globalTags;
+        }
+        // marketTypes intentionally omitted — funding_payments has no market_type column
+        const data = await api.getFundingAggregates(filters);
+        setFundingAggregates(data);
+      } catch (error) {
+        console.error("Failed to fetch funding aggregates:", error);
+      } finally {
+        setIsLoadingFunding(false);
+      }
+    };
+    fetchFundingAggregates();
+  }, [selectedAccountId, dateRange, selectedAssets, selectedMarketTypes, selectedExchangeIds, globalTags, timeField, lastRefreshTime]);
 
   const formatPnL = (value: string) => {
     const num = parseFloat(value);
@@ -134,7 +254,14 @@ export default function PositionsPage() {
     return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
   };
 
-  const totalPnL = aggregates ? parseFloat(aggregates.totalPnL) : 0;
+  const realizedPnL = aggregates ? parseFloat(aggregates.totalPnL) : 0;
+  const totalFees = aggregates ? parseFloat(aggregates.totalFees) : 0;
+  const totalFunding = fundingAggregates ? parseFloat(fundingAggregates.totalAmount) : 0;
+  // grossPnL: realized PnL before fees (add fees back)
+  const grossPnL = realizedPnL + totalFees;
+  // netPnL: realized PnL (already net of fees) adjusted for funding payments
+  // Invariant: netPnL === grossPnL - totalFees + totalFunding
+  const netPnL = realizedPnL + totalFunding;
 
   return (
     <div className="space-y-6">
@@ -150,13 +277,29 @@ export default function PositionsPage() {
         }
       />
 
-      <StatsGrid>
+      <StatsGrid columns={3}>
+        {/* Row 1 */}
         <StatCard
-          title="Total Realized PnL"
-          value={aggregates ? formatPnL(aggregates.totalPnL) : "0"}
+          title="Gross PnL"
+          description="Before fees & funding"
+          value={formatPnL(grossPnL.toString())}
           isLoading={isLoadingAggregates}
-          valueClassName={totalPnL >= 0 ? "text-green-500" : "text-red-500"}
+          valueClassName={grossPnL >= 0 ? "text-green-500" : "text-red-500"}
         />
+        <StatCard
+          title="Net PnL"
+          description="After fees & funding"
+          value={formatPnL(netPnL.toString())}
+          isLoading={isLoadingAggregates || isLoadingFunding}
+          valueClassName={netPnL >= 0 ? "text-green-500" : "text-red-500"}
+        />
+        <StatCard
+          title="Total Unrealized PnL"
+          value={formatPnL(totalUnrealizedPnL.toString())}
+          isLoading={isLoadingUnrealizedPnL}
+          valueClassName={totalUnrealizedPnL >= 0 ? "text-green-500" : "text-red-500"}
+        />
+        {/* Row 2 */}
         <StatCard
           title="Total Fees Paid"
           value={aggregates ? formatFees(aggregates.totalFees) : "0"}
@@ -164,11 +307,61 @@ export default function PositionsPage() {
           valueClassName="text-red-500"
         />
         <StatCard
+          title="Total Funding"
+          value={formatPnL(totalFunding.toString())}
+          isLoading={isLoadingFunding}
+          valueClassName={totalFunding >= 0 ? "text-green-500" : "text-red-500"}
+        />
+        <StatCard
           title="Total Positions"
           value={aggregates?.count.toLocaleString() || "0"}
           isLoading={isLoadingAggregates}
         />
       </StatsGrid>
+
+      {/* Per-Exchange PnL Breakdown */}
+      {(() => {
+        const activeBreakdowns = exchangeBreakdowns.filter(
+          (ex) => ex.count > 0 || Math.abs(parseFloat(ex.realizedPnL)) > 0.001
+        );
+        if (isLoadingExchangeBreakdowns || activeBreakdowns.length === 0) return null;
+        return (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-4">
+            {activeBreakdowns.map((ex) => {
+              const pnl = parseFloat(ex.realizedPnL);
+              return (
+                <Card key={ex.exchangeId}>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">
+                      {ex.displayName}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-1">
+                    <div
+                      className={`text-2xl font-bold ${
+                        pnl >= 0 ? "text-green-500" : "text-red-500"
+                      }`}
+                    >
+                      {formatPnL(ex.realizedPnL)}
+                    </div>
+                    <div className="flex gap-4 text-xs text-muted-foreground">
+                      <span>
+                        Fees:{" "}
+                        <span className="text-red-500">
+                          {formatFees(ex.totalFees)}
+                        </span>
+                      </span>
+                      <span>
+                        Positions: {ex.count}
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* Filters */}
       <FilterBar
@@ -198,26 +391,49 @@ export default function PositionsPage() {
           </>
         }
       >
+        <ExchangeFilter
+          value={selectedExchangeIds}
+          onChange={handleExchangeChange}
+        />
         <MarketTypeFilter
           value={selectedMarketTypes}
           onChange={handleMarketTypeChange}
         />
-        <DateRangeFilter value={dateRange} onChange={handleDateRangeChange} />
+        <DateRangeFilter
+          value={dateRange}
+          onChange={handleDateRangeChange}
+          timeField={timeField}
+          onTimeFieldChange={handleTimeFieldChange}
+        />
       </FilterBar>
 
-      {/* Open Positions */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Open Positions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <OpenPositionsTable
-            positions={openPositions}
-            showAccount={true}
-            isLoading={isLoadingOpenPositions}
-          />
-        </CardContent>
-      </Card>
+      {/* Open Positions — hidden when a historical time range is active */}
+      {isHistoricalFilter ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Open Positions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground py-4 text-center">
+              Open positions are not affected by time range filters.
+              Select &quot;All&quot; to view current open positions.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>Open Positions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <OpenPositionsTable
+              positions={openPositions}
+              showAccount={true}
+              isLoading={isLoadingOpenPositions}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Closed Positions */}
       <Card>
@@ -236,6 +452,8 @@ export default function PositionsPage() {
             showAccount={true}
             isLoading={isLoading}
             isNewItem={isNew}
+            sort={sort}
+            onSortChange={handleSortChange}
           />
         </CardContent>
       </Card>

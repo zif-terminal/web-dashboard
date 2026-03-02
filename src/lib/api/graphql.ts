@@ -28,9 +28,19 @@ import {
   GET_POSITION_WITH_TRADES,
   GET_DEPOSITS_DYNAMIC,
   GET_DEPOSITS_AGGREGATES_DYNAMIC,
+  GET_PORTFOLIO_SUMMARY,
+  GET_POSITIONS_PNL_BY_ASSET,
+  GET_FUNDING_PNL_BY_ASSET,
+  GET_TRADES_FEES_BY_ASSET,
+  GET_ALL_LATEST_ACCOUNT_SNAPSHOTS,
+  GET_ALL_LATEST_ACCOUNT_SNAPSHOTS_ADMIN,
+  GET_ACCOUNTS_BY_IDS,
   Exchange,
   ExchangeAccount,
   ExchangeAccountType,
+  ExchangeBreakdown,
+  ExchangePnLBreakdown,
+  ExchangeFundingBreakdown,
   Trade,
   TradesAggregates,
   FundingPayment,
@@ -43,8 +53,38 @@ import {
   Deposit,
   DepositsAggregates,
   OpenPosition,
+  PortfolioSummary,
+  AccountSnapshot,
+  AssetBalance,
+  AssetExchangeBalance,
+  SnapshotPosition,
+  AssetPnL,
+  AssetFee,
+  FundingAssetBreakdown,
+  GET_SIMULATION_RUNS,
+  GET_SIMULATION_RUN,
+  CREATE_SIMULATION_RUN,
+  STOP_SIMULATION_RUN,
+  PAUSE_SIMULATION_RUN,
+  RESUME_SIMULATION_RUN,
+  UPDATE_PAUSED_RUN_CONFIG,
+  GET_SIMULATION_MARKETS,
+  GET_SIMULATION_BALANCE,
+  GET_SIMULATION_TRADES,
+  GET_SIMULATION_POSITIONS,
+  GET_SIMULATION_FUNDING,
+  GET_SIMULATION_BALANCE_HISTORY,
+  CREATE_COMPARISON_RUNS,
+  GET_COMPARISON_GROUP_RUNS,
+  GET_COMPARISON_ANALYSIS,
+  GET_ACTIVE_RUN_COUNT,
+  SimulationTrade,
+  SimulationPosition,
+  SimulationFundingPayment,
+  SimulationRun,
+  SimRunMetrics,
 } from "../queries";
-import { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, PositionsResult, PositionWithTrades, DepositsResult, DataFilters } from "./types";
+import { ApiClient, ComparisonRunInput, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, PositionsResult, PositionWithTrades, DepositsResult, DataFilters, SimTradesResult, SimFundingResult } from "./types";
 import { ApiError } from "./errors";
 
 function isAuthError(error: unknown): boolean {
@@ -77,6 +117,19 @@ async function withErrorHandling<T>(fn: () => Promise<T>): Promise<T> {
     if (isAuthError(error)) {
       handleAuthError();
     }
+    throw ApiError.fromError(error);
+  }
+}
+
+/**
+ * Error handler for public (unauthenticated) API calls.
+ * Does NOT redirect to /login on auth errors — auth errors are expected when
+ * querying as the anonymous role and should surface as regular errors.
+ */
+export async function withPublicErrorHandling<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
     throw ApiError.fromError(error);
   }
 }
@@ -119,6 +172,10 @@ function buildTradesWhereClause(filters?: DataFilters): Record<string, unknown> 
     conditions.push(buildTagConditions(filters.tags));
   }
 
+  if (filters?.exchangeIds && filters.exchangeIds.length > 0) {
+    conditions.push({ exchange_account: { exchange_id: { _in: filters.exchangeIds } } });
+  }
+
   if (conditions.length === 0) {
     return {};
   }
@@ -152,6 +209,10 @@ function buildFundingWhereClause(filters?: DataFilters): Record<string, unknown>
     conditions.push(buildTagConditions(filters.tags));
   }
 
+  if (filters?.exchangeIds && filters.exchangeIds.length > 0) {
+    conditions.push({ exchange_account: { exchange_id: { _in: filters.exchangeIds } } });
+  }
+
   if (conditions.length === 0) {
     return {};
   }
@@ -163,18 +224,19 @@ function buildFundingWhereClause(filters?: DataFilters): Record<string, unknown>
   return { _and: conditions };
 }
 
-// Build where clause for positions based on filters (uses end_time for date filtering)
+// Build where clause for positions based on filters (uses end_time or start_time for date filtering)
 function buildPositionsWhereClause(filters?: DataFilters): Record<string, unknown> {
   const conditions: Record<string, unknown>[] = [];
+  const timeField = filters?.timeField ?? "end_time";
 
   if (filters?.accountId) {
     conditions.push({ exchange_account_id: { _eq: filters.accountId } });
   }
 
   if (filters?.since !== undefined && filters?.until !== undefined) {
-    conditions.push({ end_time: { _gte: String(filters.since), _lte: String(filters.until) } });
+    conditions.push({ [timeField]: { _gte: String(filters.since), _lte: String(filters.until) } });
   } else if (filters?.since !== undefined) {
-    conditions.push({ end_time: { _gte: String(filters.since) } });
+    conditions.push({ [timeField]: { _gte: String(filters.since) } });
   }
 
   if (filters?.baseAssets && filters.baseAssets.length > 0) {
@@ -187,6 +249,10 @@ function buildPositionsWhereClause(filters?: DataFilters): Record<string, unknow
 
   if (filters?.tags && filters.tags.length > 0) {
     conditions.push(buildTagConditions(filters.tags));
+  }
+
+  if (filters?.exchangeIds && filters.exchangeIds.length > 0) {
+    conditions.push({ exchange_account: { exchange_id: { _in: filters.exchangeIds } } });
   }
 
   if (conditions.length === 0) {
@@ -222,6 +288,10 @@ function buildDepositsWhereClause(filters?: DataFilters): Record<string, unknown
     conditions.push(buildTagConditions(filters.tags));
   }
 
+  if (filters?.exchangeIds && filters.exchangeIds.length > 0) {
+    conditions.push({ exchange_account: { exchange_id: { _in: filters.exchangeIds } } });
+  }
+
   if (conditions.length === 0) {
     return {};
   }
@@ -231,6 +301,47 @@ function buildDepositsWhereClause(filters?: DataFilters): Record<string, unknown
   }
 
   return { _and: conditions };
+}
+
+/**
+ * A7.1: Parse a snapshot symbol string into base and quote asset components.
+ *
+ * Handles the variety of symbol formats produced by different exchanges:
+ *   "BTC"        → { base: "BTC", quote: "USD" }   (Hyperliquid perp — bare token)
+ *   "BTC-PERP"   → { base: "BTC", quote: "USD" }   (Drift perp)
+ *   "BTC-USD"    → { base: "BTC", quote: "USD" }   (Lighter perp)
+ *   "SOL-USDC"   → { base: "SOL", quote: "USDC" }  (spot pair with dash)
+ *   "BTC/USDC"   → { base: "BTC", quote: "USDC" }  (spot pair with slash)
+ *   "bSOL/SOL"   → { base: "bSOL", quote: "SOL" }  (cross-asset spot)
+ */
+function parseSnapshotSymbol(
+  symbol: string,
+  marketType: "perp" | "spot" | "swap"
+): { base: string; quote: string } {
+  // Slash-separated: "BTC/USDC", "bSOL/SOL"
+  if (symbol.includes("/")) {
+    const slashIdx = symbol.indexOf("/");
+    return {
+      base: symbol.slice(0, slashIdx),
+      quote: symbol.slice(slashIdx + 1),
+    };
+  }
+
+  // Dash-separated: "BTC-PERP", "BTC-USD", "SOL-USDC"
+  if (symbol.includes("-")) {
+    const parts = symbol.split("-");
+    const last = parts[parts.length - 1];
+    // "-PERP" suffix → always USD-quoted perpetual
+    if (last === "PERP") {
+      return { base: parts.slice(0, -1).join("-"), quote: "USD" };
+    }
+    // "BTC-USD", "ETH-USDC", etc.
+    return { base: parts[0], quote: last };
+  }
+
+  // Plain token: "BTC", "SOL" — perps quote USD, spot/swap quote USDC
+  const quote = marketType === "perp" ? "USD" : "USDC";
+  return { base: symbol, quote };
 }
 
 export const graphqlApi: ApiClient = {
@@ -373,12 +484,82 @@ export const graphqlApi: ApiClient = {
             sum: { amount: string | null };
           };
         };
+        funding_received: {
+          aggregate: {
+            count: number;
+            sum: { amount: string | null };
+          };
+        };
+        funding_paid: {
+          aggregate: {
+            count: number;
+            sum: { amount: string | null };
+          };
+        };
       }>(GET_FUNDING_AGGREGATES_DYNAMIC, { where });
 
       return {
         totalAmount: data.funding_payments_aggregate.aggregate.sum.amount || "0",
         count: data.funding_payments_aggregate.aggregate.count,
+        totalReceived: data.funding_received.aggregate.sum.amount || "0",
+        totalPaid: data.funding_paid.aggregate.sum.amount || "0",
+        receivedCount: data.funding_received.aggregate.count,
+        paidCount: data.funding_paid.aggregate.count,
       };
+    });
+  },
+
+  async getFundingAggregatesByExchange(filters?: DataFilters): Promise<ExchangeFundingBreakdown[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const baseWhere = buildFundingWhereClause(filters);
+
+      const normalizeWhere = (w: Record<string, unknown>) =>
+        Object.keys(w).length > 0 ? w : {};
+
+      const mergeWhere = (
+        base: Record<string, unknown>,
+        extra: Record<string, unknown>
+      ): Record<string, unknown> => {
+        if (Object.keys(base).length === 0) return extra;
+        return { _and: [base, extra] };
+      };
+
+      const exchangesData = await client.request<{ exchanges: Exchange[] }>(GET_EXCHANGES);
+
+      type AggResponse = {
+        funding_payments_aggregate: {
+          aggregate: {
+            count: number;
+            sum: { amount: string | null };
+          };
+        };
+      };
+
+      const breakdowns: ExchangeFundingBreakdown[] = await Promise.all(
+        exchangesData.exchanges.map(async (ex) => {
+          const exchangeFilter = {
+            exchange_account: { exchange_id: { _eq: ex.id } },
+          };
+
+          const data = await client.request<AggResponse>(
+            GET_FUNDING_AGGREGATES_DYNAMIC,
+            {
+              where: mergeWhere(normalizeWhere(baseWhere), exchangeFilter),
+            }
+          );
+
+          return {
+            exchangeId: ex.id,
+            exchangeName: ex.name,
+            displayName: ex.display_name,
+            totalFunding: data.funding_payments_aggregate.aggregate.sum.amount || "0",
+            count: data.funding_payments_aggregate.aggregate.count,
+          };
+        })
+      );
+
+      return breakdowns;
     });
   },
 
@@ -387,10 +568,14 @@ export const graphqlApi: ApiClient = {
       const client = getGraphQLClient();
       const where = buildPositionsWhereClause(filters);
 
+      const order_by = filters?.sort
+        ? [{ [filters.sort.column]: filters.sort.direction }]
+        : [{ end_time: "desc" as const }];
+
       const data = await client.request<{
         positions: Position[];
         positions_aggregate: { aggregate: { count: number } };
-      }>(GET_POSITIONS_DYNAMIC, { limit, offset, where });
+      }>(GET_POSITIONS_DYNAMIC, { limit, offset, where, order_by });
 
       return {
         positions: data.positions,
@@ -418,6 +603,61 @@ export const graphqlApi: ApiClient = {
         totalFees: data.positions_aggregate.aggregate.sum.total_fees || "0",
         count: data.positions_aggregate.aggregate.count,
       };
+    });
+  },
+
+  async getPositionsAggregatesByExchange(filters?: DataFilters): Promise<ExchangePnLBreakdown[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const baseWhere = buildPositionsWhereClause(filters);
+
+      const normalizeWhere = (w: Record<string, unknown>) =>
+        Object.keys(w).length > 0 ? w : {};
+
+      const mergeWhere = (
+        base: Record<string, unknown>,
+        extra: Record<string, unknown>
+      ): Record<string, unknown> => {
+        if (Object.keys(base).length === 0) return extra;
+        return { _and: [base, extra] };
+      };
+
+      const exchangesData = await client.request<{ exchanges: Exchange[] }>(GET_EXCHANGES);
+
+      type AggResponse = {
+        positions_aggregate: {
+          aggregate: {
+            count: number;
+            sum: { realized_pnl: string | null; total_fees: string | null };
+          };
+        };
+      };
+
+      const breakdowns: ExchangePnLBreakdown[] = await Promise.all(
+        exchangesData.exchanges.map(async (ex) => {
+          const exchangeFilter = {
+            exchange_account: { exchange_id: { _eq: ex.id } },
+          };
+
+          const data = await client.request<AggResponse>(
+            GET_POSITIONS_AGGREGATES_DYNAMIC,
+            {
+              where: mergeWhere(normalizeWhere(baseWhere), exchangeFilter),
+            }
+          );
+
+          return {
+            exchangeId: ex.id,
+            exchangeName: ex.name,
+            displayName: ex.display_name,
+            realizedPnL: data.positions_aggregate.aggregate.sum.realized_pnl || "0",
+            totalFees: data.positions_aggregate.aggregate.sum.total_fees || "0",
+            count: data.positions_aggregate.aggregate.count,
+          };
+        })
+      );
+
+      return breakdowns;
     });
   },
 
@@ -549,6 +789,66 @@ export const graphqlApi: ApiClient = {
     });
   },
 
+  // A2.1: Wallet ownership verification — challenge/response flow
+  async requestWalletChallenge(address: string, chain: string): Promise<import("./types").WalletChallengeResponse> {
+    const authEndpoint = process.env.NEXT_PUBLIC_AUTH_ENDPOINT || "/api/auth";
+    const resp = await fetch(`${authEndpoint}/wallet/challenge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address, chain }),
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(text || `Challenge request failed (${resp.status})`);
+    }
+    return resp.json();
+  },
+
+  async verifyWalletSignature(
+    address: string,
+    chain: string,
+    signature: string,
+    nonce: string,
+  ): Promise<import("./types").WalletVerifyResponse> {
+    const authEndpoint = process.env.NEXT_PUBLIC_AUTH_ENDPOINT || "/api/auth";
+    const token = Cookies.get(TOKEN_COOKIE_NAME);
+    const resp = await fetch(`${authEndpoint}/wallet/verify`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ address, chain, signature, nonce }),
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(text || `Verification failed (${resp.status})`);
+    }
+    return resp.json();
+  },
+
+  async verifyWalletAPIKey(
+    address: string,
+    chain: string,
+    apiKey: string,
+  ): Promise<import("./types").WalletVerifyResponse> {
+    const authEndpoint = process.env.NEXT_PUBLIC_AUTH_ENDPOINT || "/api/auth";
+    const token = Cookies.get(TOKEN_COOKIE_NAME);
+    const resp = await fetch(`${authEndpoint}/wallet/verify-api-key`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ address, chain, api_key: apiKey }),
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(text || `API key verification failed (${resp.status})`);
+    }
+    return resp.json();
+  },
+
   async updateAccountLabel(id: string, label: string | null): Promise<{ id: string; label: string | null }> {
     return withErrorHandling(async () => {
       const client = getGraphQLClient();
@@ -563,320 +863,828 @@ export const graphqlApi: ApiClient = {
     return withErrorHandling(async () => {
       const client = getGraphQLClient();
 
-      // Build base where clause for filtering
-      const baseConditions: Record<string, unknown>[] = [];
-      if (filters?.accountId) {
-        baseConditions.push({ exchange_account_id: { _eq: filters.accountId } });
-      }
-      if (filters?.tags && filters.tags.length > 0) {
-        baseConditions.push(buildTagConditions(filters.tags));
-      }
-
-      const baseWhere = baseConditions.length > 0 ? { _and: baseConditions } : {};
-
-      // First, get all trades
-      const tradesQuery = gql`
-        query GetAllTrades($where: trades_bool_exp!) {
-          trades(where: $where, order_by: { timestamp: asc }) {
-            base_asset
-            quote_asset
-            side
-            price
-            quantity
-            market_type
-            exchange_account_id
-            exchange_account {
-              id
-              account_identifier
-              label
-              exchange {
-                id
-                name
-                display_name
-              }
-            }
-          }
-        }
-      `;
-
-      const tradesData = await client.request<{
-        trades: Array<{
-          base_asset: string;
-          quote_asset: string;
-          side: string;
-          price: string;
-          quantity: string;
-          market_type: string;
-          exchange_account_id: string;
-          exchange_account: ExchangeAccount;
-        }>;
-      }>(tradesQuery, { where: baseWhere });
-
-      // Track positions with entry price calculation
-      // For perp: track by base/quote/account
-      // For spot: track by asset/account (asset-based)
-      interface PositionEntry {
-        netQty: number;
-        totalCost: number; // For weighted avg entry: sum of (qty * price) for entries
-        totalEntryQty: number; // Sum of entry quantities
-        account: ExchangeAccount;
-        nativeQuoteAsset?: string; // For spot: the quote asset used (e.g., SOL for bSOL/SOL)
+      // A7.1: Snapshot-first approach — read positions directly from exchange snapshots.
+      // Each snapshot row contains positions_json with live data (symbol, size, side,
+      // entry_price, mark_price, unrealized_pnl) written by portfolio_monitor.
+      // This eliminates the need to aggregate trades and ensures mark_price and
+      // unrealized_pnl are always populated from the exchange's own reporting.
+      //
+      // Try the admin variant first (includes exchange_account_id for enrichment).
+      // If the role doesn't have permission, fall back to the anonymous-safe query.
+      let snapshotData: { account_snapshots: AccountSnapshot[] };
+      try {
+        snapshotData = await client.request<{ account_snapshots: AccountSnapshot[] }>(
+          GET_ALL_LATEST_ACCOUNT_SNAPSHOTS_ADMIN
+        );
+      } catch {
+        snapshotData = await client.request<{ account_snapshots: AccountSnapshot[] }>(
+          GET_ALL_LATEST_ACCOUNT_SNAPSHOTS
+        );
       }
 
-      // Perp positions: base_asset/quote_asset/account -> PositionEntry
-      const perpPositions = new Map<string, PositionEntry>();
-
-      // Spot positions: asset/account -> PositionEntry
-      const spotPositions = new Map<string, PositionEntry>();
-
-      const getPerpKey = (base: string, quote: string, accountId: string) =>
-        `${base}/${quote}/${accountId}`;
-
-      const getSpotKey = (asset: string, accountId: string) =>
-        `${asset}/${accountId}`;
-
-      // Process perp trades (pair-based)
-      for (const trade of tradesData.trades) {
-        if (trade.market_type !== "perp") continue;
-
-        const price = parseFloat(trade.price);
-        const qty = parseFloat(trade.quantity);
-        const key = getPerpKey(trade.base_asset, trade.quote_asset, trade.exchange_account_id);
-
-        if (!perpPositions.has(key)) {
-          perpPositions.set(key, {
-            netQty: 0,
-            totalCost: 0,
-            totalEntryQty: 0,
-            account: trade.exchange_account,
-          });
-        }
-
-        const pos = perpPositions.get(key)!;
-        const prevQty = pos.netQty;
-        const delta = trade.side === "buy" ? qty : -qty;
-        pos.netQty += delta;
-
-        // Track entry price: only count trades that add to position
-        const isAddingToPosition =
-          (prevQty >= 0 && trade.side === "buy") ||
-          (prevQty <= 0 && trade.side === "sell");
-
-        if (isAddingToPosition) {
-          pos.totalCost += price * qty;
-          pos.totalEntryQty += qty;
-        }
-      }
-
-      // Process spot/swap trades (asset-based)
-      for (const trade of tradesData.trades) {
-        if (trade.market_type === "perp") continue;
-
-        const price = parseFloat(trade.price);
-        const qty = parseFloat(trade.quantity);
-        const quoteQty = price * qty;
-
-        // Base asset movement
-        if (trade.base_asset !== "USDC" && trade.base_asset !== "USDT") {
-          const key = getSpotKey(trade.base_asset, trade.exchange_account_id);
-
-          if (!spotPositions.has(key)) {
-            spotPositions.set(key, {
-              netQty: 0,
-              totalCost: 0,
-              totalEntryQty: 0,
-              account: trade.exchange_account,
-              nativeQuoteAsset: trade.quote_asset,
-            });
-          }
-
-          const pos = spotPositions.get(key)!;
-          const prevQty = pos.netQty;
-          const delta = trade.side === "buy" ? qty : -qty;
-          pos.netQty += delta;
-
-          // Track entry: buying adds to long, selling adds to short
-          const isAddingToPosition =
-            (prevQty >= 0 && trade.side === "buy") ||
-            (prevQty <= 0 && trade.side === "sell");
-
-          if (isAddingToPosition) {
-            pos.totalCost += price * qty;
-            pos.totalEntryQty += qty;
-            // Update native quote if this is a non-USD quote
-            if (trade.quote_asset !== "USDC" && trade.quote_asset !== "USDT") {
-              pos.nativeQuoteAsset = trade.quote_asset;
-            }
-          }
-        }
-
-        // Quote asset movement (for non-stablecoin quotes)
-        if (
-          trade.quote_asset !== "USDC" &&
-          trade.quote_asset !== "USDT"
-        ) {
-          const key = getSpotKey(trade.quote_asset, trade.exchange_account_id);
-
-          if (!spotPositions.has(key)) {
-            spotPositions.set(key, {
-              netQty: 0,
-              totalCost: 0,
-              totalEntryQty: 0,
-              account: trade.exchange_account,
-              nativeQuoteAsset: trade.base_asset, // When SOL is quote, base is the "quote" for SOL
-            });
-          }
-
-          const pos = spotPositions.get(key)!;
-          const prevQty = pos.netQty;
-          // Buy base = spend quote, Sell base = receive quote
-          const delta = trade.side === "buy" ? -quoteQty : quoteQty;
-          pos.netQty += delta;
-
-          // Entry tracking for quote asset
-          const isAddingToPosition =
-            (prevQty >= 0 && delta > 0) ||
-            (prevQty <= 0 && delta < 0);
-
-          if (isAddingToPosition) {
-            // Price is inverted: 1/original_price since we're tracking quote
-            pos.totalCost += Math.abs(quoteQty) * (1 / price);
-            pos.totalEntryQty += Math.abs(quoteQty);
-          }
-        }
-      }
-
-      // Fetch deposits
-      const depositsQuery = gql`
-        query GetAllDeposits($where: deposits_bool_exp!) {
-          deposits(where: $where) {
-            asset
-            direction
-            amount
-            user_cost_basis
-            exchange_account_id
-            exchange_account {
-              id
-              account_identifier
-              label
-              exchange {
-                id
-                name
-                display_name
-              }
-            }
-          }
-        }
-      `;
-
-      const depositsData = await client.request<{
-        deposits: Array<{
-          asset: string;
-          direction: string;
-          amount: string;
-          user_cost_basis: string;
-          exchange_account_id: string;
-          exchange_account: ExchangeAccount;
-        }>;
-      }>(depositsQuery, { where: baseWhere });
-
-      // Process deposits
-      for (const deposit of depositsData.deposits) {
-        if (deposit.asset === "USDC" || deposit.asset === "USDT") continue;
-
-        const qty = parseFloat(deposit.amount);
-        const costBasis = parseFloat(deposit.user_cost_basis) || 0;
-        const key = getSpotKey(deposit.asset, deposit.exchange_account_id);
-
-        if (!spotPositions.has(key)) {
-          spotPositions.set(key, {
-            netQty: 0,
-            totalCost: 0,
-            totalEntryQty: 0,
-            account: deposit.exchange_account,
-            nativeQuoteAsset: "USDC",
-          });
-        }
-
-        const pos = spotPositions.get(key)!;
-        const prevQty = pos.netQty;
-        const delta = deposit.direction === "deposit" ? qty : -qty;
-        pos.netQty += delta;
-
-        // Deposits add to position (entry)
-        if (deposit.direction === "deposit" && prevQty >= 0) {
-          pos.totalCost += costBasis * qty;
-          pos.totalEntryQty += qty;
-        }
-      }
-
-      // Apply filters
-      const assetsToInclude = filters?.baseAssets && filters.baseAssets.length > 0
+      // Build per-filter sets for fast lookup
+      const assetsToInclude = filters?.baseAssets?.length
         ? new Set(filters.baseAssets)
         : null;
-      const marketTypesToInclude = filters?.marketTypes && filters.marketTypes.length > 0
+      const marketTypesToInclude = filters?.marketTypes?.length
         ? new Set(filters.marketTypes)
+        : null;
+      // A7.3: Exchange filter — only include snapshots whose exchange.id is in the set.
+      const exchangeIdsToInclude = filters?.exchangeIds?.length
+        ? new Set(filters.exchangeIds)
         : null;
 
       const openPositions: OpenPosition[] = [];
 
-      // Convert perp positions
-      if (!marketTypesToInclude || marketTypesToInclude.has("perp")) {
-        for (const [key, pos] of perpPositions) {
-          if (Math.abs(pos.netQty) < 0.0001) continue;
+      for (const snapshot of snapshotData.account_snapshots) {
+        if (snapshot.error || !snapshot.positions_json) continue;
 
-          const [base, quote] = key.split("/");
+        // accountId filter: works only when exchange_account_id is present (admin role).
+        // Anonymous users lack exchange_account_id so the filter is skipped gracefully.
+        if (
+          filters?.accountId &&
+          snapshot.exchange_account_id &&
+          snapshot.exchange_account_id !== filters.accountId
+        ) {
+          continue;
+        }
+
+        // A7.3: Exchange filter — skip snapshots not matching the selected exchange IDs.
+        // Only applied when exchange.id is available (populated via the exchange sub-selection).
+        if (exchangeIdsToInclude && snapshot.exchange?.id) {
+          if (!exchangeIdsToInclude.has(snapshot.exchange.id)) continue;
+        }
+
+        const exchangeDisplayName =
+          snapshot.exchange?.display_name || snapshot.exchange_name;
+
+        // The Go portfolio_monitor stores positions with json key "type" (not "market_type").
+        // Cast to any once and read both keys defensively.
+        type RawPos = SnapshotPosition & { type?: string };
+        const positions = snapshot.positions_json as RawPos[];
+
+        for (const sp of positions) {
+          if (!sp.symbol) continue;
+          // Skip flat/zero positions
+          if (!sp.size || Math.abs(sp.size) < 1e-9) continue;
+
+          // Determine market type: prefer explicit field, fall back to symbol heuristics.
+          const rawType = sp.market_type || sp.type || "";
+          let marketType: "perp" | "spot" | "swap";
+          if (rawType === "spot") {
+            marketType = "spot";
+          } else if (rawType === "swap") {
+            marketType = "swap";
+          } else if (rawType === "perp") {
+            marketType = "perp";
+          } else {
+            // Heuristic: slash-separated → spot (e.g. "bSOL/SOL"), else assume perp
+            marketType = sp.symbol.includes("/") ? "spot" : "perp";
+          }
+
+          if (marketTypesToInclude && !marketTypesToInclude.has(marketType)) continue;
+
+          // Parse symbol into base and quote asset strings
+          const { base, quote } = parseSnapshotSymbol(sp.symbol, marketType);
+
           if (assetsToInclude && !assetsToInclude.has(base)) continue;
 
-          const avgEntryPrice = pos.totalEntryQty > 0
-            ? pos.totalCost / pos.totalEntryQty
-            : 0;
+          // Derive mark_price when the exchange doesn't report it (e.g. Lighter edge case).
+          // Formula: entry_price ± (unrealized_pnl / size)
+          let markPrice: number | undefined =
+            typeof sp.mark_price === "number" && sp.mark_price > 0
+              ? sp.mark_price
+              : undefined;
+
+          if (
+            !markPrice &&
+            sp.entry_price > 0 &&
+            sp.size !== 0 &&
+            typeof sp.unrealized_pnl === "number"
+          ) {
+            const sideMultiplier = sp.side === "long" ? 1 : -1;
+            const derived =
+              sp.entry_price +
+              (sp.unrealized_pnl / Math.abs(sp.size)) * sideMultiplier;
+            if (derived > 0) markPrice = derived;
+          }
 
           openPositions.push({
             base_asset: base,
             quote_asset: quote,
-            market_type: "perp",
-            side: pos.netQty > 0 ? "long" : "short",
-            net_quantity: Math.abs(pos.netQty),
-            avg_entry_price: avgEntryPrice,
-            total_cost: pos.totalCost,
-            exchange_account_id: key.split("/")[2],
-            exchange_account: pos.account,
+            market_type: marketType,
+            side: sp.side,
+            net_quantity: Math.abs(sp.size),
+            avg_entry_price: sp.entry_price ?? 0,
+            total_cost: Math.abs(sp.size) * (sp.entry_price ?? 0),
+            mark_price: markPrice,
+            unrealized_pnl:
+              typeof sp.unrealized_pnl === "number" ? sp.unrealized_pnl : undefined,
+            exchange_name: snapshot.exchange_name,
+            exchange_display_name: exchangeDisplayName,
+            exchange_account_id: snapshot.exchange_account_id,
+            // exchange_account (with tags/label) is not available from snapshot rows;
+            // tag-based filtering requires a separate account enrichment pass.
           });
         }
       }
 
-      // Convert spot positions
-      if (!marketTypesToInclude || marketTypesToInclude.has("spot")) {
-        for (const [key, pos] of spotPositions) {
-          if (Math.abs(pos.netQty) < 0.0001) continue;
-
-          const [asset] = key.split("/");
-          if (assetsToInclude && !assetsToInclude.has(asset)) continue;
-
-          const avgEntryPrice = pos.totalEntryQty > 0
-            ? pos.totalCost / pos.totalEntryQty
-            : 0;
-
-          openPositions.push({
-            base_asset: asset,
-            quote_asset: pos.nativeQuoteAsset || "USDC",
-            market_type: "spot",
-            side: pos.netQty > 0 ? "long" : "short",
-            net_quantity: Math.abs(pos.netQty),
-            avg_entry_price: avgEntryPrice,
-            total_cost: pos.totalCost,
-            exchange_account_id: key.split("/")[1],
-            exchange_account: pos.account,
-            native_quote_asset: pos.nativeQuoteAsset,
-          });
+      // A7.1: Enrich positions with exchange_account metadata (label, tags, wallet).
+      // exchange_account_id is an admin-only column; gracefully no-ops for non-admin users
+      // where the field is undefined. A single batch request avoids N+1 queries.
+      const accountIds = [
+        ...new Set(
+          openPositions
+            .map((p) => p.exchange_account_id)
+            .filter((id): id is string => Boolean(id))
+        ),
+      ];
+      if (accountIds.length > 0) {
+        try {
+          const accountData = await client.request<{
+            exchange_accounts: ExchangeAccount[];
+          }>(GET_ACCOUNTS_BY_IDS, { ids: accountIds });
+          const accountMap = new Map(
+            accountData.exchange_accounts.map((a) => [a.id, a])
+          );
+          for (const pos of openPositions) {
+            if (pos.exchange_account_id) {
+              const acct = accountMap.get(pos.exchange_account_id);
+              if (acct) {
+                pos.exchange_account = acct;
+                // Prefer the account's exchange.display_name over the snapshot-derived name.
+                if (acct.exchange?.display_name) {
+                  pos.exchange_display_name = acct.exchange.display_name;
+                }
+              }
+            }
+          }
+        } catch {
+          // Non-admin users may not have SELECT permission on exchange_accounts; skip silently.
+          // The positions are still fully usable — they just won't have account metadata.
         }
       }
 
-      // Sort by quantity descending
-      openPositions.sort((a, b) => b.net_quantity - a.net_quantity);
+      // Sort: perps first (most actionable), then by net_quantity descending within each group
+      openPositions.sort((a, b) => {
+        if (a.market_type === "perp" && b.market_type !== "perp") return -1;
+        if (a.market_type !== "perp" && b.market_type === "perp") return 1;
+        return b.net_quantity - a.net_quantity;
+      });
 
       return openPositions;
+    });
+  },
+
+  async getTotalUnrealizedPnL(): Promise<{ total: number; positionCount: number; snapshotAge: string | null }> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+
+      const data = await client.request<{
+        account_snapshots: AccountSnapshot[];
+      }>(GET_ALL_LATEST_ACCOUNT_SNAPSHOTS);
+
+      let total = 0;
+      let positionCount = 0;
+      let newestSnapshotTime: string | null = null;
+
+      for (const snapshot of data.account_snapshots) {
+        if (snapshot.error || !snapshot.positions_json) continue;
+        const positions = snapshot.positions_json as SnapshotPosition[];
+        for (const pos of positions) {
+          if (typeof pos.unrealized_pnl === "number") {
+            total += pos.unrealized_pnl;
+            positionCount++;
+          }
+        }
+        // Track newest snapshot time
+        if (!newestSnapshotTime || snapshot.created_at > newestSnapshotTime) {
+          newestSnapshotTime = snapshot.created_at;
+        }
+      }
+
+      return { total, positionCount, snapshotAge: newestSnapshotTime };
+    });
+  },
+
+  async getAssetBalances(): Promise<AssetBalance[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+
+      const data = await client.request<{
+        account_snapshots: AccountSnapshot[];
+      }>(GET_ALL_LATEST_ACCOUNT_SNAPSHOTS);
+
+      // Aggregate balances per token across all snapshots
+      const assetMap = new Map<
+        string,
+        {
+          totalBalance: number;
+          totalValueUsd: number;
+          weightedPriceSum: number; // sum of (oracle_price * balance) for weighted avg
+          exchanges: AssetExchangeBalance[];
+        }
+      >();
+
+      for (const snapshot of data.account_snapshots) {
+        if (snapshot.error || !snapshot.balances_json) continue;
+
+        const balances = snapshot.balances_json as Array<{
+          token: string;
+          balance: number;
+          value_usd?: number;
+          oracle_price?: number;
+        }>;
+
+        for (const bal of balances) {
+          if (!bal.token || bal.balance === 0) continue;
+
+          if (!assetMap.has(bal.token)) {
+            assetMap.set(bal.token, {
+              totalBalance: 0,
+              totalValueUsd: 0,
+              weightedPriceSum: 0,
+              exchanges: [],
+            });
+          }
+
+          const entry = assetMap.get(bal.token)!;
+          const balance = bal.balance ?? 0;
+          const valueUsd = bal.value_usd ?? 0;
+          const oraclePrice = bal.oracle_price ?? 0;
+
+          entry.totalBalance += balance;
+          entry.totalValueUsd += valueUsd;
+          entry.weightedPriceSum += oraclePrice * Math.abs(balance);
+          entry.exchanges.push({
+            exchangeName: snapshot.exchange_name,
+            walletAddress: snapshot.wallet_address,
+            balance,
+            valueUsd,
+            oraclePrice,
+          });
+        }
+      }
+
+      // Convert map to sorted array
+      const result: AssetBalance[] = [];
+      for (const [token, entry] of assetMap) {
+        const totalAbsBalance = entry.exchanges.reduce(
+          (sum, e) => sum + Math.abs(e.balance),
+          0
+        );
+        result.push({
+          token,
+          totalBalance: entry.totalBalance,
+          totalValueUsd: entry.totalValueUsd,
+          avgOraclePrice:
+            totalAbsBalance > 0
+              ? entry.weightedPriceSum / totalAbsBalance
+              : 0,
+          exchanges: entry.exchanges,
+        });
+      }
+
+      // Sort by USD value descending, then by token name
+      result.sort((a, b) => b.totalValueUsd - a.totalValueUsd || a.token.localeCompare(b.token));
+
+      return result;
+    });
+  },
+
+  async getPortfolioSummary(filters?: DataFilters): Promise<PortfolioSummary> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+
+      // Build where clauses for each data type using the same tag filters
+      const depositsWhere = buildDepositsWhereClause(filters);
+      const positionsWhere = buildPositionsWhereClause(filters);
+      const fundingWhere = buildFundingWhereClause(filters);
+      const tradesWhere = buildTradesWhereClause(filters);
+
+      const normalizeWhere = (w: Record<string, unknown>) =>
+        Object.keys(w).length > 0 ? w : {};
+
+      // Fetch overall summary and exchanges list in parallel
+      type SummaryResponse = {
+        deposit_totals: {
+          aggregate: { sum: { amount: string | null } };
+        };
+        withdrawal_totals: {
+          aggregate: { sum: { amount: string | null } };
+        };
+        positions_aggregate: {
+          aggregate: { sum: { realized_pnl: string | null; total_fees: string | null } };
+        };
+        funding_payments_aggregate: {
+          aggregate: { sum: { amount: string | null } };
+        };
+        trades_aggregate: {
+          aggregate: { count: number; sum: { fee: string | null } };
+        };
+      };
+
+      const [data, exchangesData] = await Promise.all([
+        client.request<SummaryResponse>(GET_PORTFOLIO_SUMMARY, {
+          depositsWhere: normalizeWhere(depositsWhere),
+          positionsWhere: normalizeWhere(positionsWhere),
+          fundingWhere: normalizeWhere(fundingWhere),
+          tradesWhere: normalizeWhere(tradesWhere),
+        }),
+        client.request<{ exchanges: Exchange[] }>(GET_EXCHANGES),
+      ]);
+
+      const totalDeposits = data.deposit_totals.aggregate.sum.amount || "0";
+      const totalWithdrawals = data.withdrawal_totals.aggregate.sum.amount || "0";
+      const realizedPnL = data.positions_aggregate.aggregate.sum.realized_pnl || "0";
+      const totalFees = data.trades_aggregate.aggregate.sum.fee || "0";
+      const totalTradeCount = data.trades_aggregate.aggregate.count;
+      const fundingPnL = data.funding_payments_aggregate.aggregate.sum.amount || "0";
+
+      // Total account value = net deposits + realized PnL + funding PnL
+      const totalAccountValue = (
+        parseFloat(totalDeposits) -
+        parseFloat(totalWithdrawals) +
+        parseFloat(realizedPnL) +
+        parseFloat(fundingPnL)
+      ).toString();
+
+      // Fetch per-exchange breakdowns in parallel
+      const mergeWhere = (
+        base: Record<string, unknown>,
+        extra: Record<string, unknown>
+      ): Record<string, unknown> => {
+        if (Object.keys(base).length === 0) return extra;
+        return { _and: [base, extra] };
+      };
+
+      const exchangeBreakdowns: ExchangeBreakdown[] = await Promise.all(
+        exchangesData.exchanges.map(async (ex) => {
+          const exchangeFilter = {
+            exchange_account: { exchange_id: { _eq: ex.id } },
+          };
+
+          const exTradesFilter = {
+            exchange_account: { exchange_id: { _eq: ex.id } },
+          };
+
+          const exData = await client.request<SummaryResponse>(
+            GET_PORTFOLIO_SUMMARY,
+            {
+              depositsWhere: mergeWhere(normalizeWhere(depositsWhere), exchangeFilter),
+              positionsWhere: mergeWhere(normalizeWhere(positionsWhere), exchangeFilter),
+              fundingWhere: mergeWhere(normalizeWhere(fundingWhere), exchangeFilter),
+              tradesWhere: mergeWhere(normalizeWhere(tradesWhere), exTradesFilter),
+            }
+          );
+
+          const exDeposits = exData.deposit_totals.aggregate.sum.amount || "0";
+          const exWithdrawals = exData.withdrawal_totals.aggregate.sum.amount || "0";
+          const exPnL = exData.positions_aggregate.aggregate.sum.realized_pnl || "0";
+          const exFees = exData.trades_aggregate.aggregate.sum.fee || "0";
+          const exFunding = exData.funding_payments_aggregate.aggregate.sum.amount || "0";
+          const exValue = (
+            parseFloat(exDeposits) -
+            parseFloat(exWithdrawals) +
+            parseFloat(exPnL) +
+            parseFloat(exFunding)
+          ).toString();
+
+          return {
+            exchangeId: ex.id,
+            exchangeName: ex.name,
+            displayName: ex.display_name,
+            totalDeposits: exDeposits,
+            totalWithdrawals: exWithdrawals,
+            realizedPnL: exPnL,
+            fundingPnL: exFunding,
+            totalFees: exFees,
+            accountValue: exValue,
+            tradeCount: exData.trades_aggregate.aggregate.count,
+          };
+        })
+      );
+
+      return {
+        totalDeposits,
+        totalWithdrawals,
+        realizedPnL,
+        fundingPnL,
+        totalFees,
+        totalTradeCount,
+        totalAccountValue,
+        exchangeBreakdowns,
+      };
+    });
+  },
+
+  async getAssetPnLBreakdown(filters?: DataFilters): Promise<AssetPnL[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+
+      const positionsWhere = buildPositionsWhereClause(filters);
+      const fundingWhere = buildFundingWhereClause(filters);
+
+      const normalizeWhere = (w: Record<string, unknown>) =>
+        Object.keys(w).length > 0 ? w : {};
+
+      // Fetch positions and funding payments in parallel
+      const [positionsData, fundingData] = await Promise.all([
+        client.request<{
+          positions: Array<{ base_asset: string; realized_pnl: string }>;
+        }>(GET_POSITIONS_PNL_BY_ASSET, { where: normalizeWhere(positionsWhere) }),
+        client.request<{
+          funding_payments: Array<{ base_asset: string; amount: string }>;
+        }>(GET_FUNDING_PNL_BY_ASSET, { where: normalizeWhere(fundingWhere) }),
+      ]);
+
+      // Aggregate by asset
+      const assetMap = new Map<string, { realizedPnL: number; fundingPnL: number; positionCount: number; fundingCount: number }>();
+
+      for (const pos of positionsData.positions) {
+        const entry = assetMap.get(pos.base_asset) || { realizedPnL: 0, fundingPnL: 0, positionCount: 0, fundingCount: 0 };
+        entry.realizedPnL += parseFloat(pos.realized_pnl) || 0;
+        entry.positionCount += 1;
+        assetMap.set(pos.base_asset, entry);
+      }
+
+      for (const fp of fundingData.funding_payments) {
+        const entry = assetMap.get(fp.base_asset) || { realizedPnL: 0, fundingPnL: 0, positionCount: 0, fundingCount: 0 };
+        entry.fundingPnL += parseFloat(fp.amount) || 0;
+        entry.fundingCount += 1;
+        assetMap.set(fp.base_asset, entry);
+      }
+
+      // Convert to sorted array
+      const result: AssetPnL[] = [];
+      for (const [asset, entry] of assetMap) {
+        const totalPnL = entry.realizedPnL + entry.fundingPnL;
+        result.push({
+          asset,
+          realizedPnL: entry.realizedPnL,
+          fundingPnL: entry.fundingPnL,
+          totalPnL,
+          positionCount: entry.positionCount,
+          fundingCount: entry.fundingCount,
+        });
+      }
+
+      // Sort by absolute total PnL descending
+      result.sort((a, b) => Math.abs(b.totalPnL) - Math.abs(a.totalPnL));
+
+      return result;
+    });
+  },
+
+  // A5.3: Per-asset fee breakdown (fees grouped by asset + market type)
+  async getAssetFeeBreakdown(filters?: DataFilters): Promise<AssetFee[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+
+      const tradesWhere = buildTradesWhereClause(filters);
+      const normalizeWhere = (w: Record<string, unknown>) =>
+        Object.keys(w).length > 0 ? w : {};
+
+      const data = await client.request<{
+        trades: Array<{ base_asset: string; market_type: string; fee: string }>;
+      }>(GET_TRADES_FEES_BY_ASSET, { where: normalizeWhere(tradesWhere) });
+
+      // Aggregate fees client-side by asset + market_type
+      const assetMap = new Map<string, { totalFees: number; tradeCount: number }>();
+
+      for (const trade of data.trades) {
+        const key = `${trade.base_asset}|${trade.market_type}`;
+        const entry = assetMap.get(key) || { totalFees: 0, tradeCount: 0 };
+        entry.totalFees += parseFloat(trade.fee) || 0;
+        entry.tradeCount += 1;
+        assetMap.set(key, entry);
+      }
+
+      const result: AssetFee[] = [];
+      for (const [key, entry] of assetMap) {
+        const [asset, marketType] = key.split("|");
+        result.push({
+          asset,
+          marketType,
+          totalFees: entry.totalFees,
+          tradeCount: entry.tradeCount,
+        });
+      }
+
+      // Sort by total fees descending
+      result.sort((a, b) => b.totalFees - a.totalFees);
+
+      return result;
+    });
+  },
+
+  // A6.3: Per-asset funding breakdown (funding grouped by asset)
+  async getFundingByAssetBreakdown(filters?: DataFilters): Promise<FundingAssetBreakdown[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+
+      const fundingWhere = buildFundingWhereClause(filters);
+      const normalizeWhere = (w: Record<string, unknown>) =>
+        Object.keys(w).length > 0 ? w : {};
+
+      const data = await client.request<{
+        funding_payments: Array<{ base_asset: string; amount: string }>;
+      }>(GET_FUNDING_PNL_BY_ASSET, { where: normalizeWhere(fundingWhere) });
+
+      // Aggregate client-side by asset
+      const assetMap = new Map<string, { received: number; paid: number; paymentCount: number }>();
+
+      for (const fp of data.funding_payments) {
+        const amount = parseFloat(fp.amount) || 0;
+        const entry = assetMap.get(fp.base_asset) || { received: 0, paid: 0, paymentCount: 0 };
+        if (amount >= 0) {
+          entry.received += amount;
+        } else {
+          entry.paid += Math.abs(amount);
+        }
+        entry.paymentCount += 1;
+        assetMap.set(fp.base_asset, entry);
+      }
+
+      const result: FundingAssetBreakdown[] = [];
+      for (const [asset, entry] of assetMap) {
+        result.push({
+          asset,
+          received: entry.received,
+          paid: entry.paid,
+          net: entry.received - entry.paid,
+          paymentCount: entry.paymentCount,
+        });
+      }
+
+      // Sort by absolute net descending
+      result.sort((a, b) => Math.abs(b.net) - Math.abs(a.net));
+
+      return result;
+    });
+  },
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // B1.1: Simulation runs
+  // ──────────────────────────────────────────────────────────────────────────
+
+  async getSimulationRuns(limit = 50, offset = 0) {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        simulation_runs: import("../queries").SimulationRun[];
+        simulation_runs_aggregate: { aggregate: { count: number } };
+      }>(GET_SIMULATION_RUNS, { limit, offset });
+      return {
+        runs: data.simulation_runs,
+        totalCount: data.simulation_runs_aggregate.aggregate.count,
+      };
+    });
+  },
+
+  async getSimulationRun(id: string) {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        simulation_runs_by_pk: import("../queries").SimulationRun | null;
+      }>(GET_SIMULATION_RUN, { id });
+      return data.simulation_runs_by_pk;
+    });
+  },
+
+  async createSimulationRun(asset: string, config?: import("../queries").SimRunConfig, startingBalance?: number, quoteCurrency?: string, exchanges?: string[], marketTypes?: string[], mode?: string) {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        insert_simulation_runs_one: import("../queries").SimulationRun;
+      }>(CREATE_SIMULATION_RUN, {
+        asset: asset.toUpperCase(),
+        config: config ?? {},
+        starting_balance: startingBalance ?? 10000,
+        quote_currency: quoteCurrency ?? "USDC",
+        exchanges: exchanges ?? [],
+        market_types: marketTypes ?? [],
+        mode: mode ?? "simulation",
+      });
+      return data.insert_simulation_runs_one;
+    });
+  },
+
+  async stopSimulationRun(id: string) {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        update_simulation_runs_by_pk: { id: string; status: string };
+      }>(STOP_SIMULATION_RUN, { id });
+      return data.update_simulation_runs_by_pk;
+    });
+  },
+
+  // B3.5: Pause — sets status to "pausing"; runner goroutine suspends polling and sets to "paused".
+  async pauseSimulationRun(id: string) {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        update_simulation_runs_by_pk: { id: string; status: string };
+      }>(PAUSE_SIMULATION_RUN, { id });
+      return data.update_simulation_runs_by_pk;
+    });
+  },
+
+  // B3.5: Resume — sets status to "resuming"; runner goroutine unblocks and sets to "running".
+  async resumeSimulationRun(id: string) {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        update_simulation_runs_by_pk: { id: string; status: string };
+      }>(RESUME_SIMULATION_RUN, { id });
+      return data.update_simulation_runs_by_pk;
+    });
+  },
+
+  // B3.6: Update config for a paused run (guarded by status="paused" in the mutation).
+  // Returns the updated id and config. Throws if the run is not paused.
+  async updatePausedRunConfig(id: string, config: import("../queries").SimRunConfig) {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        update_simulation_runs: {
+          affected_rows: number;
+          returning: { id: string; config: import("../queries").SimRunConfig; status: string }[];
+        };
+      }>(UPDATE_PAUSED_RUN_CONFIG, { id, config });
+      if (data.update_simulation_runs.affected_rows === 0) {
+        throw new Error("Config update failed — run may not be in paused status");
+      }
+      const row = data.update_simulation_runs.returning[0];
+      return { id: row.id, config: row.config };
+    });
+  },
+
+  async getSimulationMarkets(runId: string) {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        simulation_markets: import("../queries").SimulationMarket[];
+      }>(GET_SIMULATION_MARKETS, { runId });
+      return data.simulation_markets;
+    });
+  },
+
+  // B1.3: Fetch the current (latest) virtual balance for a simulation run.
+  async getSimulationBalance(runId: string): Promise<import("../queries").SimulationBalance | null> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        simulation_balances: import("../queries").SimulationBalance[];
+      }>(GET_SIMULATION_BALANCE, { runId });
+      const rows = data.simulation_balances;
+      return rows.length > 0 ? rows[0] : null;
+    });
+  },
+
+  // B1.5: Fetch simulation trades with aggregates (total fees, count).
+  async getSimulationTrades(runId: string, limit = 50, offset = 0): Promise<SimTradesResult> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        simulation_trades: SimulationTrade[];
+        simulation_trades_aggregate: {
+          aggregate: {
+            count: number;
+            sum: { fee_usd: number | null; notional: number | null };
+          };
+        };
+      }>(GET_SIMULATION_TRADES, { runId, limit, offset });
+      return {
+        trades: data.simulation_trades,
+        totalCount: data.simulation_trades_aggregate.aggregate.count,
+        totalFeesPaid: data.simulation_trades_aggregate.aggregate.sum.fee_usd ?? 0,
+        totalNotional: data.simulation_trades_aggregate.aggregate.sum.notional ?? 0,
+      };
+    });
+  },
+
+  // B1.5: Fetch all simulation positions (open + closed) for a run.
+  async getSimulationPositions(runId: string): Promise<SimulationPosition[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        simulation_positions: SimulationPosition[];
+      }>(GET_SIMULATION_POSITIONS, { runId });
+      return data.simulation_positions;
+    });
+  },
+
+  // B1.5: Fetch simulation funding payments with total amount.
+  async getSimulationFunding(runId: string): Promise<SimFundingResult> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        simulation_funding_payments: SimulationFundingPayment[];
+        simulation_funding_payments_aggregate: {
+          aggregate: {
+            count: number;
+            sum: { amount: number | null };
+          };
+        };
+      }>(GET_SIMULATION_FUNDING, { runId });
+      return {
+        payments: data.simulation_funding_payments,
+        totalCount: data.simulation_funding_payments_aggregate.aggregate.count,
+        totalAmount: data.simulation_funding_payments_aggregate.aggregate.sum.amount ?? 0,
+      };
+    });
+  },
+
+  // B1.5: Fetch the full balance history for a simulation run.
+  async getSimulationBalanceHistory(runId: string): Promise<import("../queries").SimulationBalance[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        simulation_balances: import("../queries").SimulationBalance[];
+      }>(GET_SIMULATION_BALANCE_HISTORY, { runId });
+      return data.simulation_balances;
+    });
+  },
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // B1.6: Comparison groups — batch-create runs with different configs
+  // ──────────────────────────────────────────────────────────────────────────
+
+  async createComparisonRuns(
+    asset: string,
+    startingBalance: number,
+    quoteCurrency: string,
+    runs: ComparisonRunInput[],
+    exchanges?: string[],
+    marketTypes?: string[],
+    mode?: string,
+  ): Promise<{ groupId: string; runs: SimulationRun[] }> {
+    return withErrorHandling(async () => {
+      // Generate a single UUID for the comparison group client-side.
+      const groupId = crypto.randomUUID();
+      const client = getGraphQLClient();
+
+      // B3.1: exchanges/marketTypes/mode are shared across all runs in the group.
+      const objects = runs.map((r) => ({
+        asset: asset.toUpperCase(),
+        status: "pending",
+        config: r.config,
+        starting_balance: startingBalance,
+        quote_currency: quoteCurrency,
+        comparison_group_id: groupId,
+        label: r.label,
+        exchanges: exchanges ?? [],
+        market_types: marketTypes ?? [],
+        mode: mode ?? "simulation",
+      }));
+
+      const data = await client.request<{
+        insert_simulation_runs: { returning: SimulationRun[] };
+      }>(CREATE_COMPARISON_RUNS, { runs: objects });
+
+      return {
+        groupId,
+        runs: data.insert_simulation_runs.returning,
+      };
+    });
+  },
+
+  async getComparisonGroupRuns(groupId: string): Promise<SimulationRun[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        simulation_runs: SimulationRun[];
+      }>(GET_COMPARISON_GROUP_RUNS, { groupId });
+      return data.simulation_runs;
+    });
+  },
+
+  // B1.7: Fetch aggregated metrics for every run in a comparison group.
+  // Returns metrics from the simulation_run_metrics VIEW, ordered by threshold.
+  async getComparisonAnalysis(groupId: string): Promise<SimRunMetrics[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        simulation_run_metrics: SimRunMetrics[];
+      }>(GET_COMPARISON_ANALYSIS, { groupId });
+      return data.simulation_run_metrics;
+    });
+  },
+
+  // B3.4: Returns the number of runs currently occupying a runner slot.
+  // Counts runs in "pending", "initializing", or "running" state.
+  // Used by the UI to enforce the MaxConcurrentRuns capacity limit.
+  async getActiveRunCount(): Promise<number> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        simulation_runs_aggregate: {
+          aggregate: { count: number };
+        };
+      }>(GET_ACTIVE_RUN_COUNT);
+      return data.simulation_runs_aggregate.aggregate.count;
     });
   },
 };

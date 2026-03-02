@@ -3,18 +3,19 @@
 import { useState, useEffect, use } from "react";
 import Link from "next/link";
 import { api, DataFilters } from "@/lib/api";
-import { FundingPayment, ExchangeAccount, FundingAggregates } from "@/lib/queries";
+import { FundingPayment, ExchangeAccount, FundingAggregates, FundingAssetBreakdown } from "@/lib/queries";
 import { FundingTable } from "@/components/funding-table";
 import { SyncButton } from "@/components/sync-button";
 import { PageHeader } from "@/components/page-header";
 import { FilterBar } from "@/components/filter-bar";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatCard, StatsGrid } from "@/components/stat-card";
 import { formatSignedNumber } from "@/lib/format";
-import { DateRangeFilter } from "@/components/date-range-filter";
+import { DateRangeFilter, getTimestampsFromDateRange } from "@/components/date-range-filter";
 import { AssetFilter } from "@/components/asset-filter";
 import { usePaginatedData } from "@/hooks/use-paginated-data";
+import { FundingByAssetTable } from "@/components/funding-by-asset-table";
 
 const PAGE_SIZE = 100;
 
@@ -40,6 +41,8 @@ export default function AccountFundingPage({ params }: AccountFundingPageProps) 
   const [account, setAccount] = useState<ExchangeAccount | null>(null);
   const [availableAssets, setAvailableAssets] = useState<string[]>([]);
   const [isLoadingAssets, setIsLoadingAssets] = useState(true);
+  const [assetBreakdown, setAssetBreakdown] = useState<FundingAssetBreakdown[]>([]);
+  const [isLoadingAssetBreakdown, setIsLoadingAssetBreakdown] = useState(true);
 
   const {
     items: fundingPayments,
@@ -90,6 +93,29 @@ export default function AccountFundingPage({ params }: AccountFundingPageProps) 
     fetchAssets();
   }, []);
 
+  // Fetch per-asset funding breakdown (A6.3)
+  useEffect(() => {
+    const fetchAssetBreakdown = async () => {
+      setIsLoadingAssetBreakdown(true);
+      try {
+        const filters: DataFilters = { accountId: id };
+        const { since, until } = getTimestampsFromDateRange(dateRange);
+        if (since) filters.since = since;
+        if (until) filters.until = until;
+        if (selectedAssets.length > 0) {
+          filters.baseAssets = selectedAssets;
+        }
+        const breakdown = await api.getFundingByAssetBreakdown(filters);
+        setAssetBreakdown(breakdown);
+      } catch (error) {
+        console.error("Failed to fetch asset funding breakdown:", error);
+      } finally {
+        setIsLoadingAssetBreakdown(false);
+      }
+    };
+    fetchAssetBreakdown();
+  }, [id, dateRange, selectedAssets, lastRefreshTime]);
+
   const accountTitle = account
     ? `${account.exchange?.display_name || "Unknown"} - ${account.account_identifier.slice(0, 10)}...`
     : "Account";
@@ -116,7 +142,7 @@ export default function AccountFundingPage({ params }: AccountFundingPageProps) 
         }
       />
 
-      <StatsGrid>
+      <StatsGrid columns={4}>
         <StatCard
           title="Total Funding PnL"
           value={aggregates ? formatSignedNumber(aggregates.totalAmount) : "+0.00"}
@@ -124,11 +150,40 @@ export default function AccountFundingPage({ params }: AccountFundingPageProps) 
           valueClassName={isPositive ? "text-green-500" : "text-red-500"}
         />
         <StatCard
+          title="Total Received"
+          value={aggregates ? formatSignedNumber(aggregates.totalReceived) : "+0.00"}
+          isLoading={isLoadingAggregates}
+          valueClassName="text-green-500"
+        />
+        <StatCard
+          title="Total Paid"
+          value={aggregates ? formatSignedNumber(aggregates.totalPaid) : "0.00"}
+          isLoading={isLoadingAggregates}
+          valueClassName="text-red-500"
+        />
+        <StatCard
           title="Total Payments"
           value={aggregates?.count.toLocaleString() || "0"}
           isLoading={isLoadingAggregates}
         />
       </StatsGrid>
+
+      {/* Per-Asset Funding Breakdown (A6.3) */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Funding by Asset</CardTitle>
+          <CardDescription>
+            Funding payments broken down by asset/market
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FundingByAssetTable
+            assets={assetBreakdown}
+            isLoading={isLoadingAssetBreakdown}
+            totalFundingAmount={aggregates ? parseFloat(aggregates.totalAmount) : undefined}
+          />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="space-y-3 px-3 md:px-6">

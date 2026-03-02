@@ -11,11 +11,15 @@ import { TagFilter } from "@/components/tag-filter";
 import { cn } from "@/lib/utils";
 
 const navigation = [
+  { name: "Search", href: "/search" },
   { name: "Accounts", href: "/accounts" },
+  { name: "Balances", href: "/balances" },
   { name: "Trades", href: "/trades" },
   { name: "Positions", href: "/positions" },
   { name: "Funding", href: "/funding" },
   { name: "Deposits", href: "/deposits" },
+  { name: "Simulations", href: "/simulations" },
+  { name: "Tax Report", href: "/tax-report" },
 ];
 
 export default function DashboardLayout({

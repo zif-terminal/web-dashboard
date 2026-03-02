@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { Lock } from "lucide-react";
 import { api } from "@/lib/api";
 import { ExchangeAccount } from "@/lib/queries";
 import { normalizeTags } from "@/lib/utils";
@@ -22,6 +23,11 @@ import { AccountsTableSkeleton } from "@/components/table-skeleton";
 import { TagInput } from "@/components/tag-input";
 import { ExchangeBadge } from "@/components/exchange-badge";
 import { LabelInput } from "@/components/label-input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface AccountsTableProps {
   refreshKey?: number;
@@ -39,6 +45,24 @@ interface WalletGroup {
 function truncateAddress(address: string, startChars = 6, endChars = 4): string {
   if (address.length <= startChars + endChars + 3) return address;
   return `${address.slice(0, startChars)}...${address.slice(-endChars)}`;
+}
+
+/** A1.6: Visual indicator shown next to the exchange name when the exchange
+ *  requires an API key to access its data.  The data is already gated at the
+ *  GraphQL layer — this badge makes the security posture visible to the user. */
+function ApiKeyLockedBadge() {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex items-center text-muted-foreground ml-1">
+          <Lock className="h-3 w-3" aria-label="Requires API key" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        <p className="text-xs">Requires API key — data gated to authenticated users</p>
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 function getStatusBadge(status: string | undefined) {
@@ -193,9 +217,12 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
                 onClick={() => router.push(`/accounts/${account.id}`)}
               >
                 <TableCell>
-                  <ExchangeBadge
-                    exchangeName={account.exchange?.display_name || "Unknown"}
-                  />
+                  <span className="inline-flex items-center gap-1">
+                    <ExchangeBadge
+                      exchangeName={account.exchange?.display_name || "Unknown"}
+                    />
+                    {account.exchange?.requires_api_key && <ApiKeyLockedBadge />}
+                  </span>
                 </TableCell>
                 <TableCell>
                   <LabelInput
@@ -269,9 +296,13 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
                     onClick={() => router.push(`/accounts/${account.id}`)}
                   >
                     <TableCell>
-                      <ExchangeBadge
-                        exchangeName={account.exchange?.display_name || "Unknown"}
-                      />
+                      {/* A1.6: mirror simple-table lock indicator in grouped view */}
+                      <span className="inline-flex items-center gap-1">
+                        <ExchangeBadge
+                          exchangeName={account.exchange?.display_name || "Unknown"}
+                        />
+                        {account.exchange?.requires_api_key && <ApiKeyLockedBadge />}
+                      </span>
                     </TableCell>
                     <TableCell>
                       <LabelInput

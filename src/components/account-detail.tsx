@@ -145,6 +145,16 @@ export function AccountDetail({ accountId }: AccountDetailProps) {
                 {account.account_type}
               </Badge>
             </div>
+            {account.wallet?.label && (
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Wallet
+                </p>
+                <p className="text-lg font-semibold">
+                  {account.wallet.label}
+                </p>
+              </div>
+            )}
             <div className="md:col-span-2">
               <p className="text-sm font-medium text-muted-foreground">
                 Account Identifier
