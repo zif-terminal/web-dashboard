@@ -3143,6 +3143,51 @@ export const GET_VAULT_LISTING_DEPOSITS = gql`
   }
 `;
 
+/** C1.5: A recorded user withdrawal from a vault listing. */
+export interface VaultListingWithdrawal {
+  id: string;
+  vault_address: string;
+  user_address: string;
+  amount_usd: number;
+  status: "confirmed" | "pending" | "failed";
+  tx_nonce: number | null;
+  created_at: string;
+}
+
+/** C1.5: Fetch withdrawal history for a vault listing. */
+export const GET_VAULT_WITHDRAWAL_HISTORY = gql`
+  query GetVaultWithdrawalHistory($vault_address: String!) {
+    vault_listing_withdrawals(
+      where: { vault_address: { _eq: $vault_address } }
+      order_by: { created_at: desc }
+    ) {
+      id
+      user_address
+      amount_usd
+      status
+      tx_nonce
+      created_at
+    }
+  }
+`;
+
+/** C1.5: Fetch withdrawal history for a specific user across all vaults. */
+export const GET_USER_VAULT_WITHDRAWAL_HISTORY = gql`
+  query GetUserVaultWithdrawalHistory($user_address: String!) {
+    vault_listing_withdrawals(
+      where: { user_address: { _eq: $user_address } }
+      order_by: { created_at: desc }
+    ) {
+      id
+      vault_address
+      amount_usd
+      status
+      tx_nonce
+      created_at
+    }
+  }
+`;
+
 // ---------------------------------------------------------------------------
 // C1.3: Vault performance (public read — anon role, no auth required)
 // ---------------------------------------------------------------------------

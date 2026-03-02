@@ -92,7 +92,10 @@ import {
   SimulationOpportunitySnapshot,
   GET_VAULT_LISTINGS,
   GET_VAULT_LISTING,
+  GET_VAULT_WITHDRAWAL_HISTORY,
+  GET_USER_VAULT_WITHDRAWAL_HISTORY,
   VaultListing,
+  VaultListingWithdrawal,
 } from "../queries";
 import { ApiClient, ComparisonRunInput, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, PositionsResult, PositionWithTrades, DepositsResult, DataFilters, SimTradesResult, SimFundingResult, SimOrdersResult, SimOpportunityResult } from "./types";
 import { ApiError } from "./errors";
@@ -1893,6 +1896,28 @@ export const graphqlApi: ApiClient = {
         vault_listings_by_pk: VaultListing | null;
       }>(GET_VAULT_LISTING, { address });
       return data.vault_listings_by_pk;
+    });
+  },
+
+  // C1.5: Fetch withdrawal history for a specific vault (most recent first).
+  async getVaultWithdrawalHistory(vaultAddress: string): Promise<VaultListingWithdrawal[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        vault_listing_withdrawals: VaultListingWithdrawal[];
+      }>(GET_VAULT_WITHDRAWAL_HISTORY, { vault_address: vaultAddress });
+      return data.vault_listing_withdrawals;
+    });
+  },
+
+  // C1.5: Fetch withdrawal history for a user across all vaults (most recent first).
+  async getUserWithdrawalHistory(userAddress: string): Promise<VaultListingWithdrawal[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        vault_listing_withdrawals: VaultListingWithdrawal[];
+      }>(GET_USER_VAULT_WITHDRAWAL_HISTORY, { user_address: userAddress });
+      return data.vault_listing_withdrawals;
     });
   },
 };

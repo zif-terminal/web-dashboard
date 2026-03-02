@@ -1,4 +1,4 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionTrade, PositionsAggregates, Wallet, WalletWithAccounts, Deposit, DepositsAggregates, OpenPosition, PortfolioSummary, AssetBalance, AssetPnL, AssetFee, FundingAssetBreakdown, ExchangePnLBreakdown, ExchangeFundingBreakdown, ExchangeDistribution, SimulationRun, SimulationMarket, SimulationBalance, SimRunConfig, SimulationTrade, SimulationPosition, SimulationFundingPayment, SimulationRestingOrder, SimRunMetrics, SimulationOpportunitySnapshot, VaultListing, VaultListingDeposit } from "../queries";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionTrade, PositionsAggregates, Wallet, WalletWithAccounts, Deposit, DepositsAggregates, OpenPosition, PortfolioSummary, AssetBalance, AssetPnL, AssetFee, FundingAssetBreakdown, ExchangePnLBreakdown, ExchangeFundingBreakdown, ExchangeDistribution, SimulationRun, SimulationMarket, SimulationBalance, SimRunConfig, SimulationTrade, SimulationPosition, SimulationFundingPayment, SimulationRestingOrder, SimRunMetrics, SimulationOpportunitySnapshot, VaultListing, VaultListingDeposit, VaultListingWithdrawal } from "../queries";
 
 // B1.6: Input for a single run within a comparison batch.
 export interface ComparisonRunInput {
@@ -205,6 +205,9 @@ export interface ApiClient {
   // C1.1: Vault listings (Hyperliquid external vaults)
   getVaultListings(): Promise<VaultListing[]>;
   getVaultListing(address: string): Promise<VaultListing | null>;
+  // C1.5: Withdrawal history
+  getVaultWithdrawalHistory(vaultAddress: string): Promise<VaultListingWithdrawal[]>;
+  getUserWithdrawalHistory(userAddress: string): Promise<VaultListingWithdrawal[]>;
 }
 
 // C1.1: Vault listing types
@@ -218,4 +221,4 @@ export interface VaultDepositInput {
   userAddress: string;
 }
 
-export type { SimulationRun, SimulationMarket, SimulationBalance, SimRunConfig, SimulationTrade, SimulationPosition, SimulationFundingPayment, SimulationRestingOrder, SimRunMetrics, ExchangeDistribution, SimulationOpportunitySnapshot, VaultListing, VaultListingDeposit };
+export type { SimulationRun, SimulationMarket, SimulationBalance, SimRunConfig, SimulationTrade, SimulationPosition, SimulationFundingPayment, SimulationRestingOrder, SimRunMetrics, ExchangeDistribution, SimulationOpportunitySnapshot, VaultListing, VaultListingDeposit, VaultListingWithdrawal };

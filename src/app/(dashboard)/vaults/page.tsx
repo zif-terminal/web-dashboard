@@ -2,8 +2,10 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
-import { VaultListing } from "@/lib/queries";
+import { VaultListing, VaultListingWithdrawal } from "@/lib/queries";
 import { VaultDepositDialog } from "@/components/vault-deposit-dialog";
+import { VaultWithdrawDialog } from "@/components/vault-withdraw-dialog";
+import { VaultWithdrawalHistory } from "@/components/vaults/vault-withdrawal-history";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
 
@@ -17,13 +19,18 @@ function formatApr(value: number): string {
   return `${value.toFixed(2)}%`;
 }
 
+type ActiveDialog = "deposit" | "withdraw" | null;
+
 export default function VaultsPage() {
   const { isLoggedIn } = useAuth();
   const [vaults, setVaults] = useState<VaultListing[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedVault, setSelectedVault] = useState<VaultListing | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [activeDialog, setActiveDialog] = useState<ActiveDialog>(null);
+  // C1.5: Withdrawal history for the most recently-withdrawn vault
+  const [withdrawalHistory, setWithdrawalHistory] = useState<VaultListingWithdrawal[]>([]);
+  const [withdrawalHistoryVaultName, setWithdrawalHistoryVaultName] = useState<string | null>(null);
 
   const loadVaults = useCallback(async () => {
     try {
@@ -47,13 +54,29 @@ export default function VaultsPage() {
 
   function handleDeposit(vault: VaultListing) {
     setSelectedVault(vault);
-    setDialogOpen(true);
+    setActiveDialog("deposit");
+  }
+
+  function handleWithdraw(vault: VaultListing) {
+    setSelectedVault(vault);
+    setActiveDialog("withdraw");
   }
 
   function handleDialogClose() {
-    setDialogOpen(false);
+    setActiveDialog(null);
     setSelectedVault(null);
   }
+
+  // C1.5: Load withdrawal history for a vault after a successful withdrawal.
+  const loadWithdrawalHistory = useCallback(async (vault: VaultListing) => {
+    try {
+      const history = await api.getVaultWithdrawalHistory(vault.address);
+      setWithdrawalHistory(history);
+      setWithdrawalHistoryVaultName(vault.name);
+    } catch {
+      // Non-fatal — withdrawal succeeded even if history load fails
+    }
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -61,7 +84,7 @@ export default function VaultsPage() {
         <div>
           <h1 className="text-2xl font-bold">Vaults</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Deposit funds into Hyperliquid vaults to earn yield
+            Deposit into or withdraw from Hyperliquid vaults
           </p>
         </div>
         <button
@@ -115,7 +138,9 @@ export default function VaultsPage() {
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden lg:table-cell">
                   Status
                 </th>
-                <th className="px-4 py-3" />
+                <th className="px-4 py-3 text-right font-medium text-muted-foreground">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -159,13 +184,23 @@ export default function VaultsPage() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      onClick={() => handleDeposit(vault)}
-                      disabled={vault.is_closed || !isLoggedIn}
-                      className="inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    >
-                      Deposit
-                    </button>
+                    <div className="inline-flex gap-1">
+                      <button
+                        onClick={() => handleDeposit(vault)}
+                        disabled={vault.is_closed || !isLoggedIn}
+                        className="inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Deposit
+                      </button>
+                      <button
+                        onClick={() => handleWithdraw(vault)}
+                        disabled={!isLoggedIn}
+                        className="inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-orange-600 text-white hover:bg-orange-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        title="Withdraw funds from this vault"
+                      >
+                        Withdraw
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -183,16 +218,43 @@ export default function VaultsPage() {
       )}
 
       {/* Deposit dialog */}
-      {selectedVault && (
+      {selectedVault && activeDialog === "deposit" && (
         <VaultDepositDialog
           vault={selectedVault}
-          open={dialogOpen}
+          open={activeDialog === "deposit"}
           onClose={handleDialogClose}
           onSuccess={() => {
             handleDialogClose();
             loadVaults();
           }}
         />
+      )}
+
+      {/* Withdraw dialog */}
+      {selectedVault && activeDialog === "withdraw" && (
+        <VaultWithdrawDialog
+          vault={selectedVault}
+          open={activeDialog === "withdraw"}
+          onClose={handleDialogClose}
+          onSuccess={() => {
+            // Reload vaults + fetch withdrawal history; dialog stays open on
+            // success step so user can see confirmation and recent history.
+            if (selectedVault) {
+              loadWithdrawalHistory(selectedVault);
+            }
+            loadVaults();
+          }}
+        />
+      )}
+
+      {/* C1.5: Withdrawal history panel — shown after a successful withdrawal */}
+      {withdrawalHistory.length > 0 && (
+        <div className="mt-4">
+          <p className="text-sm text-muted-foreground mb-2">
+            Recent withdrawals{withdrawalHistoryVaultName ? ` — ${withdrawalHistoryVaultName}` : ""}
+          </p>
+          <VaultWithdrawalHistory withdrawals={withdrawalHistory} />
+        </div>
       )}
     </div>
   );

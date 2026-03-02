@@ -1307,4 +1307,15 @@ export const mockApi: ApiClient = {
     await delay(200);
     return null;
   },
+
+  // C1.5: Withdrawal history — mock stubs (empty lists in mock env).
+  async getVaultWithdrawalHistory(_vaultAddress: string) {
+    await delay(200);
+    return [];
+  },
+
+  async getUserWithdrawalHistory(_userAddress: string) {
+    await delay(200);
+    return [];
+  },
 };
