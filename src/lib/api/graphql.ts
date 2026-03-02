@@ -68,6 +68,7 @@ import {
   PAUSE_SIMULATION_RUN,
   RESUME_SIMULATION_RUN,
   UPDATE_PAUSED_RUN_CONFIG,
+  SWITCH_RUN_MODE,
   GET_SIMULATION_MARKETS,
   GET_SIMULATION_BALANCE,
   GET_SIMULATION_TRADES,
@@ -1529,12 +1530,33 @@ export const graphqlApi: ApiClient = {
           affected_rows: number;
           returning: { id: string; config: import("../queries").SimRunConfig; status: string; config_updated_at?: string }[];
         };
-      }>(UPDATE_PAUSED_RUN_CONFIG, { id, config });
+      }>(UPDATE_PAUSED_RUN_CONFIG, { id, config, now: new Date().toISOString() });
       if (data.update_simulation_runs.affected_rows === 0) {
         throw new Error("Config update failed — run may not be in paused status");
       }
       const row = data.update_simulation_runs.returning[0];
       return { id: row.id, config: row.config, config_updated_at: row.config_updated_at };
+    });
+  },
+
+  // B3.7: Switch execution mode for a paused run (simulation ↔ live).
+  // Guarded by status="paused" in the mutation where-clause — same safety pattern as B3.6.
+  // Confirmation is required in the UI before calling this when switching to "live".
+  async switchRunMode(id: string, mode: string) {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const switchedAt = new Date().toISOString();
+      const data = await client.request<{
+        update_simulation_runs: {
+          affected_rows: number;
+          returning: { id: string; mode: string; mode_switched_at?: string }[];
+        };
+      }>(SWITCH_RUN_MODE, { id, mode, switchedAt });
+      if (data.update_simulation_runs.affected_rows === 0) {
+        throw new Error("Mode switch failed — run may not be in paused status");
+      }
+      const row = data.update_simulation_runs.returning[0];
+      return { id: row.id, mode: row.mode, mode_switched_at: row.mode_switched_at };
     });
   },
 

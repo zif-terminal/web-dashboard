@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -13,6 +12,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SimulationRun } from "@/lib/queries";
+import { RunStatusIndicator } from "@/components/simulations/run-status-indicator";
 import { api } from "@/lib/api";
 import { useState } from "react";
 
@@ -24,25 +24,6 @@ interface SimRunsTableProps {
   onRunPaused?: (id: string) => void;
   /** B3.5: Called after a resume request is sent (optimistic update). */
   onRunResumed?: (id: string) => void;
-}
-
-function statusBadgeVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
-  switch (status) {
-    case "running":
-    case "resuming":
-      return "default";
-    case "pending":
-    case "initializing":
-      return "secondary";
-    case "pausing":
-    case "paused":
-    case "stopping":
-      return "outline";
-    case "error":
-      return "destructive";
-    default:
-      return "outline";
-  }
 }
 
 function formatDuration(start?: string, stop?: string, status?: string): string {
@@ -58,7 +39,7 @@ function formatDuration(start?: string, stop?: string, status?: string): string 
 
 export function SimRunsTable({ runs, isLoading, onRunStopped, onRunPaused, onRunResumed }: SimRunsTableProps) {
   const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set());
-  const [pausingIds, setPausingIds] = useState<Set<string>>(new Set());
+  const [pausingIds,  setPausingIds]  = useState<Set<string>>(new Set());
   const [resumingIds, setResumingIds] = useState<Set<string>>(new Set());
 
   const handleStop = async (id: string) => {
@@ -135,10 +116,10 @@ export function SimRunsTable({ runs, isLoading, onRunStopped, onRunPaused, onRun
         <TableRow>
           <TableHead>Asset</TableHead>
           <TableHead>Label / Group</TableHead>
-          <TableHead>Mode</TableHead>
           <TableHead>Exchanges</TableHead>
           <TableHead>Market Types</TableHead>
-          <TableHead>Status</TableHead>
+          {/* B4.1: "Status / Mode" replaces separate "Status" + "Mode" columns */}
+          <TableHead>Status / Mode</TableHead>
           <TableHead>Markets</TableHead>
           <TableHead>Duration</TableHead>
           <TableHead>Created</TableHead>
@@ -169,18 +150,6 @@ export function SimRunsTable({ runs, isLoading, onRunStopped, onRunPaused, onRun
                 <span className="text-muted-foreground">—</span>
               )}
             </TableCell>
-            {/* B3.1: Mode badge */}
-            <TableCell>
-              {run.mode === "live" ? (
-                <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
-                  LIVE
-                </span>
-              ) : (
-                <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                  SIM
-                </span>
-              )}
-            </TableCell>
             {/* B3.1: Exchanges (empty = All) */}
             <TableCell className="text-sm text-muted-foreground">
               {run.exchanges && run.exchanges.length > 0
@@ -193,13 +162,13 @@ export function SimRunsTable({ runs, isLoading, onRunStopped, onRunPaused, onRun
                 ? run.market_types.join(", ")
                 : "All"}
             </TableCell>
+            {/* B4.1: RunStatusIndicator — animated dot + status text + mode pill */}
             <TableCell>
-              <Badge variant={statusBadgeVariant(run.status)}>{run.status}</Badge>
-              {run.error_message && (
-                <p className="mt-0.5 text-xs text-red-500 max-w-[200px] truncate" title={run.error_message}>
-                  {run.error_message}
-                </p>
-              )}
+              <RunStatusIndicator
+                status={run.status}
+                mode={run.mode}
+                errorMessage={run.error_message}
+              />
             </TableCell>
             <TableCell>{run.markets_found ?? "—"}</TableCell>
             <TableCell>{formatDuration(run.started_at, run.stopped_at, run.status)}</TableCell>
@@ -230,7 +199,7 @@ export function SimRunsTable({ runs, isLoading, onRunStopped, onRunPaused, onRun
                     {resumingIds.has(run.id) ? "Resuming…" : "Resume"}
                   </Button>
                 )}
-                {/* Stop button — shown for active runs (running, paused, initializing, pending) */}
+                {/* Stop button — shown for active runs */}
                 {(run.status === "running" || run.status === "initializing" || run.status === "pending" || run.status === "paused" || run.status === "pausing" || run.status === "resuming") && (
                   <Button
                     size="sm"

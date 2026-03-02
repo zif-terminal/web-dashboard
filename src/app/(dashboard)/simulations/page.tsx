@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
 import { SimulationRun } from "@/lib/queries";
 import { PageHeader } from "@/components/page-header";
@@ -9,16 +9,31 @@ import { StatCard, StatsGrid } from "@/components/stat-card";
 import { CreateRunForm } from "@/components/simulations/create-run-form";
 import { CompareSimForm } from "@/components/simulations/compare-sim-form";
 import { SimRunsTable } from "@/components/simulations/sim-runs-table";
+import { ConnectionIndicator } from "@/components/simulations/connection-indicator";
 import { Button } from "@/components/ui/button";
+import { useRunsStatusSubscription } from "@/hooks/use-runs-status-subscription";
 
-const POLL_INTERVAL_MS = 5000;
 // B3.4: Mirror of MAX_CONCURRENT_RUNS=5 in sim_runner config.go.
 const MAX_CONCURRENT_RUNS = 5;
+// Fallback poll interval used when WebSocket is disconnected (degraded mode).
+const DEGRADED_POLL_MS = 5000;
+// How long to wait after a disconnect before enabling fallback polling.
+const DISCONNECTED_FALLBACK_DELAY_MS = 10_000;
 
 export default function SimulationsPage() {
   const [runs, setRuns] = useState<SimulationRun[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState(new Date());
+
+  // B4.1: Real-time status subscription.
+  const { statusMap, connectionState } = useRunsStatusSubscription(100, 0);
+
+  // Track when the connection first went offline so we can delay before
+  // enabling degraded-mode polling (avoids spurious polls on brief hiccups).
+  const disconnectedSinceRef = useRef<number | null>(null);
+  const [degradedPolling, setDegradedPolling] = useState(false);
+
+  // ── Initial / manual fetch ────────────────────────────────────────────────
 
   const fetchRuns = useCallback(async () => {
     try {
@@ -35,19 +50,54 @@ export default function SimulationsPage() {
     fetchRuns();
   }, [fetchRuns, lastRefresh]);
 
-  // Auto-refresh when there are active runs (includes paused/pausing/resuming — B3.5)
+  // ── B4.1: Merge live status fields into the runs state ────────────────────
+
   useEffect(() => {
-    const hasActive = runs.some((r) =>
-      ["pending", "initializing", "running", "pausing", "paused", "resuming", "stopping"].includes(r.status)
+    if (statusMap.size === 0) return;
+    setRuns((prev) =>
+      prev.map((r) => {
+        const live = statusMap.get(r.id);
+        if (!live) return r;
+        return { ...r, ...live };
+      }),
     );
-    if (!hasActive) return;
+  }, [statusMap]);
 
-    const timer = setInterval(() => {
-      fetchRuns();
-    }, POLL_INTERVAL_MS);
+  // ── B4.1: Connection state tracking + degraded-mode fallback polling ──────
 
+  useEffect(() => {
+    if (connectionState === "disconnected") {
+      if (disconnectedSinceRef.current === null) {
+        disconnectedSinceRef.current = Date.now();
+      }
+    } else {
+      disconnectedSinceRef.current = null;
+      setDegradedPolling(false);
+    }
+  }, [connectionState]);
+
+  // Check periodically whether the disconnect threshold has been crossed.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (
+        connectionState === "disconnected" &&
+        disconnectedSinceRef.current !== null &&
+        Date.now() - disconnectedSinceRef.current >= DISCONNECTED_FALLBACK_DELAY_MS
+      ) {
+        setDegradedPolling(true);
+      }
+    }, 2000);
+    return () => clearInterval(id);
+  }, [connectionState]);
+
+  // Degraded-mode polling — active only when WS is down for >10s.
+  useEffect(() => {
+    if (!degradedPolling) return;
+    const timer = setInterval(fetchRuns, DEGRADED_POLL_MS);
     return () => clearInterval(timer);
-  }, [runs, fetchRuns]);
+  }, [degradedPolling, fetchRuns]);
+
+  // ── Optimistic update handlers ────────────────────────────────────────────
 
   const handleCreated = (run: SimulationRun) => {
     setRuns((prev) => [run, ...prev]);
@@ -56,35 +106,36 @@ export default function SimulationsPage() {
   };
 
   const handleGroupCreated = (_groupId: string) => {
-    // Refresh the run list so the new comparison runs appear.
     setTimeout(() => setLastRefresh(new Date()), 2000);
   };
 
   const handleRunStopped = (id: string) => {
     setRuns((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, status: "stopping" } : r))
+      prev.map((r) => (r.id === id ? { ...r, status: "stopping" } : r)),
     );
   };
 
   // B3.5: Optimistic pause/resume handlers
   const handleRunPaused = (id: string) => {
     setRuns((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, status: "pausing" } : r))
+      prev.map((r) => (r.id === id ? { ...r, status: "pausing" } : r)),
     );
   };
 
   const handleRunResumed = (id: string) => {
     setRuns((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, status: "resuming" } : r))
+      prev.map((r) => (r.id === id ? { ...r, status: "resuming" } : r)),
     );
   };
 
-  // B3.4: Count runs that occupy a runner slot (pending + initializing + running + paused/pausing/resuming — B3.5).
+  // ── Derived stats ─────────────────────────────────────────────────────────
+
+  // B3.4: Count runs that occupy a runner slot.
   const activeCount = runs.filter((r) =>
-    ["pending", "initializing", "running", "pausing", "paused", "resuming"].includes(r.status)
+    ["pending", "initializing", "running", "pausing", "paused", "resuming"].includes(r.status),
   ).length;
   const totalMarkets = runs.reduce((acc, r) => acc + (r.markets_found ?? 0), 0);
-  const errorCount = runs.filter((r) => r.status === "error").length;
+  const errorCount   = runs.filter((r) => r.status === "error").length;
 
   return (
     <div className="space-y-6">
@@ -92,18 +143,22 @@ export default function SimulationsPage() {
         title="Simulations"
         description="Run real-time orderbook simulations across all supported exchanges"
         action={
-          <Button
-            variant="outline"
-            onClick={() => { setIsLoading(true); setLastRefresh(new Date()); }}
-            disabled={isLoading}
-          >
-            Refresh
-          </Button>
+          <div className="flex items-center gap-3">
+            {/* B4.1: WebSocket connection indicator */}
+            <ConnectionIndicator state={connectionState} />
+            <Button
+              variant="outline"
+              onClick={() => { setIsLoading(true); setLastRefresh(new Date()); }}
+              disabled={isLoading}
+            >
+              Refresh
+            </Button>
+          </div>
         }
       />
 
       <StatsGrid columns={3}>
-        {/* B3.4: Show capacity as "X / 5" so users know how many more runs they can start */}
+        {/* B3.4: Show capacity as "X / 5" */}
         <StatCard
           title="Active Runs"
           value={`${activeCount} / ${MAX_CONCURRENT_RUNS}`}
@@ -129,7 +184,7 @@ export default function SimulationsPage() {
         />
       </StatsGrid>
 
-      {/* B3.1: CreateRunForm replaces StartSimForm — adds exchange/market type/mode selection */}
+      {/* B3.1: CreateRunForm — adds exchange/market type/mode selection */}
       {/* B3.4: Pass capacity context so the form can disable submit when full */}
       <CreateRunForm
         onCreated={handleCreated}
@@ -137,7 +192,7 @@ export default function SimulationsPage() {
         maxConcurrentRuns={MAX_CONCURRENT_RUNS}
       />
 
-      {/* B1.7: Batch comparison form — creates runs with different thresholds */}
+      {/* B1.7: Batch comparison form */}
       <CompareSimForm onGroupCreated={handleGroupCreated} />
 
       <Card>

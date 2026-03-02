@@ -2182,6 +2182,8 @@ export interface SimulationRun {
   market_types: string[];
   /** B3.1: "simulation" (paper trading) or "live" (real order placement) */
   mode: string;
+  /** B3.7: timestamp when the execution mode was last switched (simulation ↔ live) while paused; null = never switched */
+  mode_switched_at?: string;
 }
 
 // B1.3: Tracks the virtual balance across the lifetime of a simulation run.
@@ -2239,6 +2241,7 @@ export const GET_SIMULATION_RUNS = gql`
       exchanges
       market_types
       mode
+      mode_switched_at
     }
     simulation_runs_aggregate {
       aggregate {
@@ -2360,12 +2363,14 @@ export const RESUME_SIMULATION_RUN = gql`
 // B3.6: Update config for a paused run.
 // The where clause guards that only runs with status="paused" can be updated —
 // prevents editing a run that is actively running (which would race the market data loop).
-// config_updated_at is set server-side by the Go store layer before calling this mutation.
+// config_updated_at is set from the client-supplied $now timestamp (matching the pattern
+// used by SWITCH_RUN_MODE which passes $switchedAt), so the edit timestamp is always
+// authoritative from the caller rather than relying on a DB default.
 export const UPDATE_PAUSED_RUN_CONFIG = gql`
-  mutation UpdatePausedRunConfig($id: uuid!, $config: jsonb!) {
+  mutation UpdatePausedRunConfig($id: uuid!, $config: jsonb!, $now: timestamptz!) {
     update_simulation_runs(
       where: { id: { _eq: $id }, status: { _eq: "paused" } }
-      _set: { config: $config }
+      _set: { config: $config, config_updated_at: $now }
     ) {
       affected_rows
       returning {
@@ -2373,6 +2378,26 @@ export const UPDATE_PAUSED_RUN_CONFIG = gql`
         config
         status
         config_updated_at
+      }
+    }
+  }
+`;
+
+// B3.7: Switch execution mode for a paused run (simulation ↔ live).
+// The where clause guards that only runs with status="paused" can have their mode changed —
+// prevents switching mode on a run that is actively executing (which would race the runner).
+// mode_switched_at is set to the client timestamp ($switchedAt) passed from the API layer.
+export const SWITCH_RUN_MODE = gql`
+  mutation SwitchRunMode($id: uuid!, $mode: String!, $switchedAt: timestamptz!) {
+    update_simulation_runs(
+      where: { id: { _eq: $id }, status: { _eq: "paused" } }
+      _set: { mode: $mode, mode_switched_at: $switchedAt }
+    ) {
+      affected_rows
+      returning {
+        id
+        mode
+        mode_switched_at
       }
     }
   }
@@ -2419,6 +2444,7 @@ export const GET_SIMULATION_RUN = gql`
       stopped_at
       paused_at
       config_updated_at
+      mode_switched_at
       created_at
       comparison_group_id
       label
@@ -2769,6 +2795,74 @@ export const GET_COMPARISON_ANALYSIS = gql`
       profit_factor
       fee_efficiency
       avg_pnl_per_position
+    }
+  }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// B4.1: Real-time status subscriptions
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Status fields delivered by run subscriptions.
+ * Only the fields that change at runtime are included — heavy config/analytics
+ * data is loaded once via HTTP queries.
+ */
+export interface RunStatusFields {
+  id: string;
+  /** "pending"|"initializing"|"running"|"pausing"|"paused"|"resuming"|"stopping"|"stopped"|"error" */
+  status: string;
+  /** "simulation" | "live" */
+  mode: string;
+  error_message?: string;
+  markets_found?: number;
+  paused_at?: string;
+  started_at?: string;
+  stopped_at?: string;
+  config_updated_at?: string;
+  mode_switched_at?: string;
+}
+
+/**
+ * B4.1: Subscribe to status fields for all runs (list page).
+ * Raw string — graphql-ws expects a string query, not a DocumentNode.
+ */
+export const SUBSCRIBE_RUNS_STATUS = `
+  subscription SubscribeRunsStatus($limit: Int, $offset: Int) {
+    simulation_runs(
+      order_by: { created_at: desc }
+      limit: $limit
+      offset: $offset
+    ) {
+      id
+      status
+      mode
+      error_message
+      markets_found
+      paused_at
+      started_at
+      stopped_at
+    }
+  }
+`;
+
+/**
+ * B4.1: Subscribe to status fields for a single run (detail page).
+ * Raw string — graphql-ws expects a string query, not a DocumentNode.
+ */
+export const SUBSCRIBE_RUN_STATUS = `
+  subscription SubscribeRunStatus($id: uuid!) {
+    simulation_runs_by_pk(id: $id) {
+      id
+      status
+      mode
+      error_message
+      markets_found
+      paused_at
+      started_at
+      stopped_at
+      config_updated_at
+      mode_switched_at
     }
   }
 `;

@@ -9,8 +9,9 @@ import { SimTradesResult, SimFundingResult } from "@/lib/api/types";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard, StatsGrid } from "@/components/stat-card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { RunStatusIndicator } from "@/components/simulations/run-status-indicator";
+import { ConnectionIndicator } from "@/components/simulations/connection-indicator";
 import { SimMarketsTable } from "@/components/simulations/sim-markets-table";
 import { SimTradesTable } from "@/components/simulations/sim-trades-table";
 import { SimPositionsTable } from "@/components/simulations/sim-positions-table";
@@ -27,6 +28,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { useRunStatusSubscription } from "@/hooks/use-run-status-subscription";
 
 const POLL_INTERVAL_MS = 5000;
 const PAGE_SIZE = 25;
@@ -34,20 +36,6 @@ const PAGE_SIZE = 25;
 type TabId = "overview" | "trades" | "positions" | "funding" | "markets" | "balance";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-function statusBadgeVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
-  switch (status) {
-    case "running":
-    case "resuming": return "default";
-    case "pending":
-    case "initializing": return "secondary";
-    case "pausing":
-    case "paused":
-    case "stopping": return "outline";
-    case "error": return "destructive";
-    default: return "outline";
-  }
-}
 
 function formatDuration(start?: string, stop?: string): string {
   if (!start) return "—";
@@ -225,12 +213,24 @@ export default function SimulationDetailPage() {
   const [isLoadingFunding, setIsLoadingFunding] = useState(false);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
-  const [isPausing, setIsPausing] = useState(false);       // B3.5
-  const [isResuming, setIsResuming] = useState(false);     // B3.5
+  const [isPausing, setIsPausing] = useState(false);          // B3.5
+  const [isResuming, setIsResuming] = useState(false);        // B3.5
   const [isEditingConfig, setIsEditingConfig] = useState(false); // B3.6
+  const [isSwitchingMode, setIsSwitchingMode] = useState(false); // B3.7
 
   // B3.6: Track previous run status to detect the resuming→running transition.
   const prevStatusRef = useRef<string | undefined>(undefined);
+
+  // B4.1: Real-time status subscription.
+  const { liveStatus, connectionState } = useRunStatusSubscription(id);
+
+  // B4.1: Merge live status fields into run state whenever a WS event arrives.
+  // Only volatile fields (status, mode, error_message, timestamps) are merged —
+  // the heavier config / analytics data is untouched.
+  useEffect(() => {
+    if (!liveStatus) return;
+    setRun((r) => r ? { ...r, ...liveStatus } : r);
+  }, [liveStatus]);
 
   const fetchCore = useCallback(async () => {
     try {
@@ -296,20 +296,23 @@ export default function SimulationDetailPage() {
     fetchBalanceHistory();
   }, [fetchCore, fetchTrades, fetchFunding, fetchBalanceHistory]);
 
-  // Auto-poll while run is in any active/transitional state (B3.5: includes pause/resume transitions).
+  // B4.1: Poll analytics data (trades, positions, funding, balance, markets) while the run
+  // is active. Run status itself is now delivered via WebSocket subscription — we no longer
+  // include fetchCore in this interval so we avoid redundant status fetches.
   useEffect(() => {
     if (!run) return;
     const isActive = ["pending", "initializing", "running", "pausing", "resuming", "stopping"].includes(run.status);
     if (!isActive) return;
 
     const timer = setInterval(() => {
+      // Refresh markets + positions (not subscribed) alongside analytics.
       fetchCore();
       fetchTrades(tradesPage);
       fetchFunding();
       fetchBalanceHistory();
     }, POLL_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [run, fetchCore, fetchTrades, fetchFunding, fetchBalanceHistory, tradesPage]);
+  }, [run?.status, fetchCore, fetchTrades, fetchFunding, fetchBalanceHistory, tradesPage]);
 
   useEffect(() => {
     fetchTrades(tradesPage);
@@ -330,7 +333,16 @@ export default function SimulationDetailPage() {
         toast.success("Run resumed with updated parameters", { duration: 5000 });
       }
     }
-  }, [run?.status, run?.config_updated_at, run?.paused_at]);
+    // B3.7: Show a toast when a run transitions from "resuming" → "running" and
+    // mode_switched_at is set (meaning the mode was switched while paused).
+    if (prev === "resuming" && run.status === "running" && run.mode_switched_at) {
+      const modeSwitchedAfterPause = !run.paused_at ||
+        new Date(run.mode_switched_at) > new Date(run.paused_at);
+      if (modeSwitchedAfterPause) {
+        toast.success(`Run resumed in ${run.mode.toUpperCase()} mode`, { duration: 5000 });
+      }
+    }
+  }, [run?.status, run?.config_updated_at, run?.mode_switched_at, run?.paused_at, run?.mode]);
 
   const handleStop = async () => {
     if (!run) return;
@@ -370,6 +382,30 @@ export default function SimulationDetailPage() {
       console.error("Failed to resume run:", err);
     } finally {
       setIsResuming(false);
+    }
+  };
+
+  // B3.7: Switch execution mode (simulation ↔ live) while a run is paused.
+  // Switching to "live" requires an explicit browser confirmation since it involves real money.
+  const handleSwitchMode = async () => {
+    if (!run) return;
+    const targetMode = run.mode === "simulation" ? "live" : "simulation";
+    if (targetMode === "live") {
+      const confirmed = window.confirm(
+        "Switch to LIVE mode?\n\nThis run will execute real orders on live exchanges when resumed. Make sure your exchange API keys are configured and you understand the risks.\n\nContinue?"
+      );
+      if (!confirmed) return;
+    }
+    setIsSwitchingMode(true);
+    try {
+      const result = await api.switchRunMode(run.id, targetMode);
+      setRun((r) => r ? { ...r, mode: result.mode, mode_switched_at: result.mode_switched_at } : r);
+      toast.success(`Mode switched to ${targetMode.toUpperCase()}`, { duration: 4000 });
+    } catch (err) {
+      console.error("Failed to switch mode:", err);
+      toast.error("Failed to switch mode — run must be paused");
+    } finally {
+      setIsSwitchingMode(false);
     }
   };
 
@@ -434,9 +470,19 @@ export default function SimulationDetailPage() {
     <div className="space-y-6">
       <PageHeader
         title={
-          <span className="flex items-center gap-3">
+          <span className="flex items-center gap-3 flex-wrap">
             {run?.asset ?? "Simulation"}
-            {run && <Badge variant={statusBadgeVariant(run.status)}>{run.status}</Badge>}
+            {/* B4.1: Animated status dot + mode pill in header */}
+            {run && (
+              <RunStatusIndicator
+                status={run.status}
+                mode={run.mode}
+                errorMessage={undefined}
+                size="md"
+              />
+            )}
+            {/* B4.1: WebSocket connectivity badge */}
+            <ConnectionIndicator state={connectionState} />
           </span>
         }
         description={
@@ -469,6 +515,21 @@ export default function SimulationDetailPage() {
                   onClick={() => setIsEditingConfig((v) => !v)}
                 >
                   {isEditingConfig ? "Cancel Edit" : "Edit Parameters"}
+                </Button>
+              )}
+              {/* B3.7: Switch mode button — only shown when fully paused */}
+              {run?.status === "paused" && (
+                <Button
+                  variant="outline"
+                  onClick={handleSwitchMode}
+                  disabled={isSwitchingMode || isEditingConfig}
+                  title={run.mode === "simulation" ? "Switch to live execution" : "Switch to simulation (paper trading)"}
+                >
+                  {isSwitchingMode
+                    ? "Switching…"
+                    : run.mode === "simulation"
+                      ? "Switch to Live"
+                      : "Switch to Sim"}
                 </Button>
               )}
               {/* B3.5: Resume button — shown when paused */}
@@ -662,7 +723,11 @@ export default function SimulationDetailPage() {
                 </div>
                 <div>
                   <dt className="text-muted-foreground">Status</dt>
-                  <dd>{run ? <Badge variant={statusBadgeVariant(run.status)}>{run.status}</Badge> : "—"}</dd>
+                  <dd>
+                    {run
+                      ? <RunStatusIndicator status={run.status} mode={run.mode} showMode={false} />
+                      : "—"}
+                  </dd>
                 </div>
                 <div>
                   <dt className="text-muted-foreground">Quote Currency</dt>
@@ -686,6 +751,15 @@ export default function SimulationDetailPage() {
                     <dt className="text-muted-foreground">Config Last Edited</dt>
                     <dd className="font-medium text-yellow-500">
                       {formatRelativeTime(run.config_updated_at)}
+                    </dd>
+                  </div>
+                )}
+                {/* B3.7: Show mode switch timestamp when mode was changed while paused */}
+                {run?.mode_switched_at && (
+                  <div>
+                    <dt className="text-muted-foreground">Mode Last Switched</dt>
+                    <dd className="font-medium text-blue-500">
+                      {run.mode.toUpperCase()} as of {formatRelativeTime(run.mode_switched_at)}
                     </dd>
                   </div>
                 )}
