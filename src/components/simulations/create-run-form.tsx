@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -119,7 +120,25 @@ export function CreateRunForm({
       setMaxTotalExposure("");
       setEnableFundingAwareExit(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create simulation run");
+      const message = err instanceof Error ? err.message : "Failed to create simulation run";
+
+      // B3.4: The DB trigger fires when active runs >= MaxConcurrentRuns (5).
+      // The graphql.ts layer converts this to a friendly ApiError with a message
+      // containing "Maximum concurrent runs". Surface it as a prominent toast so
+      // the user sees it even if the capacity warning banner wasn't visible.
+      if (
+        message.includes("concurrent_run_capacity") ||
+        message.includes("Maximum concurrent runs")
+      ) {
+        toast.error("Capacity limit reached", {
+          description: `All ${maxConcurrentRuns} concurrent run slots are occupied. Stop an existing run before starting a new one.`,
+          duration: 6000,
+        });
+        // Also update the inline error for accessibility.
+        setError(`Maximum concurrent runs reached (${activeRunCount}/${maxConcurrentRuns}). Stop a run to free a slot.`);
+      } else {
+        setError(message);
+      }
     } finally {
       setIsLoading(false);
     }

@@ -2135,6 +2135,23 @@ export interface SimRunConfig {
    * B2.10 dynamic threshold without any funding-rate consideration.
    */
   enable_funding_aware_exit?: boolean;
+  // B2.10: dynamic exit threshold parameters
+  base_exit_pnl_pct?: number;
+  entry_profit_allowance?: number;
+  time_decay_per_hour?: number;
+  min_exit_pnl_pct?: number;
+  max_exit_loss_to_entry_profit_ratio?: number;
+  // B2.11: funding window parameters
+  funding_delay_window_ms?: number;
+  funding_accelerate_window_ms?: number;
+  min_funding_impact_usd?: number;
+  // B2.12: capital recycling
+  enable_capital_recycling?: boolean;
+  reentry_cooldown_sec?: number;
+  // B2.14: position sizing
+  max_position_fraction?: number;
+  // B2.6: entry threshold
+  min_entry_pnl_pct?: number;
 }
 
 export interface SimulationRun {
@@ -2151,6 +2168,8 @@ export interface SimulationRun {
   stopped_at?: string;
   /** B3.5: timestamp when the run was most recently paused */
   paused_at?: string;
+  /** B3.6: timestamp when config was last edited while paused; null = never edited */
+  config_updated_at?: string;
   created_at: string;
   simulation_markets?: SimulationMarket[];
   /** B1.6: links this run to other runs started as a comparison group */
@@ -2341,6 +2360,7 @@ export const RESUME_SIMULATION_RUN = gql`
 // B3.6: Update config for a paused run.
 // The where clause guards that only runs with status="paused" can be updated —
 // prevents editing a run that is actively running (which would race the market data loop).
+// config_updated_at is set server-side by the Go store layer before calling this mutation.
 export const UPDATE_PAUSED_RUN_CONFIG = gql`
   mutation UpdatePausedRunConfig($id: uuid!, $config: jsonb!) {
     update_simulation_runs(
@@ -2352,6 +2372,7 @@ export const UPDATE_PAUSED_RUN_CONFIG = gql`
         id
         config
         status
+        config_updated_at
       }
     }
   }
@@ -2397,6 +2418,7 @@ export const GET_SIMULATION_RUN = gql`
       started_at
       stopped_at
       paused_at
+      config_updated_at
       created_at
       comparison_group_id
       label

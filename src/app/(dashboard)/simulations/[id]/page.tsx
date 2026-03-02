@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
@@ -26,6 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 const POLL_INTERVAL_MS = 5000;
 const PAGE_SIZE = 25;
@@ -139,6 +140,18 @@ function calcUnrealizedPnLForPositions(positions: SimulationPosition[]): number 
     }, 0);
 }
 
+// B3.6: Format a timestamp as a human-readable relative time (e.g. "3 min ago").
+function formatRelativeTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin} min ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  return new Date(iso).toLocaleString();
+}
+
 // ── Per-exchange breakdown ────────────────────────────────────────────────────
 
 interface ExchangeRow {
@@ -215,6 +228,9 @@ export default function SimulationDetailPage() {
   const [isPausing, setIsPausing] = useState(false);       // B3.5
   const [isResuming, setIsResuming] = useState(false);     // B3.5
   const [isEditingConfig, setIsEditingConfig] = useState(false); // B3.6
+
+  // B3.6: Track previous run status to detect the resuming→running transition.
+  const prevStatusRef = useRef<string | undefined>(undefined);
 
   const fetchCore = useCallback(async () => {
     try {
@@ -299,6 +315,23 @@ export default function SimulationDetailPage() {
     fetchTrades(tradesPage);
   }, [tradesPage, fetchTrades]);
 
+  // B3.6: Show a toast when a run transitions from "resuming" → "running" and
+  // config_updated_at is set (meaning the user edited params while paused).
+  // Auto-dismissed by sonner after 5s (duration prop on Toaster in layout).
+  useEffect(() => {
+    if (!run) return;
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = run.status;
+    if (prev === "resuming" && run.status === "running" && run.config_updated_at) {
+      // Confirm config was edited after the most recent pause (not a stale timestamp).
+      const configEditedAfterPause = !run.paused_at ||
+        new Date(run.config_updated_at) > new Date(run.paused_at);
+      if (configEditedAfterPause) {
+        toast.success("Run resumed with updated parameters", { duration: 5000 });
+      }
+    }
+  }, [run?.status, run?.config_updated_at, run?.paused_at]);
+
   const handleStop = async () => {
     if (!run) return;
     setIsStopping(true);
@@ -341,8 +374,12 @@ export default function SimulationDetailPage() {
   };
 
   // B3.6: Save edited config — update local run state so UI reflects changes immediately.
-  const handleSaveConfig = (updatedConfig: import("@/lib/queries").SimRunConfig) => {
-    setRun((r) => r ? { ...r, config: updatedConfig } : r);
+  // updatedConfigResult carries config_updated_at from the server for optimistic display.
+  const handleSaveConfig = (
+    updatedConfig: import("@/lib/queries").SimRunConfig,
+    configUpdatedAt?: string,
+  ) => {
+    setRun((r) => r ? { ...r, config: updatedConfig, config_updated_at: configUpdatedAt ?? r.config_updated_at } : r);
     setIsEditingConfig(false);
   };
 
@@ -462,7 +499,7 @@ export default function SimulationDetailPage() {
       {isEditingConfig && run && run.status === "paused" && (
         <EditPausedRunConfig
           run={run}
-          onSave={handleSaveConfig}
+          onSave={(cfg, configUpdatedAt) => handleSaveConfig(cfg, configUpdatedAt)}
           onCancel={() => setIsEditingConfig(false)}
         />
       )}
@@ -643,6 +680,15 @@ export default function SimulationDetailPage() {
                   <dt className="text-muted-foreground">Created</dt>
                   <dd className="font-medium">{run?.created_at ? new Date(run.created_at).toLocaleString() : "—"}</dd>
                 </div>
+                {/* B3.6: Show config edit timestamp when params were changed while paused */}
+                {run?.config_updated_at && (
+                  <div>
+                    <dt className="text-muted-foreground">Config Last Edited</dt>
+                    <dd className="font-medium text-yellow-500">
+                      {formatRelativeTime(run.config_updated_at)}
+                    </dd>
+                  </div>
+                )}
                 <div>
                   <dt className="text-muted-foreground">Markets Found</dt>
                   <dd className="font-medium">{run?.markets_found ?? "—"}</dd>

@@ -154,7 +154,7 @@ export interface ApiClient {
    * The mutation is guarded by status="paused" — only paused runs can have their config edited.
    * The runner will hot-swap the new config when the run is resumed.
    */
-  updatePausedRunConfig(id: string, config: SimRunConfig): Promise<{ id: string; config: SimRunConfig }>;
+  updatePausedRunConfig(id: string, config: SimRunConfig): Promise<{ id: string; config: SimRunConfig; config_updated_at?: string }>;
   getSimulationMarkets(runId: string): Promise<SimulationMarket[]>;
   // B1.3: Get the current (latest) virtual balance for a simulation run
   getSimulationBalance(runId: string): Promise<SimulationBalance | null>;

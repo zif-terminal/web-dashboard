@@ -1455,18 +1455,35 @@ export const graphqlApi: ApiClient = {
   async createSimulationRun(asset: string, config?: import("../queries").SimRunConfig, startingBalance?: number, quoteCurrency?: string, exchanges?: string[], marketTypes?: string[], mode?: string) {
     return withErrorHandling(async () => {
       const client = getGraphQLClient();
-      const data = await client.request<{
-        insert_simulation_runs_one: import("../queries").SimulationRun;
-      }>(CREATE_SIMULATION_RUN, {
-        asset: asset.toUpperCase(),
-        config: config ?? {},
-        starting_balance: startingBalance ?? 10000,
-        quote_currency: quoteCurrency ?? "USDC",
-        exchanges: exchanges ?? [],
-        market_types: marketTypes ?? [],
-        mode: mode ?? "simulation",
-      });
-      return data.insert_simulation_runs_one;
+      try {
+        const data = await client.request<{
+          insert_simulation_runs_one: import("../queries").SimulationRun;
+        }>(CREATE_SIMULATION_RUN, {
+          asset: asset.toUpperCase(),
+          config: config ?? {},
+          starting_balance: startingBalance ?? 10000,
+          quote_currency: quoteCurrency ?? "USDC",
+          exchanges: exchanges ?? [],
+          market_types: marketTypes ?? [],
+          mode: mode ?? "simulation",
+        });
+        return data.insert_simulation_runs_one;
+      } catch (err) {
+        // B3.4: The DB trigger raises a P0001 error containing "concurrent_run_capacity"
+        // when the active run count has reached MaxConcurrentRuns (5).
+        // Surface this as a structured error so the UI can show a friendly message
+        // rather than a raw GraphQL exception.
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.includes("concurrent_run_capacity")) {
+          throw new ApiError(
+            "request_error",
+            "Maximum concurrent runs reached. Stop an existing run before starting a new one.",
+            409,
+            false,
+          );
+        }
+        throw err;
+      }
     });
   },
 
@@ -1503,21 +1520,21 @@ export const graphqlApi: ApiClient = {
   },
 
   // B3.6: Update config for a paused run (guarded by status="paused" in the mutation).
-  // Returns the updated id and config. Throws if the run is not paused.
+  // Returns the updated id, config, and config_updated_at. Throws if the run is not paused.
   async updatePausedRunConfig(id: string, config: import("../queries").SimRunConfig) {
     return withErrorHandling(async () => {
       const client = getGraphQLClient();
       const data = await client.request<{
         update_simulation_runs: {
           affected_rows: number;
-          returning: { id: string; config: import("../queries").SimRunConfig; status: string }[];
+          returning: { id: string; config: import("../queries").SimRunConfig; status: string; config_updated_at?: string }[];
         };
       }>(UPDATE_PAUSED_RUN_CONFIG, { id, config });
       if (data.update_simulation_runs.affected_rows === 0) {
         throw new Error("Config update failed — run may not be in paused status");
       }
       const row = data.update_simulation_runs.returning[0];
-      return { id: row.id, config: row.config };
+      return { id: row.id, config: row.config, config_updated_at: row.config_updated_at };
     });
   },
 
