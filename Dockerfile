@@ -18,12 +18,21 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Build-time environment variables (server-side rewrites use these at runtime too,
-# but we set safe defaults here so the build succeeds without a real .env)
+# IMPORTANT: Next.js bakes next.config.ts rewrites into routes-manifest.json at BUILD time.
+# These ARGs must match the Docker service hostnames so the proxy destinations are correct.
+ARG HASURA_URL=http://hasura:8080
+ARG AUTH_URL=http://auth:8081
+ARG VAULT_MANAGER_URL=http://vault_manager:8085
+ARG DISCOVERY_URL=http://account_detector:8082
+
+ENV HASURA_URL=$HASURA_URL
+ENV AUTH_URL=$AUTH_URL
+ENV VAULT_MANAGER_URL=$VAULT_MANAGER_URL
+ENV DISCOVERY_URL=$DISCOVERY_URL
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
-# Build the Next.js app (output: standalone)
+# Build the Next.js app (output: standalone) — rewrites baked with above URLs
 RUN npm run build
 
 # Stage 3: runner — minimal production image
