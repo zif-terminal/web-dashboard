@@ -43,7 +43,7 @@ export function StatCard({
 
 export interface StatsGridProps {
   children: React.ReactNode;
-  columns?: 2 | 3 | 4 | 5;
+  columns?: 2 | 3 | 4 | 5 | 6;
 }
 
 export function StatsGrid({ children, columns = 2 }: StatsGridProps) {
@@ -52,6 +52,7 @@ export function StatsGrid({ children, columns = 2 }: StatsGridProps) {
     3: "md:grid-cols-3",
     4: "md:grid-cols-4",
     5: "md:grid-cols-5",
+    6: "md:grid-cols-6",
   }[columns];
 
   return <div className={cn("grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-4", colsClass)}>{children}</div>;
