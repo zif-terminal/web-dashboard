@@ -1,4 +1,4 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionTrade, PositionsAggregates, Wallet, WalletWithAccounts, Deposit, DepositsAggregates, OpenPosition, PortfolioSummary, AssetBalance, AssetPnL, AssetFee, FundingAssetBreakdown, ExchangePnLBreakdown, ExchangeFundingBreakdown, ExchangeDistribution, SimulationRun, SimulationMarket, SimulationBalance, SimRunConfig, SimulationTrade, SimulationPosition, SimulationFundingPayment, SimulationRestingOrder, SimRunMetrics, SimulationOpportunitySnapshot, VaultListing, VaultListingDeposit, VaultListingWithdrawal } from "../queries";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionTrade, PositionsAggregates, Wallet, WalletWithAccounts, Deposit, DepositsAggregates, OpenPosition, PortfolioSummary, AssetBalance, AssetPnL, AssetFee, FundingAssetBreakdown, InterestAssetBreakdown, ExchangePnLBreakdown, ExchangeFundingBreakdown, ExchangeDistribution, SimulationRun, SimulationMarket, SimulationBalance, SimRunConfig, SimulationTrade, SimulationPosition, SimulationFundingPayment, SimulationRestingOrder, SimRunMetrics, SimulationOpportunitySnapshot, VaultListing, VaultListingDeposit, VaultListingWithdrawal } from "../queries";
 
 // B1.6: Input for a single run within a comparison batch.
 export interface ComparisonRunInput {
@@ -153,6 +153,8 @@ export interface ApiClient {
   getAssetFeeBreakdown(filters?: DataFilters): Promise<AssetFee[]>;
   // Per-asset funding breakdown (A6.3: funding grouped by asset)
   getFundingByAssetBreakdown(filters?: DataFilters): Promise<FundingAssetBreakdown[]>;
+  // OPS.3: Per-asset interest (borrow/lend) breakdown derived from balance snapshot reconciliation
+  getInterestBreakdown(filters?: DataFilters): Promise<InterestAssetBreakdown[]>;
   // B1.1: Simulation runs
   getSimulationRuns(limit?: number, offset?: number): Promise<{ runs: SimulationRun[]; totalCount: number }>;
   getSimulationRun(id: string): Promise<SimulationRun | null>;

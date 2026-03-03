@@ -7,12 +7,13 @@ import { ConnectWalletDialog } from "@/components/connect-wallet-dialog";
 import { WalletsSection } from "@/components/wallets-section";
 import { SyncButton } from "@/components/sync-button";
 import { AssetPnLTable } from "@/components/asset-pnl-table";
+import { InterestByAssetTable } from "@/components/interest-by-asset-table";
 import { ExchangeFeeBreakdown } from "@/components/exchange-fee-breakdown";
 import { AssetFeeBreakdown } from "@/components/asset-fee-breakdown";
 import { StatCard, StatsGrid } from "@/components/stat-card";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { api, DataFilters } from "@/lib/api";
-import { PortfolioSummary, AssetPnL, AssetFee } from "@/lib/queries";
+import { PortfolioSummary, AssetPnL, AssetFee, InterestAssetBreakdown } from "@/lib/queries";
 import { useApi } from "@/hooks/use-api";
 import { useFilters } from "@/contexts/filters-context";
 import {
@@ -34,6 +35,8 @@ export default function AccountsPage() {
   const [isLoadingAssetPnL, setIsLoadingAssetPnL] = useState(true);
   const [assetFees, setAssetFees] = useState<AssetFee[]>([]);
   const [isLoadingAssetFees, setIsLoadingAssetFees] = useState(true);
+  const [interestBreakdown, setInterestBreakdown] = useState<InterestAssetBreakdown[]>([]);
+  const [isLoadingInterest, setIsLoadingInterest] = useState(true);
   const { withErrorReporting } = useApi();
   const { globalTags } = useFilters();
 
@@ -125,11 +128,33 @@ export default function AccountsPage() {
     }
   }, [withErrorReporting, globalTags, pnlTimeWindow]);
 
+  const fetchInterestBreakdown = useCallback(async () => {
+    setIsLoadingInterest(true);
+    try {
+      const { since, until } = getTimestampsFromPnlWindow(pnlTimeWindow);
+      const filters: DataFilters = {
+        ...(globalTags.length > 0 ? { tags: globalTags } : {}),
+        ...(since !== undefined ? { since } : {}),
+        ...(until !== undefined ? { until } : {}),
+      };
+      const hasFilters = Object.keys(filters).length > 0;
+      const data = await withErrorReporting(() =>
+        api.getInterestBreakdown(hasFilters ? filters : undefined)
+      );
+      setInterestBreakdown(data);
+    } catch (error) {
+      console.error("Failed to fetch interest breakdown:", error);
+    } finally {
+      setIsLoadingInterest(false);
+    }
+  }, [withErrorReporting, globalTags, pnlTimeWindow]);
+
   useEffect(() => {
     fetchPortfolio();
     fetchAssetPnL();
     fetchAssetFees();
-  }, [fetchPortfolio, fetchAssetPnL, fetchAssetFees]);
+    fetchInterestBreakdown();
+  }, [fetchPortfolio, fetchAssetPnL, fetchAssetFees, fetchInterestBreakdown]);
 
   // Re-fetch data when accounts refresh
   useEffect(() => {
@@ -137,8 +162,9 @@ export default function AccountsPage() {
       fetchPortfolio();
       fetchAssetPnL();
       fetchAssetFees();
+      fetchInterestBreakdown();
     }
-  }, [refreshKey, fetchPortfolio, fetchAssetPnL, fetchAssetFees]);
+  }, [refreshKey, fetchPortfolio, fetchAssetPnL, fetchAssetFees, fetchInterestBreakdown]);
 
   const formatUsd = (value: string) => {
     const num = parseFloat(value);
@@ -163,6 +189,10 @@ export default function AccountsPage() {
   const pnlSuffix = getPnlWindowSuffix(pnlTimeWindow);
   const withSuffix = (base: string) =>
     pnlSuffix ? `${base} (${pnlSuffix})` : base;
+
+  // Derive total interest PnL by summing the net value across all assets
+  const totalInterestPnL = interestBreakdown.reduce((sum, a) => sum + a.net, 0);
+  const totalInterestPnLStr = totalInterestPnL.toString();
 
   return (
     <div className="space-y-6">
@@ -189,7 +219,7 @@ export default function AccountsPage() {
       </div>
 
       {/* Portfolio Summary */}
-      <StatsGrid columns={5}>
+      <StatsGrid columns={6}>
         <StatCard
           title="Total Account Value"
           value={portfolio ? formatUsd(portfolio.totalAccountValue) : "$0.00"}
@@ -232,6 +262,14 @@ export default function AccountsPage() {
             portfolio && parseFloat(portfolio.fundingPnL) >= 0
               ? "text-green-500"
               : "text-red-500"
+          }
+        />
+        <StatCard
+          title={withSuffix("Interest PnL")}
+          value={!isLoadingInterest ? formatSignedUsd(totalInterestPnLStr) : "$0.00"}
+          isLoading={isLoadingInterest}
+          valueClassName={
+            totalInterestPnL >= 0 ? "text-green-500" : "text-red-500"
           }
         />
         <StatCard
@@ -339,7 +377,7 @@ export default function AccountsPage() {
         <CardHeader>
           <CardTitle>{withSuffix("PnL by Asset")}</CardTitle>
           <CardDescription>
-            Realized and funding PnL broken down by asset
+            Realized, funding, and interest PnL broken down by asset
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -348,6 +386,24 @@ export default function AccountsPage() {
             isLoading={isLoadingAssetPnL}
             totalRealizedPnL={portfolio ? parseFloat(portfolio.realizedPnL) : undefined}
             totalFundingPnL={portfolio ? parseFloat(portfolio.fundingPnL) : undefined}
+            totalInterestPnL={!isLoadingInterest ? totalInterestPnL : undefined}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Interest Breakdown by Asset (OPS.3) */}
+      <Card>
+        <CardHeader>
+          <CardTitle>{withSuffix("Interest by Asset")}</CardTitle>
+          <CardDescription>
+            Borrow/lend interest derived from spot balance snapshot reconciliation
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <InterestByAssetTable
+            assets={interestBreakdown}
+            isLoading={isLoadingInterest}
+            totalInterestPnL={!isLoadingInterest ? totalInterestPnL : undefined}
           />
         </CardContent>
       </Card>
