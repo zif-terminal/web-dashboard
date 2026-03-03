@@ -1,4 +1,4 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionsAggregates, Wallet, WalletWithAccounts, Deposit, DepositsAggregates, OpenPosition, PortfolioSummary, AssetBalance, AssetPnL, AssetFee, FundingAssetBreakdown, ExchangePnLBreakdown, ExchangeFundingBreakdown, ExchangeDistribution, SimRunMetrics, SimRunConfig } from "../queries";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionsAggregates, Wallet, WalletWithAccounts, Deposit, DepositsAggregates, OpenPosition, PortfolioSummary, AssetBalance, AssetPnL, AssetFee, FundingAssetBreakdown, InterestAssetBreakdown, ExchangePnLBreakdown, ExchangeFundingBreakdown, ExchangeDistribution, SimRunMetrics, SimRunConfig } from "../queries";
 import { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, PositionsResult, PositionWithTrades, DepositsResult, DataFilters } from "./types";
 
 // Mock wallets
@@ -1102,9 +1102,11 @@ export const mockApi: ApiClient = {
         asset,
         realizedPnL: entry.realizedPnL,
         fundingPnL: entry.fundingPnL,
+        interestPnL: 0,
         totalPnL: entry.realizedPnL + entry.fundingPnL,
         positionCount: entry.positionCount,
         fundingCount: entry.fundingCount,
+        interestCount: 0,
       });
     }
 
@@ -1159,6 +1161,12 @@ export const mockApi: ApiClient = {
     // Sort by absolute net descending
     result.sort((a, b) => Math.abs(b.net) - Math.abs(a.net));
     return result;
+  },
+
+  // OPS.3: Interest breakdown mock (no interest data in mock environment)
+  async getInterestBreakdown(_filters?: DataFilters): Promise<import("../queries").InterestAssetBreakdown[]> {
+    await delay(100);
+    return [];
   },
 
   // B1.1 + B1.3: Simulation stubs (mock environment has no sim runner)
