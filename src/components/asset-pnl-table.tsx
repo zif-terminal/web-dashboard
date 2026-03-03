@@ -17,6 +17,7 @@ interface AssetPnLTableProps {
   isLoading?: boolean;
   totalRealizedPnL?: number;
   totalFundingPnL?: number;
+  totalInterestPnL?: number;
 }
 
 function formatSignedUsd(value: number): string {
@@ -36,6 +37,7 @@ function AssetPnLTableSkeleton({ rows = 4 }: { rows?: number }) {
           <TableHead>Asset</TableHead>
           <TableHead className="text-right">Realized PnL</TableHead>
           <TableHead className="text-right">Funding PnL</TableHead>
+          <TableHead className="text-right">Interest PnL</TableHead>
           <TableHead className="text-right">Total PnL</TableHead>
         </TableRow>
       </TableHeader>
@@ -43,6 +45,7 @@ function AssetPnLTableSkeleton({ rows = 4 }: { rows?: number }) {
         {Array.from({ length: rows }).map((_, i) => (
           <TableRow key={i}>
             <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+            <TableCell className="text-right"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
             <TableCell className="text-right"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
             <TableCell className="text-right"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
             <TableCell className="text-right"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
@@ -58,6 +61,7 @@ export function AssetPnLTable({
   isLoading = false,
   totalRealizedPnL,
   totalFundingPnL,
+  totalInterestPnL,
 }: AssetPnLTableProps) {
   if (isLoading && assets.length === 0) {
     return <AssetPnLTableSkeleton rows={4} />;
@@ -76,6 +80,7 @@ export function AssetPnLTable({
 
   const sumRealized = assets.reduce((sum, a) => sum + a.realizedPnL, 0);
   const sumFunding = assets.reduce((sum, a) => sum + a.fundingPnL, 0);
+  const sumInterest = assets.reduce((sum, a) => sum + (a.interestPnL ?? 0), 0);
   const sumTotal = assets.reduce((sum, a) => sum + a.totalPnL, 0);
 
   return (
@@ -85,6 +90,7 @@ export function AssetPnLTable({
           <TableHead>Asset</TableHead>
           <TableHead className="text-right">Realized PnL</TableHead>
           <TableHead className="text-right">Funding PnL</TableHead>
+          <TableHead className="text-right">Interest PnL</TableHead>
           <TableHead className="text-right">Total PnL</TableHead>
         </TableRow>
       </TableHeader>
@@ -96,6 +102,7 @@ export function AssetPnLTable({
                 <span className="font-medium">{asset.asset}</span>
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
                   {asset.positionCount} pos / {asset.fundingCount} fund
+                  {(asset.interestCount ?? 0) > 0 && ` / ${asset.interestCount} int`}
                 </span>
               </div>
             </TableCell>
@@ -110,6 +117,12 @@ export function AssetPnLTable({
               asset.fundingPnL >= 0 ? "text-green-500" : "text-red-500"
             )}>
               {formatSignedUsd(asset.fundingPnL)}
+            </TableCell>
+            <TableCell className={cn(
+              "py-3 text-right font-mono",
+              (asset.interestPnL ?? 0) >= 0 ? "text-green-500" : "text-red-500"
+            )}>
+              {formatSignedUsd(asset.interestPnL ?? 0)}
             </TableCell>
             <TableCell className={cn(
               "py-3 text-right font-mono font-medium",
@@ -138,6 +151,12 @@ export function AssetPnLTable({
           </TableCell>
           <TableCell className={cn(
             "py-3 text-right font-mono",
+            sumInterest >= 0 ? "text-green-500" : "text-red-500"
+          )}>
+            {formatSignedUsd(sumInterest)}
+          </TableCell>
+          <TableCell className={cn(
+            "py-3 text-right font-mono",
             sumTotal >= 0 ? "text-green-500" : "text-red-500"
           )}>
             {formatSignedUsd(sumTotal)}
@@ -148,12 +167,13 @@ export function AssetPnLTable({
           (() => {
             const realizedDiff = Math.abs(sumRealized - totalRealizedPnL);
             const fundingDiff = Math.abs(sumFunding - totalFundingPnL);
-            const isMatching = realizedDiff < 0.01 && fundingDiff < 0.01;
+            const interestDiff = totalInterestPnL !== undefined ? Math.abs(sumInterest - totalInterestPnL) : 0;
+            const isMatching = realizedDiff < 0.01 && fundingDiff < 0.01 && interestDiff < 0.01;
             if (isMatching) return null;
             return (
               <TableRow className="bg-yellow-500/10">
-                <TableCell colSpan={4} className="py-2 text-xs text-yellow-600 dark:text-yellow-400 text-center">
-                  Note: Per-asset totals differ from portfolio totals by {formatSignedUsd(realizedDiff)} (realized) / {formatSignedUsd(fundingDiff)} (funding) due to rounding
+                <TableCell colSpan={5} className="py-2 text-xs text-yellow-600 dark:text-yellow-400 text-center">
+                  Note: Per-asset totals differ from portfolio totals by {formatSignedUsd(realizedDiff)} (realized) / {formatSignedUsd(fundingDiff)} (funding){totalInterestPnL !== undefined && ` / ${formatSignedUsd(interestDiff)} (interest)`} due to rounding
                 </TableCell>
               </TableRow>
             );
