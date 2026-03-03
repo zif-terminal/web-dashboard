@@ -154,7 +154,7 @@ function matchGroup(
   const shortPool: TaxLot[] = [];  // opened by sell trades
 
   for (const trade of trades) {
-    const ts = new Date(trade.timestamp).getTime();
+    const ts = /^\d+$/.test(trade.timestamp) ? Number(trade.timestamp) : new Date(trade.timestamp).getTime();
     const price = parseFloat(trade.price);
     const qty = parseFloat(trade.quantity);
     const fee = parseFloat(trade.fee) || 0;
@@ -310,7 +310,7 @@ export function matchLots(
 
   // Merge and sort all trades chronologically
   const all = [...trades, ...synth].sort(
-    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    (a, b) => (/^\d+$/.test(a.timestamp) ? Number(a.timestamp) : new Date(a.timestamp).getTime()) - (/^\d+$/.test(b.timestamp) ? Number(b.timestamp) : new Date(b.timestamp).getTime())
   );
 
   // Group by (base_asset, exchange_account_id, market_type)

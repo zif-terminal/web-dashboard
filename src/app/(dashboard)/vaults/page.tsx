@@ -9,14 +9,18 @@ import { VaultWithdrawalHistory } from "@/components/vaults/vault-withdrawal-his
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
 
-function formatUsd(value: number): string {
-  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
-  if (value >= 1_000) return `$${(value / 1_000).toFixed(1)}K`;
-  return `$${value.toFixed(2)}`;
+function formatUsd(value: number | string): string {
+  const v = typeof value === "string" ? parseFloat(value) : value;
+  if (isNaN(v)) return "$0.00";
+  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`;
+  if (v >= 1_000) return `$${(v / 1_000).toFixed(1)}K`;
+  return `$${v.toFixed(2)}`;
 }
 
-function formatApr(value: number): string {
-  return `${value.toFixed(2)}%`;
+function formatApr(value: number | string): string {
+  const v = typeof value === "string" ? parseFloat(value) : value;
+  if (isNaN(v)) return "0.00%";
+  return `${v.toFixed(2)}%`;
 }
 
 type ActiveDialog = "deposit" | "withdraw" | null;

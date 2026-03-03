@@ -441,7 +441,7 @@ export default function TaxReportPage() {
                       .map((fp) => (
                         <tr key={fp.id} className="border-b last:border-0">
                           <td className="py-2 pr-4 text-muted-foreground">
-                            {new Date(fp.timestamp).toLocaleDateString()}
+                            {new Date(Number(fp.timestamp)).toLocaleDateString()}
                           </td>
                           <td className="py-2 pr-4 font-medium">
                             {fp.base_asset}/{fp.quote_asset}

@@ -26,8 +26,9 @@ interface DepositsTableProps {
   isNewItem?: (id: string) => boolean;
 }
 
-function formatTimestamp(timestamp: number): string {
-  return new Date(timestamp).toLocaleString();
+function formatTimestamp(timestamp: string | number): string {
+  const ts = typeof timestamp === "string" && /^\d+$/.test(timestamp) ? Number(timestamp) : timestamp;
+  return new Date(ts).toLocaleString();
 }
 
 function formatNumber(value: string, decimals: number = 6): string {

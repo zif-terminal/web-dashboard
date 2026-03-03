@@ -30,8 +30,9 @@ interface PositionDetailProps {
   positionId: string;
 }
 
-function formatTimestamp(timestamp: number): string {
-  return new Date(timestamp).toLocaleString();
+function formatTimestamp(timestamp: string | number): string {
+  const ts = typeof timestamp === "string" && /^\d+$/.test(timestamp) ? Number(timestamp) : timestamp;
+  return new Date(ts).toLocaleString();
 }
 
 function formatNumber(value: string, decimals: number = 4): string {
@@ -328,7 +329,7 @@ export function PositionDetail({ positionId }: PositionDetailProps) {
                   <TableRow key={pt.trade_id}>
                     <TableCell className="py-3">
                       {pt.trade?.timestamp
-                        ? new Date(pt.trade.timestamp).toLocaleString()
+                        ? formatTimestamp(pt.trade.timestamp)
                         : "-"
                       }
                     </TableCell>

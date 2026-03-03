@@ -28,14 +28,20 @@ export function formatPercentage(value: string, decimals: number = 4): string {
   }) + "%";
 }
 
+/** Parse a timestamp that may be an ISO string, a unix-ms number, or a unix-ms string. */
+export function parseTimestamp(timestamp: string | number): Date {
+  const ts = typeof timestamp === "string" && /^\d+$/.test(timestamp) ? Number(timestamp) : timestamp;
+  return new Date(ts);
+}
+
 export function formatTimestamp(timestamp: string | number): string {
-  return new Date(timestamp).toLocaleString();
+  return parseTimestamp(timestamp).toLocaleString();
 }
 
 export function formatRelativeTime(timestamp: string | number | null | undefined): string {
   if (!timestamp) return "Never";
 
-  const date = new Date(timestamp);
+  const date = parseTimestamp(timestamp);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffSec = Math.floor(diffMs / 1000);

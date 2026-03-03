@@ -5,6 +5,8 @@ const HASURA_URL = process.env.HASURA_URL || "http://167.99.145.4";
 const AUTH_URL = process.env.AUTH_URL || "http://167.99.145.4";
 // C1.1: vault_manager service for deposit flow (port 8085).
 const VAULT_MANAGER_URL = process.env.VAULT_MANAGER_URL || "http://localhost:8085";
+// A1.5: account discovery service (port 8082).
+const DISCOVERY_URL = process.env.DISCOVERY_URL || "http://localhost:8082";
 
 const nextConfig: NextConfig = {
   async rewrites() {
@@ -29,6 +31,11 @@ const nextConfig: NextConfig = {
         //          /api/strategy-vault/{slug}/deposit/verify
         source: "/api/strategy-vault/:path*",
         destination: `${VAULT_MANAGER_URL}/strategy-vault/:path*`,
+      },
+      {
+        // A1.5: proxy account discovery/search calls to account_detector.
+        source: "/api/discover/:path*",
+        destination: `${DISCOVERY_URL}/:path*`,
       },
     ];
   },

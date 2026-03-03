@@ -31,8 +31,9 @@ interface PositionsTableProps {
   onSortChange?: (sort: SortConfig | null) => void;
 }
 
-function formatTimestamp(timestamp: number): string {
-  return new Date(timestamp).toLocaleString();
+function formatTimestamp(timestamp: string | number): string {
+  const ts = typeof timestamp === "string" && /^\d+$/.test(timestamp) ? Number(timestamp) : timestamp;
+  return new Date(ts).toLocaleString();
 }
 
 function formatNumber(value: string, decimals: number = 4): string {

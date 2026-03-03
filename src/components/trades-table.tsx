@@ -28,7 +28,8 @@ interface TradesTableProps {
 }
 
 function formatTimestamp(timestamp: string): string {
-  return new Date(timestamp).toLocaleString();
+  const ts = /^\d+$/.test(timestamp) ? Number(timestamp) : timestamp;
+  return new Date(ts).toLocaleString();
 }
 
 function formatNumber(value: string, decimals: number = 4): string {

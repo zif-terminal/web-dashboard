@@ -13,9 +13,9 @@ interface DiscoverResponse {
   error?: string;
 }
 
-// Discovery service URL - uses environment variable or defaults to localhost
+// Discovery service URL - proxied through Next.js rewrites at /api/discover
 const DISCOVERY_SERVICE_URL =
-  process.env.NEXT_PUBLIC_DISCOVERY_URL || "http://localhost:8082";
+  process.env.NEXT_PUBLIC_DISCOVERY_URL || "/api/discover";
 
 /**
  * Discover accounts for any supported exchange via backend service
