@@ -318,6 +318,42 @@ function buildDepositsWhereClause(filters?: DataFilters): Record<string, unknown
   return { _and: conditions };
 }
 
+function buildInterestWhereClause(filters?: DataFilters): Record<string, unknown> {
+  const conditions: Record<string, unknown>[] = [];
+
+  if (filters?.accountId) {
+    conditions.push({ exchange_account_id: { _eq: filters.accountId } });
+  }
+
+  if (filters?.since !== undefined && filters?.until !== undefined) {
+    conditions.push({ timestamp: { _gte: String(filters.since), _lte: String(filters.until) } });
+  } else if (filters?.since !== undefined) {
+    conditions.push({ timestamp: { _gte: String(filters.since) } });
+  }
+
+  if (filters?.baseAssets && filters.baseAssets.length > 0) {
+    conditions.push({ asset: { _in: filters.baseAssets } });
+  }
+
+  if (filters?.tags && filters.tags.length > 0) {
+    conditions.push(buildTagConditions(filters.tags));
+  }
+
+  if (filters?.exchangeIds && filters.exchangeIds.length > 0) {
+    conditions.push({ exchange_account: { exchange_id: { _in: filters.exchangeIds } } });
+  }
+
+  if (conditions.length === 0) {
+    return {};
+  }
+
+  if (conditions.length === 1) {
+    return conditions[0];
+  }
+
+  return { _and: conditions };
+}
+
 /**
  * A7.1: Parse a snapshot symbol string into base and quote asset components.
  *
@@ -1499,43 +1535,6 @@ export const graphqlApi: ApiClient = {
     });
   },
 
-
-// Build where clause for interest payments based on filters (OPS.3)
-function buildInterestWhereClause(filters?: DataFilters): Record<string, unknown> {
-  const conditions: Record<string, unknown>[] = [];
-
-  if (filters?.accountId) {
-    conditions.push({ exchange_account_id: { _eq: filters.accountId } });
-  }
-
-  if (filters?.since !== undefined && filters?.until !== undefined) {
-    conditions.push({ timestamp: { _gte: String(filters.since), _lte: String(filters.until) } });
-  } else if (filters?.since !== undefined) {
-    conditions.push({ timestamp: { _gte: String(filters.since) } });
-  }
-
-  if (filters?.baseAssets && filters.baseAssets.length > 0) {
-    conditions.push({ asset: { _in: filters.baseAssets } });
-  }
-
-  if (filters?.tags && filters.tags.length > 0) {
-    conditions.push(buildTagConditions(filters.tags));
-  }
-
-  if (filters?.exchangeIds && filters.exchangeIds.length > 0) {
-    conditions.push({ exchange_account: { exchange_id: { _in: filters.exchangeIds } } });
-  }
-
-  if (conditions.length === 0) {
-    return {};
-  }
-
-  if (conditions.length === 1) {
-    return conditions[0];
-  }
-
-  return { _and: conditions };
-}
 
   // A6.3: Per-asset funding breakdown (funding grouped by asset)
   async getFundingByAssetBreakdown(filters?: DataFilters): Promise<FundingAssetBreakdown[]> {
