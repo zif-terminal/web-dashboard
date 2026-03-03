@@ -31,6 +31,7 @@ import {
   GET_PORTFOLIO_SUMMARY,
   GET_POSITIONS_PNL_BY_ASSET,
   GET_FUNDING_PNL_BY_ASSET,
+  GET_INTEREST_PNL_BY_ASSET,
   GET_TRADES_FEES_BY_ASSET,
   GET_ALL_LATEST_ACCOUNT_SNAPSHOTS,
   GET_ALL_LATEST_ACCOUNT_SNAPSHOTS_ADMIN,
@@ -62,6 +63,7 @@ import {
   AssetPnL,
   AssetFee,
   FundingAssetBreakdown,
+  InterestAssetBreakdown,
   GET_SIMULATION_RUNS,
   GET_SIMULATION_RUN,
   CREATE_SIMULATION_RUN,
@@ -1388,48 +1390,63 @@ export const graphqlApi: ApiClient = {
 
       const positionsWhere = buildPositionsWhereClause(filters);
       const fundingWhere = buildFundingWhereClause(filters);
+      const interestWhere = buildInterestWhereClause(filters);
 
       const normalizeWhere = (w: Record<string, unknown>) =>
         Object.keys(w).length > 0 ? w : {};
 
-      // Fetch positions and funding payments in parallel
-      const [positionsData, fundingData] = await Promise.all([
+      // Fetch positions, funding payments, and interest payments in parallel
+      const [positionsData, fundingData, interestData] = await Promise.all([
         client.request<{
           positions: Array<{ base_asset: string; realized_pnl: string }>;
         }>(GET_POSITIONS_PNL_BY_ASSET, { where: normalizeWhere(positionsWhere) }),
         client.request<{
           funding_payments: Array<{ base_asset: string; amount: string }>;
         }>(GET_FUNDING_PNL_BY_ASSET, { where: normalizeWhere(fundingWhere) }),
+        client.request<{
+          interest_payments: Array<{ asset: string; usd_value: string | null; amount: string }>;
+        }>(GET_INTEREST_PNL_BY_ASSET, { where: normalizeWhere(interestWhere) }),
       ]);
 
       // Aggregate by asset
-      const assetMap = new Map<string, { realizedPnL: number; fundingPnL: number; positionCount: number; fundingCount: number }>();
+      const assetMap = new Map<string, { realizedPnL: number; fundingPnL: number; interestPnL: number; positionCount: number; fundingCount: number; interestCount: number }>();
 
       for (const pos of positionsData.positions) {
-        const entry = assetMap.get(pos.base_asset) || { realizedPnL: 0, fundingPnL: 0, positionCount: 0, fundingCount: 0 };
+        const entry = assetMap.get(pos.base_asset) || { realizedPnL: 0, fundingPnL: 0, interestPnL: 0, positionCount: 0, fundingCount: 0, interestCount: 0 };
         entry.realizedPnL += parseFloat(pos.realized_pnl) || 0;
         entry.positionCount += 1;
         assetMap.set(pos.base_asset, entry);
       }
 
       for (const fp of fundingData.funding_payments) {
-        const entry = assetMap.get(fp.base_asset) || { realizedPnL: 0, fundingPnL: 0, positionCount: 0, fundingCount: 0 };
+        const entry = assetMap.get(fp.base_asset) || { realizedPnL: 0, fundingPnL: 0, interestPnL: 0, positionCount: 0, fundingCount: 0, interestCount: 0 };
         entry.fundingPnL += parseFloat(fp.amount) || 0;
         entry.fundingCount += 1;
         assetMap.set(fp.base_asset, entry);
       }
 
+      // OPS.3: Include interest PnL (use usd_value for consistent USD denomination)
+      for (const ip of interestData.interest_payments) {
+        const usdAmount = ip.usd_value != null ? parseFloat(ip.usd_value) : parseFloat(ip.amount);
+        const entry = assetMap.get(ip.asset) || { realizedPnL: 0, fundingPnL: 0, interestPnL: 0, positionCount: 0, fundingCount: 0, interestCount: 0 };
+        entry.interestPnL += usdAmount || 0;
+        entry.interestCount += 1;
+        assetMap.set(ip.asset, entry);
+      }
+
       // Convert to sorted array
       const result: AssetPnL[] = [];
       for (const [asset, entry] of assetMap) {
-        const totalPnL = entry.realizedPnL + entry.fundingPnL;
+        const totalPnL = entry.realizedPnL + entry.fundingPnL + entry.interestPnL;
         result.push({
           asset,
           realizedPnL: entry.realizedPnL,
           fundingPnL: entry.fundingPnL,
+          interestPnL: entry.interestPnL,
           totalPnL,
           positionCount: entry.positionCount,
           fundingCount: entry.fundingCount,
+          interestCount: entry.interestCount,
         });
       }
 
@@ -1482,6 +1499,44 @@ export const graphqlApi: ApiClient = {
     });
   },
 
+
+// Build where clause for interest payments based on filters (OPS.3)
+function buildInterestWhereClause(filters?: DataFilters): Record<string, unknown> {
+  const conditions: Record<string, unknown>[] = [];
+
+  if (filters?.accountId) {
+    conditions.push({ exchange_account_id: { _eq: filters.accountId } });
+  }
+
+  if (filters?.since !== undefined && filters?.until !== undefined) {
+    conditions.push({ timestamp: { _gte: String(filters.since), _lte: String(filters.until) } });
+  } else if (filters?.since !== undefined) {
+    conditions.push({ timestamp: { _gte: String(filters.since) } });
+  }
+
+  if (filters?.baseAssets && filters.baseAssets.length > 0) {
+    conditions.push({ asset: { _in: filters.baseAssets } });
+  }
+
+  if (filters?.tags && filters.tags.length > 0) {
+    conditions.push(buildTagConditions(filters.tags));
+  }
+
+  if (filters?.exchangeIds && filters.exchangeIds.length > 0) {
+    conditions.push({ exchange_account: { exchange_id: { _in: filters.exchangeIds } } });
+  }
+
+  if (conditions.length === 0) {
+    return {};
+  }
+
+  if (conditions.length === 1) {
+    return conditions[0];
+  }
+
+  return { _and: conditions };
+}
+
   // A6.3: Per-asset funding breakdown (funding grouped by asset)
   async getFundingByAssetBreakdown(filters?: DataFilters): Promise<FundingAssetBreakdown[]> {
     return withErrorHandling(async () => {
@@ -1527,6 +1582,56 @@ export const graphqlApi: ApiClient = {
       return result;
     });
   },
+
+  // OPS.3: Per-asset interest breakdown (interest grouped by asset from snapshot reconciliation)
+  async getInterestBreakdown(filters?: DataFilters): Promise<InterestAssetBreakdown[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+
+      const interestWhere = buildInterestWhereClause(filters);
+      const normalizeWhere = (w: Record<string, unknown>) =>
+        Object.keys(w).length > 0 ? w : {};
+
+      const data = await client.request<{
+        interest_payments: Array<{ asset: string; usd_value: string | null; amount: string; is_approximate: boolean }>;
+      }>(GET_INTEREST_PNL_BY_ASSET, { where: normalizeWhere(interestWhere) });
+
+      // Aggregate client-side by asset
+      const assetMap = new Map<string, { earned: number; charged: number; paymentCount: number; isApproximate: boolean }>();
+
+      for (const ip of data.interest_payments) {
+        // Use usd_value for display (dollar-denominated); fall back to amount if not set
+        const usdAmount = ip.usd_value != null ? parseFloat(ip.usd_value) : parseFloat(ip.amount);
+        const entry = assetMap.get(ip.asset) || { earned: 0, charged: 0, paymentCount: 0, isApproximate: false };
+        if (usdAmount >= 0) {
+          entry.earned += usdAmount;
+        } else {
+          entry.charged += Math.abs(usdAmount);
+        }
+        entry.paymentCount += 1;
+        if (ip.is_approximate) entry.isApproximate = true;
+        assetMap.set(ip.asset, entry);
+      }
+
+      const result: InterestAssetBreakdown[] = [];
+      for (const [asset, entry] of assetMap) {
+        result.push({
+          asset,
+          earned: entry.earned,
+          charged: entry.charged,
+          net: entry.earned - entry.charged,
+          paymentCount: entry.paymentCount,
+          isApproximate: entry.isApproximate,
+        });
+      }
+
+      // Sort by absolute net descending
+      result.sort((a, b) => Math.abs(b.net) - Math.abs(a.net));
+
+      return result;
+    });
+  },
+
 
   // ──────────────────────────────────────────────────────────────────────────
   // B1.1: Simulation runs
