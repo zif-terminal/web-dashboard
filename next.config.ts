@@ -9,6 +9,8 @@ const VAULT_MANAGER_URL = process.env.VAULT_MANAGER_URL || "http://localhost:808
 const DISCOVERY_URL = process.env.DISCOVERY_URL || "http://localhost:8082";
 
 const nextConfig: NextConfig = {
+  // Enable standalone output for Docker deployment - copies only required files
+  output: "standalone",
   async rewrites() {
     return [
       {

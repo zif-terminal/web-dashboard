@@ -1,0 +1,55 @@
+# syntax=docker/dockerfile:1
+
+# Stage 1: deps — install all node_modules
+FROM node:22-alpine AS deps
+WORKDIR /app
+
+# Install dependencies needed for native modules
+RUN apk add --no-cache libc6-compat
+
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts
+
+# Stage 2: builder — build the Next.js application
+FROM node:22-alpine AS builder
+WORKDIR /app
+
+# Copy installed dependencies from deps stage
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
+# Build-time environment variables (server-side rewrites use these at runtime too,
+# but we set safe defaults here so the build succeeds without a real .env)
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production
+
+# Build the Next.js app (output: standalone)
+RUN npm run build
+
+# Stage 3: runner — minimal production image
+FROM node:22-alpine AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+
+# Copy standalone server and static assets
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
+
+USER nextjs
+
+EXPOSE 3000
+
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+# next.config.ts rewrites use HASURA_URL / AUTH_URL / etc. at runtime
+# These must be passed via docker-compose env or docker run -e flags
+
+CMD ["node", "server.js"]
