@@ -1598,11 +1598,14 @@ export interface PortfolioSummary {
   totalWithdrawals: string;
   realizedPnL: string;
   fundingPnL: string;
+  /** OPS.3: Net interest earned/charged via Drift spot borrow/lend. */
+  interestPnL?: string;
   totalFees: string;
   totalTradeCount: number;
   totalAccountValue: string;
   exchangeBreakdowns: ExchangeBreakdown[];
   assetBreakdowns?: AssetPnL[];
+  interestBreakdowns?: InterestAssetBreakdown[];
 }
 
 // Per-asset PnL breakdown
@@ -1610,9 +1613,12 @@ export interface AssetPnL {
   asset: string;
   realizedPnL: number;
   fundingPnL: number;
-  totalPnL: number;
+  /** OPS.3: Net interest earned/charged (lending/borrowing). 0 if not tracked. */
+  interestPnL: number;
+  totalPnL: number;  // realizedPnL + fundingPnL + interestPnL
   positionCount: number;
   fundingCount: number;
+  interestCount: number;
 }
 
 // Per-asset fee breakdown (A5.3)
@@ -3332,6 +3338,124 @@ export const GET_VAULT_DEPOSITS_PUBLIC = gql`
       status
       deposited_at
       created_at
+    }
+  }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OPS.3: Interest payments (derived from spot balance snapshot reconciliation)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** One interest payment row from the interest_payments table. */
+export interface InterestPayment {
+  id: string;
+  exchange_account_id: string;
+  asset: string;
+  /** Signed decimal string: positive = earned (lending), negative = charged (borrowing). */
+  amount: string;
+  oracle_price: string | null;
+  usd_value: string | null;
+  /** Unix milliseconds — midpoint of reconciliation interval. */
+  timestamp: number;
+  snapshot_from: number;
+  snapshot_to: number;
+  /** True for USDC: perp fees/funding also affect the balance, so interest is approximate. */
+  is_approximate: boolean;
+  exchange_account?: ExchangeAccount;
+}
+
+/**
+ * Per-asset interest breakdown used by InterestByAssetTable.
+ * Derived client-side from raw interest_payments rows.
+ */
+export interface InterestAssetBreakdown {
+  /** Base asset symbol, e.g. "SOL", "USDC". */
+  asset: string;
+  /** Total interest earned (positive amounts, converted to USD). */
+  earned: number;
+  /** Total interest charged (negative amounts, stored as positive value, in USD). */
+  charged: number;
+  /** Net = earned - charged (signed USD). */
+  net: number;
+  /** Number of interest payment records for this asset. */
+  paymentCount: number;
+  /**
+   * True if any of the records for this asset is_approximate.
+   * Displayed as a warning badge on the row.
+   */
+  isApproximate: boolean;
+}
+
+// ─── Interest payment queries ─────────────────────────────────────────────────
+
+export const GET_INTEREST_PAYMENTS_DYNAMIC = gql`
+  query GetInterestPaymentsDynamic($limit: Int!, $offset: Int!, $where: interest_payments_bool_exp!) {
+    interest_payments(limit: $limit, offset: $offset, order_by: { timestamp: desc }, where: $where) {
+      id
+      exchange_account_id
+      asset
+      amount
+      oracle_price
+      usd_value
+      timestamp
+      snapshot_from
+      snapshot_to
+      is_approximate
+      exchange_account {
+        id
+        account_identifier
+        account_type
+        label
+        exchange {
+          id
+          name
+          display_name
+        }
+        wallet {
+          label
+        }
+      }
+    }
+    interest_payments_aggregate(where: $where) {
+      aggregate {
+        count
+      }
+    }
+  }
+`;
+
+export const GET_INTEREST_AGGREGATES_DYNAMIC = gql`
+  query GetInterestAggregatesDynamic($where: interest_payments_bool_exp!) {
+    interest_payments_aggregate(where: $where) {
+      aggregate {
+        count
+        sum {
+          amount
+          usd_value
+        }
+      }
+    }
+  }
+`;
+
+/** Lightweight query to fetch per-asset interest data for client-side aggregation. */
+export const GET_INTEREST_PNL_BY_ASSET = gql`
+  query GetInterestPnLByAsset($where: interest_payments_bool_exp!) {
+    interest_payments(where: $where) {
+      asset
+      amount
+      usd_value
+      is_approximate
+    }
+  }
+`;
+
+export const GET_INTEREST_COUNT_BY_ACCOUNT = gql`
+  query GetInterestCountByAccount($accountId: uuid!) {
+    interest_payments_aggregate(where: { exchange_account_id: { _eq: $accountId } }) {
+      aggregate {
+        count
+      }
     }
   }
 `;
