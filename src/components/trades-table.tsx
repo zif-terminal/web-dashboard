@@ -28,7 +28,8 @@ interface TradesTableProps {
 }
 
 function formatTimestamp(timestamp: string): string {
-  return new Date(timestamp).toLocaleString();
+  const ts = /^\d+$/.test(timestamp) ? Number(timestamp) : timestamp;
+  return new Date(ts).toLocaleString();
 }
 
 function formatNumber(value: string, decimals: number = 4): string {
@@ -114,7 +115,8 @@ export function TradesTable({
                             trade.exchange_account?.label,
                             trade.exchange_account?.account_identifier || trade.exchange_account_id,
                             8,
-                            4
+                            4,
+                            trade.exchange_account?.wallet?.label
                           )}
                         </span>
                       </div>

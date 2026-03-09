@@ -1,5 +1,5 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionsAggregates, Wallet, WalletWithAccounts, Deposit, DepositsAggregates, OpenPosition } from "../queries";
-import { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, PositionsResult, PositionWithTrades, DepositsResult, DataFilters } from "./types";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Wallet, WalletWithAccounts, Transfer, FundingAssetBreakdown, ExchangeFundingBreakdown } from "../queries";
+import { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, TransfersResult, InterestPaymentsResult, DataFilters } from "./types";
 
 // Mock wallets
 const mockWallets: Wallet[] = [
@@ -14,9 +14,9 @@ const mockWallets: Wallet[] = [
 
 // Mock exchanges
 const mockExchanges: Exchange[] = [
-  { id: "hyperliquid", name: "hyperliquid", display_name: "Hyperliquid" },
-  { id: "lighter", name: "lighter", display_name: "Lighter" },
-  { id: "drift", name: "drift", display_name: "Drift" },
+  { id: "hyperliquid", name: "hyperliquid", display_name: "Hyperliquid", requires_api_key: false },
+  { id: "lighter",     name: "lighter",     display_name: "Lighter",     requires_api_key: true  },
+  { id: "drift",       name: "drift",       display_name: "Drift",       requires_api_key: false },
 ];
 
 // Mock account types
@@ -93,21 +93,6 @@ const mockTrades: Trade[] = [
     exchange_account: mockAccounts[0],
   },
   {
-    id: "mock-trade-003",
-    base_asset: "SOL",
-    quote_asset: "USDC",
-    side: "buy",
-    price: "185.25",
-    quantity: "50",
-    timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-    fee: "0.025",
-    order_id: "ord-mno345pqr678",
-    trade_id: "trd-003",
-    exchange_account_id: "mock-acc-003",
-    market_type: "spot",
-    exchange_account: mockAccounts[2],
-  },
-  {
     id: "mock-trade-004",
     base_asset: "ARB",
     quote_asset: "USDC",
@@ -121,21 +106,6 @@ const mockTrades: Trade[] = [
     exchange_account_id: "mock-acc-002",
     market_type: "spot",
     exchange_account: mockAccounts[1],
-  },
-  {
-    id: "mock-trade-005",
-    base_asset: "ETH",
-    quote_asset: "USDC",
-    side: "sell",
-    price: "3260.75",
-    quantity: "1.25",
-    timestamp: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
-    fee: "0.000625",
-    order_id: "ord-yza567bcd890",
-    trade_id: "trd-005",
-    exchange_account_id: "mock-acc-001",
-    market_type: "perp",
-    exchange_account: mockAccounts[0],
   },
 ];
 
@@ -171,140 +141,48 @@ const mockFundingPayments: FundingPayment[] = [
     exchange_account_id: "mock-acc-002",
     exchange_account: mockAccounts[1],
   },
-  {
-    id: "mock-funding-004",
-    base_asset: "ETH",
-    quote_asset: "USDT",
-    amount: "-3.10",
-    timestamp: Date.now() - 1000 * 60 * 60 * 32,
-    payment_id: "funding-payment-004",
-    exchange_account_id: "mock-acc-003",
-    exchange_account: mockAccounts[2],
-  },
-  {
-    id: "mock-funding-005",
-    base_asset: "BTC",
-    quote_asset: "USDC",
-    amount: "22.00",
-    timestamp: Date.now() - 1000 * 60 * 60 * 40,
-    payment_id: "funding-payment-005",
-    exchange_account_id: "mock-acc-001",
-    exchange_account: mockAccounts[0],
-  },
-  {
-    id: "mock-funding-006",
-    base_asset: "ARB",
-    quote_asset: "USDC",
-    amount: "1.50",
-    timestamp: Date.now() - 1000 * 60 * 60 * 48,
-    payment_id: "funding-payment-006",
-    exchange_account_id: "mock-acc-002",
-    exchange_account: mockAccounts[1],
-  },
 ];
 
-// Mock positions (closed positions)
-const mockPositions: Position[] = [
+// Mock transfers
+const mockTransfers: Transfer[] = [
   {
-    id: "mock-pos-001",
+    id: "mock-transfer-001",
     exchange_account_id: "mock-acc-001",
-    base_asset: "ETH",
-    quote_asset: "USDC",
-    side: "long",
-    market_type: "perp",
-    start_time: Date.now() - 1000 * 60 * 60 * 24, // 1 day ago
-    end_time: Date.now() - 1000 * 60 * 60 * 12, // 12 hours ago
-    entry_avg_price: "3200.00",
-    exit_avg_price: "3280.00",
-    total_quantity: "2.5",
-    total_fees: "0.00125",
-    realized_pnl: "199.99",
-    exchange_account: mockAccounts[0],
-  },
-  {
-    id: "mock-pos-002",
-    exchange_account_id: "mock-acc-001",
-    base_asset: "BTC",
-    quote_asset: "USDC",
-    side: "short",
-    market_type: "perp",
-    start_time: Date.now() - 1000 * 60 * 60 * 48, // 2 days ago
-    end_time: Date.now() - 1000 * 60 * 60 * 36, // 1.5 days ago
-    entry_avg_price: "98000.00",
-    exit_avg_price: "97000.00",
-    total_quantity: "0.5",
-    total_fees: "0.00025",
-    realized_pnl: "499.99",
-    exchange_account: mockAccounts[0],
-  },
-  {
-    id: "mock-pos-003",
-    exchange_account_id: "mock-acc-002",
-    base_asset: "SOL",
-    quote_asset: "USDC",
-    side: "long",
-    market_type: "perp",
-    start_time: Date.now() - 1000 * 60 * 60 * 72, // 3 days ago
-    end_time: Date.now() - 1000 * 60 * 60 * 60, // 2.5 days ago
-    entry_avg_price: "180.00",
-    exit_avg_price: "175.00",
-    total_quantity: "50",
-    total_fees: "0.025",
-    realized_pnl: "-250.02",
-    exchange_account: mockAccounts[1],
-  },
-  {
-    id: "mock-pos-004",
-    exchange_account_id: "mock-acc-003",
-    base_asset: "ETH",
-    quote_asset: "USDT",
-    side: "short",
-    market_type: "spot",
-    start_time: Date.now() - 1000 * 60 * 60 * 96, // 4 days ago
-    end_time: Date.now() - 1000 * 60 * 60 * 84, // 3.5 days ago
-    entry_avg_price: "3150.00",
-    exit_avg_price: "3200.00",
-    total_quantity: "1.0",
-    total_fees: "0.0005",
-    realized_pnl: "-50.05",
-    exchange_account: mockAccounts[2],
-  },
-];
-
-// Mock deposits
-const mockDeposits: Deposit[] = [
-  {
-    id: "mock-deposit-001",
-    exchange_account_id: "mock-acc-001",
+    type: "deposit",
     asset: "SOL",
-    direction: "deposit",
     amount: "100.5",
-    user_cost_basis: "180.00",
-    timestamp: Date.now() - 1000 * 60 * 60 * 24 * 7, // 1 week ago
-    deposit_id: "sol-deposit-001",
+    timestamp: Date.now() - 1000 * 60 * 60 * 24 * 7,
+    cost_basis: "180.00",
     exchange_account: mockAccounts[0],
   },
   {
-    id: "mock-deposit-002",
+    id: "mock-transfer-002",
     exchange_account_id: "mock-acc-001",
+    type: "deposit",
     asset: "USDC",
-    direction: "deposit",
     amount: "10000",
-    user_cost_basis: "1.00",
-    timestamp: Date.now() - 1000 * 60 * 60 * 24 * 5, // 5 days ago
-    deposit_id: "usdc-deposit-001",
+    timestamp: Date.now() - 1000 * 60 * 60 * 24 * 5,
+    cost_basis: "1.00",
     exchange_account: mockAccounts[0],
   },
   {
-    id: "mock-deposit-003",
+    id: "mock-transfer-003",
     exchange_account_id: "mock-acc-002",
+    type: "withdraw",
     asset: "SOL",
-    direction: "withdraw",
-    amount: "50.25",
-    user_cost_basis: "190.00",
-    timestamp: Date.now() - 1000 * 60 * 60 * 24 * 3, // 3 days ago
-    deposit_id: "sol-withdraw-001",
+    amount: "-50.25",
+    timestamp: Date.now() - 1000 * 60 * 60 * 24 * 3,
+    cost_basis: "190.00",
     exchange_account: mockAccounts[1],
+  },
+  {
+    id: "mock-transfer-004",
+    exchange_account_id: "mock-acc-001",
+    type: "interest",
+    asset: "USDC",
+    amount: "12.50",
+    timestamp: Date.now() - 1000 * 60 * 60 * 24 * 2,
+    exchange_account: mockAccounts[0],
   },
 ];
 
@@ -361,47 +239,24 @@ function filterFundingPayments(payments: FundingPayment[], filters?: DataFilters
   return result;
 }
 
-// Filter positions based on DataFilters (uses end_time for date filtering)
-function filterPositions(positions: Position[], filters?: DataFilters): Position[] {
-  let result = positions;
+// Filter transfers based on DataFilters
+function filterTransfers(transfers: Transfer[], filters?: DataFilters): Transfer[] {
+  let result = transfers;
 
   if (filters?.accountId) {
-    result = result.filter((position) => position.exchange_account_id === filters.accountId);
+    result = result.filter((t) => t.exchange_account_id === filters.accountId);
   }
 
   if (filters?.since) {
-    result = result.filter((position) => position.end_time >= filters.since!);
+    result = result.filter((t) => t.timestamp >= filters.since!);
   }
 
   if (filters?.until) {
-    result = result.filter((position) => position.end_time <= filters.until!);
+    result = result.filter((t) => t.timestamp <= filters.until!);
   }
 
   if (filters?.baseAssets && filters.baseAssets.length > 0) {
-    result = result.filter((position) => filters.baseAssets!.includes(position.base_asset));
-  }
-
-  return result;
-}
-
-// Filter deposits based on DataFilters
-function filterDeposits(deposits: Deposit[], filters?: DataFilters): Deposit[] {
-  let result = deposits;
-
-  if (filters?.accountId) {
-    result = result.filter((deposit) => deposit.exchange_account_id === filters.accountId);
-  }
-
-  if (filters?.since) {
-    result = result.filter((deposit) => deposit.timestamp >= filters.since!);
-  }
-
-  if (filters?.until) {
-    result = result.filter((deposit) => deposit.timestamp <= filters.until!);
-  }
-
-  if (filters?.baseAssets && filters.baseAssets.length > 0) {
-    result = result.filter((deposit) => filters.baseAssets!.includes(deposit.asset));
+    result = result.filter((t) => filters.baseAssets!.includes(t.asset));
   }
 
   return result;
@@ -431,7 +286,6 @@ export const mockApi: ApiClient = {
   async createAccount(input: CreateAccountInput): Promise<ExchangeAccount> {
     await delay(400);
 
-    // Check for duplicate
     const exists = mockAccounts.some(
       (acc) =>
         acc.exchange_id === input.exchange_id &&
@@ -479,8 +333,7 @@ export const mockApi: ApiClient = {
       const assets = [...new Set(mockFundingPayments.map((f) => f.base_asset))];
       return assets.sort();
     } else {
-      const assets = [...new Set(mockPositions.map((p) => p.base_asset))];
-      return assets.sort();
+      return [];
     }
   },
 
@@ -521,88 +374,51 @@ export const mockApi: ApiClient = {
   async getFundingAggregates(filters?: DataFilters): Promise<FundingAggregates> {
     await delay(200);
     const filteredPayments = filterFundingPayments(mockFundingPayments, filters);
-    const totalAmount = filteredPayments.reduce(
-      (sum, payment) => sum + parseFloat(payment.amount),
-      0
-    );
+    const totalAmount = filteredPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+    const received = filteredPayments.filter(p => parseFloat(p.amount) > 0);
+    const paid = filteredPayments.filter(p => parseFloat(p.amount) < 0);
     return {
       totalAmount: totalAmount.toString(),
       count: filteredPayments.length,
+      totalReceived: received.reduce((sum, p) => sum + parseFloat(p.amount), 0).toString(),
+      totalPaid: paid.reduce((sum, p) => sum + parseFloat(p.amount), 0).toString(),
+      receivedCount: received.length,
+      paidCount: paid.length,
     };
   },
 
-  async getPositions(limit: number, offset: number, filters?: DataFilters): Promise<PositionsResult> {
+  async getFundingAggregatesByExchange(_filters?: DataFilters): Promise<ExchangeFundingBreakdown[]> {
+    await delay(200);
+    return mockExchanges.map((ex) => ({
+      exchangeId: ex.id,
+      exchangeName: ex.name,
+      displayName: ex.display_name,
+      totalFunding: "0",
+      count: 0,
+    }));
+  },
+
+  // Transfer methods
+  async getTransfers(limit: number, offset: number, filters?: DataFilters): Promise<TransfersResult> {
     await delay(300);
-    const filteredPositions = filterPositions(mockPositions, filters);
-    const paginatedPositions = filteredPositions.slice(offset, offset + limit);
+    const filtered = filterTransfers(mockTransfers, filters);
+    const paginated = filtered.slice(offset, offset + limit);
     return {
-      positions: paginatedPositions,
-      totalCount: filteredPositions.length,
+      transfers: paginated,
+      totalCount: filtered.length,
     };
   },
 
-  async getPositionsAggregates(filters?: DataFilters): Promise<PositionsAggregates> {
+  async getDistinctTransferAssets(): Promise<string[]> {
     await delay(200);
-    const filteredPositions = filterPositions(mockPositions, filters);
-    const totalPnL = filteredPositions.reduce(
-      (sum, position) => sum + parseFloat(position.realized_pnl),
-      0
-    );
-    const totalFees = filteredPositions.reduce(
-      (sum, position) => sum + parseFloat(position.total_fees),
-      0
-    );
-    return {
-      totalPnL: totalPnL.toString(),
-      totalFees: totalFees.toString(),
-      count: filteredPositions.length,
-    };
-  },
-
-  async getPositionById(id: string): Promise<PositionWithTrades | null> {
-    await delay(200);
-    const position = mockPositions.find((p) => p.id === id);
-    if (!position) {
-      return null;
-    }
-    return {
-      ...position,
-      position_trades: [], // Mock doesn't include trades for now
-    };
-  },
-
-  // Deposit methods
-  async getDeposits(limit: number, offset: number, filters?: DataFilters): Promise<DepositsResult> {
-    await delay(300);
-    const filteredDeposits = filterDeposits(mockDeposits, filters);
-    const paginatedDeposits = filteredDeposits.slice(offset, offset + limit);
-    return {
-      deposits: paginatedDeposits,
-      totalCount: filteredDeposits.length,
-    };
-  },
-
-  async getDepositsAggregates(filters?: DataFilters): Promise<DepositsAggregates> {
-    await delay(200);
-    const filteredDeposits = filterDeposits(mockDeposits, filters);
-    const deposits = filteredDeposits.filter((d) => d.direction === "deposit");
-    const withdrawals = filteredDeposits.filter((d) => d.direction === "withdraw");
-
-    const totalDeposits = deposits.reduce((sum, d) => sum + parseFloat(d.amount), 0);
-    const totalWithdrawals = withdrawals.reduce((sum, d) => sum + parseFloat(d.amount), 0);
-
-    return {
-      totalDeposits: totalDeposits.toString(),
-      totalWithdrawals: totalWithdrawals.toString(),
-      depositCount: deposits.length,
-      withdrawalCount: withdrawals.length,
-    };
-  },
-
-  async getDistinctDepositAssets(): Promise<string[]> {
-    await delay(200);
-    const assets = [...new Set(mockDeposits.map((d) => d.asset))];
+    const assets = [...new Set(mockTransfers.map((t) => t.asset))];
     return assets.sort();
+  },
+
+  // Interest payments stub (no interest data in mock environment)
+  async getInterestPayments(_limit: number, _offset: number, _filters?: DataFilters): Promise<InterestPaymentsResult> {
+    await delay(100);
+    return { payments: [], totalCount: 0 };
   },
 
   // Wallet methods
@@ -613,14 +429,18 @@ export const mockApi: ApiClient = {
 
   async getWalletsWithCounts(): Promise<WalletWithAccounts[]> {
     await delay(200);
-    return mockWallets.map((wallet) => ({
-      ...wallet,
-      exchange_accounts_aggregate: {
-        aggregate: {
-          count: mockAccounts.filter((a) => a.wallet_id === wallet.id).length,
-        },
-      },
-    }));
+    return mockWallets.map((wallet) => {
+      const walletAccounts = mockAccounts.filter((a) => a.wallet_id === wallet.id);
+      return {
+        ...wallet,
+        exchange_accounts: walletAccounts.map((a) => ({
+          id: a.id,
+          exchange: a.exchange
+            ? { id: a.exchange.id, display_name: a.exchange.display_name }
+            : null,
+        })),
+      };
+    });
   },
 
   async createWallet(input: CreateWalletInput): Promise<Wallet> {
@@ -684,140 +504,77 @@ export const mockApi: ApiClient = {
     return { id, label };
   },
 
-  async getOpenPositions(filters?: DataFilters): Promise<OpenPosition[]> {
-    await delay(300);
-
-    // Asset-based position tracking:
-    // - As base_asset: buy = +qty, sell = -qty
-    // - As quote_asset: buy = -(price*qty), sell = +(price*qty)
-
-    let filteredTrades = mockTrades;
-    if (filters?.accountId) {
-      filteredTrades = filteredTrades.filter((t) => t.exchange_account_id === filters.accountId);
-    }
-
-    // Map: asset -> accountId -> marketType -> { netQty, account }
-    const assetBalances = new Map<string, Map<string, Map<string, { netQty: number; account: ExchangeAccount }>>>();
-
-    const updateBalance = (
-      asset: string,
-      accountId: string,
-      marketType: string,
-      delta: number,
-      account?: ExchangeAccount
-    ) => {
-      const normalizedMarketType = marketType === "swap" ? "spot" : marketType;
-
-      if (!assetBalances.has(asset)) {
-        assetBalances.set(asset, new Map());
-      }
-      const assetMap = assetBalances.get(asset)!;
-
-      if (!assetMap.has(accountId)) {
-        assetMap.set(accountId, new Map());
-      }
-      const accountMap = assetMap.get(accountId)!;
-
-      if (!accountMap.has(normalizedMarketType)) {
-        accountMap.set(normalizedMarketType, { netQty: 0, account: account || mockAccounts[0] });
-      }
-
-      const entry = accountMap.get(normalizedMarketType)!;
-      entry.netQty += delta;
-      if (account) entry.account = account;
+  // A2.1: Mock wallet ownership verification
+  async requestWalletChallenge(address: string, chain: string): Promise<import("./types").WalletChallengeResponse> {
+    await delay(200);
+    return {
+      nonce: "mock-nonce-1234abcd",
+      message: `ZIF Terminal wants you to sign in with your ${chain} account:\n${address}\n\nNonce: mock-nonce-1234abcd\nIssued At: ${new Date().toISOString()}`,
     };
+  },
 
-    for (const trade of filteredTrades) {
-      const price = parseFloat(trade.price);
-      const qty = parseFloat(trade.quantity);
-      const quoteQty = price * qty;
+  async verifyWalletSignature(
+    address: string,
+    chain: string,
+    _signature: string,
+    _nonce: string,
+  ): Promise<import("./types").WalletVerifyResponse> {
+    await delay(500);
+    return { wallet_id: "mock-wallet-id", address, chain, verified: true };
+  },
 
-      // Base asset: buy = +qty, sell = -qty
-      if (trade.base_asset !== "USDC" && trade.base_asset !== "USDT") {
-        const baseDelta = trade.side === "buy" ? qty : -qty;
-        updateBalance(
-          trade.base_asset,
-          trade.exchange_account_id,
-          trade.market_type,
-          baseDelta,
-          trade.exchange_account
-        );
+  async verifyWalletAPIKey(
+    address: string,
+    chain: string,
+    _apiKey: string,
+  ): Promise<import("./types").WalletVerifyResponse> {
+    await delay(500);
+    return { wallet_id: "mock-wallet-id", address, chain, verified: true, method: "api_key" };
+  },
+
+  // A6.3: Per-asset funding breakdown mock
+  async getFundingByAssetBreakdown(filters?: DataFilters): Promise<FundingAssetBreakdown[]> {
+    await delay(300);
+    const filteredFunding = filterFundingPayments(mockFundingPayments, filters);
+
+    const assetMap = new Map<string, { received: number; paid: number; paymentCount: number }>();
+
+    for (const fp of filteredFunding) {
+      const amount = parseFloat(fp.amount) || 0;
+      const entry = assetMap.get(fp.base_asset) || { received: 0, paid: 0, paymentCount: 0 };
+      if (amount >= 0) {
+        entry.received += amount;
+      } else {
+        entry.paid += Math.abs(amount);
       }
-
-      // Quote asset: buy = -(price*qty), sell = +(price*qty)
-      // Skip stablecoins and perp quote tracking
-      if (
-        trade.quote_asset !== "USDC" &&
-        trade.quote_asset !== "USDT" &&
-        trade.market_type !== "perp"
-      ) {
-        const quoteDelta = trade.side === "buy" ? -quoteQty : quoteQty;
-        updateBalance(
-          trade.quote_asset,
-          trade.exchange_account_id,
-          trade.market_type,
-          quoteDelta,
-          trade.exchange_account
-        );
-      }
+      entry.paymentCount += 1;
+      assetMap.set(fp.base_asset, entry);
     }
 
-    // Also include deposits - deposit = +qty, withdraw = -qty
-    let filteredDeposits = mockDeposits;
-    if (filters?.accountId) {
-      filteredDeposits = filteredDeposits.filter((d) => d.exchange_account_id === filters.accountId);
+    const result: FundingAssetBreakdown[] = [];
+    for (const [asset, entry] of assetMap) {
+      result.push({
+        asset,
+        received: entry.received,
+        paid: entry.paid,
+        net: entry.received - entry.paid,
+        paymentCount: entry.paymentCount,
+      });
     }
 
-    for (const deposit of filteredDeposits) {
-      if (deposit.asset === "USDC" || deposit.asset === "USDT") {
-        continue;
-      }
-      const qty = parseFloat(deposit.amount);
-      const delta = deposit.direction === "deposit" ? qty : -qty;
-      updateBalance(
-        deposit.asset,
-        deposit.exchange_account_id,
-        "spot",
-        delta,
-        deposit.exchange_account
-      );
-    }
+    result.sort((a, b) => Math.abs(b.net) - Math.abs(a.net));
+    return result;
+  },
 
-    // Apply filters
-    const assetsToInclude = filters?.baseAssets && filters.baseAssets.length > 0
-      ? new Set(filters.baseAssets)
-      : null;
-    const marketTypesToInclude = filters?.marketTypes && filters.marketTypes.length > 0
-      ? new Set(filters.marketTypes)
-      : null;
-
-    const openPositions: OpenPosition[] = [];
-
-    for (const [asset, accountMap] of assetBalances) {
-      if (assetsToInclude && !assetsToInclude.has(asset)) continue;
-
-      for (const [accountId, marketTypeMap] of accountMap) {
-        for (const [marketType, { netQty, account }] of marketTypeMap) {
-          if (marketTypesToInclude && !marketTypesToInclude.has(marketType as "perp" | "spot" | "swap")) continue;
-
-          if (Math.abs(netQty) > 0.0001) {
-            openPositions.push({
-              base_asset: asset,
-              quote_asset: "USD",
-              market_type: marketType as "perp" | "spot" | "swap",
-              side: netQty > 0 ? "long" : "short",
-              net_quantity: Math.abs(netQty),
-              avg_entry_price: 0,
-              total_cost: 0,
-              exchange_account_id: accountId,
-              exchange_account: account,
-            });
-          }
-        }
-      }
-    }
-
-    openPositions.sort((a, b) => b.net_quantity - a.net_quantity);
-    return openPositions;
+  // Portfolio / Positions stubs
+  async getOpenPositions(): Promise<import("../queries").Position[]> {
+    return [];
+  },
+  async getPositions(): Promise<import("./types").PositionsResult> {
+    return { positions: [], totalCount: 0 };
+  },
+  async getPositionsAggregates(): Promise<import("../queries").PositionsAggregates> {
+    const empty = { totalFees: "0", totalFunding: "0", count: 0 };
+    return { totalFees: "0", count: 0, perp: empty, spot: empty };
   },
 };

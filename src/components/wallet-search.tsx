@@ -77,6 +77,15 @@ export function WalletSearch({ onWalletAdded }: WalletSearchProps) {
         chain,
       });
 
+      // null means the wallet already exists (on_conflict did nothing)
+      if (!wallet) {
+        toast.info("This wallet is already in your list.");
+        setWalletInput("");
+        setStatus("idle");
+        setChain(null);
+        return;
+      }
+
       toast.success("Wallet added! Detecting accounts...");
       setWalletInput("");
       setStatus("idle");

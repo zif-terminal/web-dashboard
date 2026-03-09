@@ -12,10 +12,10 @@ import { cn } from "@/lib/utils";
 
 const navigation = [
   { name: "Accounts", href: "/accounts" },
+  { name: "Portfolio", href: "/portfolio" },
   { name: "Trades", href: "/trades" },
-  { name: "Positions", href: "/positions" },
   { name: "Funding", href: "/funding" },
-  { name: "Deposits", href: "/deposits" },
+  { name: "Transfers", href: "/transfers" },
 ];
 
 export default function DashboardLayout({

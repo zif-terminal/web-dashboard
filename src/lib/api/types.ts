@@ -1,4 +1,4 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Position, PositionTrade, PositionsAggregates, Wallet, WalletWithAccounts, Deposit, DepositsAggregates, OpenPosition } from "../queries";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Wallet, WalletWithAccounts, Transfer, FundingAssetBreakdown, ExchangeFundingBreakdown, InterestPayment, Position, PositionsAggregates } from "../queries";
 
 export interface CreateAccountInput {
   exchange_id: string;
@@ -14,6 +14,20 @@ export interface CreateWalletInput {
   chain: string;
 }
 
+export interface WalletChallengeResponse {
+  nonce: string;
+  message: string;
+}
+
+export interface WalletVerifyResponse {
+  wallet_id: string;
+  address: string;
+  chain: string;
+  verified: boolean;
+  method?: string;
+  message?: string;
+}
+
 export interface TradesResult {
   trades: Trade[];
   totalCount: number;
@@ -24,18 +38,26 @@ export interface FundingPaymentsResult {
   totalCount: number;
 }
 
+export interface TransfersResult {
+  transfers: Transfer[];
+  totalCount: number;
+}
+
+export interface InterestPaymentsResult {
+  payments: InterestPayment[];
+  totalCount: number;
+}
+
 export interface PositionsResult {
   positions: Position[];
   totalCount: number;
 }
 
-export interface PositionWithTrades extends Position {
-  position_trades: PositionTrade[];
-}
+export type SortDirection = "asc" | "desc";
 
-export interface DepositsResult {
-  deposits: Deposit[];
-  totalCount: number;
+export interface SortConfig {
+  column: string;
+  direction: SortDirection;
 }
 
 export interface DataFilters {
@@ -45,6 +67,9 @@ export interface DataFilters {
   baseAssets?: string[];
   marketTypes?: ("perp" | "spot" | "swap")[];
   tags?: string[];
+  exchangeIds?: string[];
+  timeField?: "start_time" | "end_time";
+  sort?: SortConfig;
 }
 
 export interface ApiClient {
@@ -59,13 +84,12 @@ export interface ApiClient {
   getTradesAggregates(filters?: DataFilters): Promise<TradesAggregates>;
   getFundingPayments(limit: number, offset: number, filters?: DataFilters): Promise<FundingPaymentsResult>;
   getFundingAggregates(filters?: DataFilters): Promise<FundingAggregates>;
-  getPositions(limit: number, offset: number, filters?: DataFilters): Promise<PositionsResult>;
-  getPositionsAggregates(filters?: DataFilters): Promise<PositionsAggregates>;
-  getPositionById(id: string): Promise<PositionWithTrades | null>;
-  // Deposit methods
-  getDeposits(limit: number, offset: number, filters?: DataFilters): Promise<DepositsResult>;
-  getDepositsAggregates(filters?: DataFilters): Promise<DepositsAggregates>;
-  getDistinctDepositAssets(): Promise<string[]>;
+  getFundingAggregatesByExchange(filters?: DataFilters): Promise<ExchangeFundingBreakdown[]>;
+  // Transfer methods
+  getTransfers(limit: number, offset: number, filters?: DataFilters): Promise<TransfersResult>;
+  getDistinctTransferAssets(): Promise<string[]>;
+  // Interest payments (Transfers page)
+  getInterestPayments(limit: number, offset: number, filters?: DataFilters): Promise<InterestPaymentsResult>;
   // Wallet methods
   getWallets(): Promise<Wallet[]>;
   getWalletsWithCounts(): Promise<WalletWithAccounts[]>;
@@ -73,7 +97,15 @@ export interface ApiClient {
   deleteWallet(id: string): Promise<{ id: string }>;
   updateAccountTags(id: string, tags: string[]): Promise<{ id: string; tags: string[] }>;
   updateWalletLabel(id: string, label: string | null): Promise<{ id: string; label: string | null }>;
+  // Wallet ownership verification (A2.1)
+  requestWalletChallenge(address: string, chain: string): Promise<WalletChallengeResponse>;
+  verifyWalletSignature(address: string, chain: string, signature: string, nonce: string): Promise<WalletVerifyResponse>;
+  verifyWalletAPIKey(address: string, chain: string, apiKey: string): Promise<WalletVerifyResponse>;
   updateAccountLabel(id: string, label: string | null): Promise<{ id: string; label: string | null }>;
-  // Open positions (derived from trades)
-  getOpenPositions(filters?: DataFilters): Promise<OpenPosition[]>;
+  // A6.3: Per-asset funding breakdown
+  getFundingByAssetBreakdown(filters?: DataFilters): Promise<FundingAssetBreakdown[]>;
+  // Portfolio / Positions
+  getOpenPositions(filters?: DataFilters): Promise<Position[]>;
+  getPositions(limit: number, offset: number, filters?: DataFilters): Promise<PositionsResult>;
+  getPositionsAggregates(filters?: DataFilters): Promise<PositionsAggregates>;
 }

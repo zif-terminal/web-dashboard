@@ -28,14 +28,20 @@ export function formatPercentage(value: string, decimals: number = 4): string {
   }) + "%";
 }
 
+/** Parse a timestamp that may be an ISO string, a unix-ms number, or a unix-ms string. */
+export function parseTimestamp(timestamp: string | number): Date {
+  const ts = typeof timestamp === "string" && /^\d+$/.test(timestamp) ? Number(timestamp) : timestamp;
+  return new Date(ts);
+}
+
 export function formatTimestamp(timestamp: string | number): string {
-  return new Date(timestamp).toLocaleString();
+  return parseTimestamp(timestamp).toLocaleString();
 }
 
 export function formatRelativeTime(timestamp: string | number | null | undefined): string {
   if (!timestamp) return "Never";
 
-  const date = new Date(timestamp);
+  const date = parseTimestamp(timestamp);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffSec = Math.floor(diffMs / 1000);
@@ -56,9 +62,12 @@ export function truncateAddress(address: string, startChars = 6, endChars = 4): 
   return `${address.slice(0, startChars)}...${address.slice(-endChars)}`;
 }
 
-export function getDisplayName(label: string | null | undefined, address: string, startChars = 6, endChars = 4): string {
+export function getDisplayName(label: string | null | undefined, address: string, startChars = 6, endChars = 4, walletLabel?: string | null): string {
   if (label && label.trim().length > 0) {
     return label.trim();
+  }
+  if (walletLabel && walletLabel.trim().length > 0) {
+    return walletLabel.trim();
   }
   return truncateAddress(address, startChars, endChars);
 }

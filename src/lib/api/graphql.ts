@@ -1,6 +1,5 @@
 import Cookies from "js-cookie";
 import { getGraphQLClient, TOKEN_COOKIE_NAME } from "../graphql-client";
-import { gql } from "graphql-request";
 import {
   GET_EXCHANGES,
   GET_ACCOUNT_TYPES,
@@ -17,45 +16,47 @@ import {
   UPDATE_WALLET_LABEL,
   GET_DISTINCT_TRADE_ASSETS,
   GET_DISTINCT_FUNDING_ASSETS,
-  GET_DISTINCT_POSITION_ASSETS,
-  GET_DISTINCT_DEPOSIT_ASSETS,
+  GET_DISTINCT_TRANSFER_ASSETS,
   GET_TRADES_DYNAMIC,
   GET_TRADES_AGGREGATES_DYNAMIC,
   GET_FUNDING_PAYMENTS_DYNAMIC,
   GET_FUNDING_AGGREGATES_DYNAMIC,
+  GET_TRANSFERS_DYNAMIC,
+  GET_FUNDING_PNL_BY_ASSET,
+  GET_INTEREST_PAYMENTS_DYNAMIC,
+  GET_OPEN_POSITIONS,
   GET_POSITIONS_DYNAMIC,
   GET_POSITIONS_AGGREGATES_DYNAMIC,
-  GET_POSITION_WITH_TRADES,
-  GET_DEPOSITS_DYNAMIC,
-  GET_DEPOSITS_AGGREGATES_DYNAMIC,
+  GET_DISTINCT_POSITION_MARKETS,
   Exchange,
   ExchangeAccount,
   ExchangeAccountType,
+  ExchangeFundingBreakdown,
   Trade,
   TradesAggregates,
   FundingPayment,
   FundingAggregates,
-  Position,
-  PositionTrade,
-  PositionsAggregates,
   Wallet,
   WalletWithAccounts,
-  Deposit,
-  DepositsAggregates,
-  OpenPosition,
+  Transfer,
+  FundingAssetBreakdown,
+  InterestPayment,
+  Position,
+  PositionsAggregates,
 } from "../queries";
-import { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, PositionsResult, PositionWithTrades, DepositsResult, DataFilters } from "./types";
+import { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, TransfersResult, InterestPaymentsResult, PositionsResult, DataFilters } from "./types";
 import { ApiError } from "./errors";
 
 function isAuthError(error: unknown): boolean {
   if (error && typeof error === "object" && "response" in error) {
-    const response = (error as { response: { status?: number; errors?: { extensions?: { code?: string } }[] } }).response;
+    const response = (error as { response: { status?: number; errors?: { message?: string; extensions?: { code?: string } }[] } }).response;
     if (response?.status === 401 || response?.status === 403) {
       return true;
     }
     if (response?.errors) {
       return response.errors.some(
-        (e) => e.extensions?.code === "access-denied"
+        (e) => e.extensions?.code === "access-denied" ||
+               e.message === "no mutations exist"
       );
     }
   }
@@ -81,12 +82,22 @@ async function withErrorHandling<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * Error handler for public (unauthenticated) API calls.
+ */
+export async function withPublicErrorHandling<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    throw ApiError.fromError(error);
+  }
+}
+
 // Build tag filter conditions (OR logic - match accounts with ANY of the selected tags)
 function buildTagConditions(tags: string[]): Record<string, unknown> {
   if (tags.length === 1) {
     return { exchange_account: { tags: { _contains: tags[0] } } };
   }
-  // Multiple tags: use OR logic
   const tagConditions = tags.map(tag => ({
     exchange_account: { tags: { _contains: tag } }
   }));
@@ -119,14 +130,12 @@ function buildTradesWhereClause(filters?: DataFilters): Record<string, unknown> 
     conditions.push(buildTagConditions(filters.tags));
   }
 
-  if (conditions.length === 0) {
-    return {};
+  if (filters?.exchangeIds && filters.exchangeIds.length > 0) {
+    conditions.push({ exchange_account: { exchange_id: { _in: filters.exchangeIds } } });
   }
 
-  if (conditions.length === 1) {
-    return conditions[0];
-  }
-
+  if (conditions.length === 0) return {};
+  if (conditions.length === 1) return conditions[0];
   return { _and: conditions };
 }
 
@@ -152,56 +161,17 @@ function buildFundingWhereClause(filters?: DataFilters): Record<string, unknown>
     conditions.push(buildTagConditions(filters.tags));
   }
 
-  if (conditions.length === 0) {
-    return {};
+  if (filters?.exchangeIds && filters.exchangeIds.length > 0) {
+    conditions.push({ exchange_account: { exchange_id: { _in: filters.exchangeIds } } });
   }
 
-  if (conditions.length === 1) {
-    return conditions[0];
-  }
-
+  if (conditions.length === 0) return {};
+  if (conditions.length === 1) return conditions[0];
   return { _and: conditions };
 }
 
-// Build where clause for positions based on filters (uses end_time for date filtering)
-function buildPositionsWhereClause(filters?: DataFilters): Record<string, unknown> {
-  const conditions: Record<string, unknown>[] = [];
-
-  if (filters?.accountId) {
-    conditions.push({ exchange_account_id: { _eq: filters.accountId } });
-  }
-
-  if (filters?.since !== undefined && filters?.until !== undefined) {
-    conditions.push({ end_time: { _gte: String(filters.since), _lte: String(filters.until) } });
-  } else if (filters?.since !== undefined) {
-    conditions.push({ end_time: { _gte: String(filters.since) } });
-  }
-
-  if (filters?.baseAssets && filters.baseAssets.length > 0) {
-    conditions.push({ base_asset: { _in: filters.baseAssets } });
-  }
-
-  if (filters?.marketTypes && filters.marketTypes.length > 0) {
-    conditions.push({ market_type: { _in: filters.marketTypes } });
-  }
-
-  if (filters?.tags && filters.tags.length > 0) {
-    conditions.push(buildTagConditions(filters.tags));
-  }
-
-  if (conditions.length === 0) {
-    return {};
-  }
-
-  if (conditions.length === 1) {
-    return conditions[0];
-  }
-
-  return { _and: conditions };
-}
-
-// Build where clause for deposits based on filters
-function buildDepositsWhereClause(filters?: DataFilters): Record<string, unknown> {
+// Build where clause for transfers based on filters
+function buildTransfersWhereClause(filters?: DataFilters, transferTypes?: string[]): Record<string, unknown> {
   const conditions: Record<string, unknown>[] = [];
 
   if (filters?.accountId) {
@@ -222,14 +192,79 @@ function buildDepositsWhereClause(filters?: DataFilters): Record<string, unknown
     conditions.push(buildTagConditions(filters.tags));
   }
 
-  if (conditions.length === 0) {
-    return {};
+  if (filters?.exchangeIds && filters.exchangeIds.length > 0) {
+    conditions.push({ exchange_account: { exchange_id: { _in: filters.exchangeIds } } });
   }
 
-  if (conditions.length === 1) {
-    return conditions[0];
+  if (transferTypes && transferTypes.length > 0) {
+    conditions.push({ type: { _in: transferTypes } });
   }
 
+  if (conditions.length === 0) return {};
+  if (conditions.length === 1) return conditions[0];
+  return { _and: conditions };
+}
+
+// Build where clause for interest payments based on filters
+function buildInterestWhereClause(filters?: DataFilters): Record<string, unknown> {
+  const conditions: Record<string, unknown>[] = [];
+
+  if (filters?.accountId) {
+    conditions.push({ exchange_account_id: { _eq: filters.accountId } });
+  }
+
+  if (filters?.since !== undefined && filters?.until !== undefined) {
+    conditions.push({ timestamp: { _gte: String(filters.since), _lte: String(filters.until) } });
+  } else if (filters?.since !== undefined) {
+    conditions.push({ timestamp: { _gte: String(filters.since) } });
+  }
+
+  if (filters?.baseAssets && filters.baseAssets.length > 0) {
+    conditions.push({ asset: { _in: filters.baseAssets } });
+  }
+
+  if (filters?.tags && filters.tags.length > 0) {
+    conditions.push(buildTagConditions(filters.tags));
+  }
+
+  if (conditions.length === 0) return {};
+  if (conditions.length === 1) return conditions[0];
+  return { _and: conditions };
+}
+
+// Build where clause for positions based on filters and status
+function buildPositionsWhereClause(filters?: DataFilters, status?: "open" | "closed"): Record<string, unknown> {
+  const conditions: Record<string, unknown>[] = [];
+
+  if (status) {
+    conditions.push({ status: { _eq: status } });
+  }
+
+  if (filters?.accountId) {
+    conditions.push({ exchange_account_id: { _eq: filters.accountId } });
+  }
+
+  const timeField = filters?.timeField || "start_time";
+  if (filters?.since !== undefined && filters?.until !== undefined) {
+    conditions.push({ [timeField]: { _gte: String(filters.since), _lte: String(filters.until) } });
+  } else if (filters?.since !== undefined) {
+    conditions.push({ [timeField]: { _gte: String(filters.since) } });
+  }
+
+  if (filters?.marketTypes && filters.marketTypes.length > 0) {
+    conditions.push({ market_type: { _in: filters.marketTypes } });
+  }
+
+  if (filters?.tags && filters.tags.length > 0) {
+    conditions.push(buildTagConditions(filters.tags));
+  }
+
+  if (filters?.exchangeIds && filters.exchangeIds.length > 0) {
+    conditions.push({ exchange_account: { exchange_id: { _in: filters.exchangeIds } } });
+  }
+
+  if (conditions.length === 0) return {};
+  if (conditions.length === 1) return conditions[0];
   return { _and: conditions };
 }
 
@@ -294,13 +329,13 @@ export const graphqlApi: ApiClient = {
       const client = getGraphQLClient();
       if (type === "trades") {
         const data = await client.request<{ trades: { base_asset: string }[] }>(GET_DISTINCT_TRADE_ASSETS);
-        return data.trades.map((t) => t.base_asset);
+        return [...new Set(data.trades.map((t) => t.base_asset))].sort();
       } else if (type === "funding") {
         const data = await client.request<{ funding_payments: { base_asset: string }[] }>(GET_DISTINCT_FUNDING_ASSETS);
-        return data.funding_payments.map((f) => f.base_asset);
+        return [...new Set(data.funding_payments.map((f) => f.base_asset))].sort();
       } else {
-        const data = await client.request<{ positions: { base_asset: string }[] }>(GET_DISTINCT_POSITION_ASSETS);
-        return data.positions.map((p) => p.base_asset);
+        const data = await client.request<{ positions: { market: string }[] }>(GET_DISTINCT_POSITION_MARKETS);
+        return [...new Set(data.positions.map((p) => p.market))].sort();
       }
     });
   },
@@ -373,122 +408,131 @@ export const graphqlApi: ApiClient = {
             sum: { amount: string | null };
           };
         };
+        funding_received: {
+          aggregate: {
+            count: number;
+            sum: { amount: string | null };
+          };
+        };
+        funding_paid: {
+          aggregate: {
+            count: number;
+            sum: { amount: string | null };
+          };
+        };
       }>(GET_FUNDING_AGGREGATES_DYNAMIC, { where });
 
       return {
         totalAmount: data.funding_payments_aggregate.aggregate.sum.amount || "0",
         count: data.funding_payments_aggregate.aggregate.count,
+        totalReceived: data.funding_received.aggregate.sum.amount || "0",
+        totalPaid: data.funding_paid.aggregate.sum.amount || "0",
+        receivedCount: data.funding_received.aggregate.count,
+        paidCount: data.funding_paid.aggregate.count,
       };
     });
   },
 
-  async getPositions(limit: number, offset: number, filters?: DataFilters): Promise<PositionsResult> {
+  async getFundingAggregatesByExchange(filters?: DataFilters): Promise<ExchangeFundingBreakdown[]> {
     return withErrorHandling(async () => {
       const client = getGraphQLClient();
-      const where = buildPositionsWhereClause(filters);
+      const baseWhere = buildFundingWhereClause(filters);
 
-      const data = await client.request<{
-        positions: Position[];
-        positions_aggregate: { aggregate: { count: number } };
-      }>(GET_POSITIONS_DYNAMIC, { limit, offset, where });
+      const normalizeWhere = (w: Record<string, unknown>) =>
+        Object.keys(w).length > 0 ? w : {};
 
-      return {
-        positions: data.positions,
-        totalCount: data.positions_aggregate.aggregate.count,
+      const mergeWhere = (
+        base: Record<string, unknown>,
+        extra: Record<string, unknown>
+      ): Record<string, unknown> => {
+        if (Object.keys(base).length === 0) return extra;
+        return { _and: [base, extra] };
       };
-    });
-  },
 
-  async getPositionsAggregates(filters?: DataFilters): Promise<PositionsAggregates> {
-    return withErrorHandling(async () => {
-      const client = getGraphQLClient();
-      const where = buildPositionsWhereClause(filters);
+      const exchangesData = await client.request<{ exchanges: Exchange[] }>(GET_EXCHANGES);
 
-      const data = await client.request<{
-        positions_aggregate: {
-          aggregate: {
-            count: number;
-            sum: { realized_pnl: string | null; total_fees: string | null };
-          };
-        };
-      }>(GET_POSITIONS_AGGREGATES_DYNAMIC, { where });
-
-      return {
-        totalPnL: data.positions_aggregate.aggregate.sum.realized_pnl || "0",
-        totalFees: data.positions_aggregate.aggregate.sum.total_fees || "0",
-        count: data.positions_aggregate.aggregate.count,
-      };
-    });
-  },
-
-  async getPositionById(id: string): Promise<PositionWithTrades | null> {
-    return withErrorHandling(async () => {
-      const client = getGraphQLClient();
-      const data = await client.request<{
-        positions_by_pk: (Position & { position_trades: PositionTrade[] }) | null;
-      }>(GET_POSITION_WITH_TRADES, { id });
-      return data.positions_by_pk;
-    });
-  },
-
-  // Deposit methods
-  async getDeposits(limit: number, offset: number, filters?: DataFilters): Promise<DepositsResult> {
-    return withErrorHandling(async () => {
-      const client = getGraphQLClient();
-      const where = buildDepositsWhereClause(filters);
-
-      const data = await client.request<{
-        deposits: Deposit[];
-        deposits_aggregate: { aggregate: { count: number } };
-      }>(GET_DEPOSITS_DYNAMIC, { limit, offset, where });
-
-      return {
-        deposits: data.deposits,
-        totalCount: data.deposits_aggregate.aggregate.count,
-      };
-    });
-  },
-
-  async getDepositsAggregates(filters?: DataFilters): Promise<DepositsAggregates> {
-    return withErrorHandling(async () => {
-      const client = getGraphQLClient();
-      const where = buildDepositsWhereClause(filters);
-
-      const data = await client.request<{
-        deposits: {
+      type AggResponse = {
+        funding_payments_aggregate: {
           aggregate: {
             count: number;
             sum: { amount: string | null };
           };
         };
-        deposit_totals: {
-          aggregate: {
-            count: number;
-            sum: { amount: string | null };
+        funding_received: { aggregate: { count: number; sum: { amount: string | null } } };
+        funding_paid: { aggregate: { count: number; sum: { amount: string | null } } };
+      };
+
+      const breakdowns: ExchangeFundingBreakdown[] = await Promise.all(
+        exchangesData.exchanges.map(async (ex) => {
+          const exchangeFilter = {
+            exchange_account: { exchange_id: { _eq: ex.id } },
           };
-        };
-        withdrawal_totals: {
-          aggregate: {
-            count: number;
-            sum: { amount: string | null };
+
+          const data = await client.request<AggResponse>(
+            GET_FUNDING_AGGREGATES_DYNAMIC,
+            {
+              where: mergeWhere(normalizeWhere(baseWhere), exchangeFilter),
+            }
+          );
+
+          return {
+            exchangeId: ex.id,
+            exchangeName: ex.name,
+            displayName: ex.display_name,
+            totalFunding: data.funding_payments_aggregate.aggregate.sum.amount || "0",
+            count: data.funding_payments_aggregate.aggregate.count,
           };
-        };
-      }>(GET_DEPOSITS_AGGREGATES_DYNAMIC, { where });
+        })
+      );
+
+      return breakdowns;
+    });
+  },
+
+  // Transfer methods
+  async getTransfers(limit: number, offset: number, filters?: DataFilters): Promise<TransfersResult> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const where = buildTransfersWhereClause(filters);
+
+      const data = await client.request<{
+        transfers: Transfer[];
+        transfers_aggregate: { aggregate: { count: number } };
+      }>(GET_TRANSFERS_DYNAMIC, { limit, offset, where, order_by: [{ timestamp: "desc" }] });
 
       return {
-        totalDeposits: data.deposit_totals.aggregate.sum.amount || "0",
-        totalWithdrawals: data.withdrawal_totals.aggregate.sum.amount || "0",
-        depositCount: data.deposit_totals.aggregate.count,
-        withdrawalCount: data.withdrawal_totals.aggregate.count,
+        transfers: data.transfers,
+        totalCount: data.transfers_aggregate.aggregate.count,
       };
     });
   },
 
-  async getDistinctDepositAssets(): Promise<string[]> {
+  async getDistinctTransferAssets(): Promise<string[]> {
     return withErrorHandling(async () => {
       const client = getGraphQLClient();
-      const data = await client.request<{ deposits: { asset: string }[] }>(GET_DISTINCT_DEPOSIT_ASSETS);
-      return data.deposits.map((d) => d.asset);
+      const data = await client.request<{ transfers: { asset: string }[] }>(GET_DISTINCT_TRANSFER_ASSETS);
+      return data.transfers.map((t) => t.asset);
+    });
+  },
+
+  // Interest payments (Transfers page)
+  async getInterestPayments(limit: number, offset: number, filters?: DataFilters): Promise<InterestPaymentsResult> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const where = buildInterestWhereClause(filters);
+
+      const normalizeWhere = (w: Record<string, unknown>) =>
+        Object.keys(w).length > 0 ? w : {};
+
+      const data = await client.request<{
+        interest_payments: InterestPayment[];
+        interest_payments_aggregate: { aggregate: { count: number } };
+      }>(GET_INTEREST_PAYMENTS_DYNAMIC, { limit, offset, where: normalizeWhere(where) });
+
+      return {
+        payments: data.interest_payments,
+        totalCount: data.interest_payments_aggregate.aggregate.count,
+      };
     });
   },
 
@@ -549,6 +593,66 @@ export const graphqlApi: ApiClient = {
     });
   },
 
+  // A2.1: Wallet ownership verification — challenge/response flow
+  async requestWalletChallenge(address: string, chain: string): Promise<import("./types").WalletChallengeResponse> {
+    const authEndpoint = process.env.NEXT_PUBLIC_AUTH_ENDPOINT || "/api/auth";
+    const resp = await fetch(`${authEndpoint}/wallet/challenge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address, chain }),
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(text || `Challenge request failed (${resp.status})`);
+    }
+    return resp.json();
+  },
+
+  async verifyWalletSignature(
+    address: string,
+    chain: string,
+    signature: string,
+    nonce: string,
+  ): Promise<import("./types").WalletVerifyResponse> {
+    const authEndpoint = process.env.NEXT_PUBLIC_AUTH_ENDPOINT || "/api/auth";
+    const token = Cookies.get(TOKEN_COOKIE_NAME);
+    const resp = await fetch(`${authEndpoint}/wallet/verify`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ address, chain, signature, nonce }),
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(text || `Verification failed (${resp.status})`);
+    }
+    return resp.json();
+  },
+
+  async verifyWalletAPIKey(
+    address: string,
+    chain: string,
+    apiKey: string,
+  ): Promise<import("./types").WalletVerifyResponse> {
+    const authEndpoint = process.env.NEXT_PUBLIC_AUTH_ENDPOINT || "/api/auth";
+    const token = Cookies.get(TOKEN_COOKIE_NAME);
+    const resp = await fetch(`${authEndpoint}/wallet/verify-api-key`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ address, chain, api_key: apiKey }),
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(text || `API key verification failed (${resp.status})`);
+    }
+    return resp.json();
+  },
+
   async updateAccountLabel(id: string, label: string | null): Promise<{ id: string; label: string | null }> {
     return withErrorHandling(async () => {
       const client = getGraphQLClient();
@@ -559,324 +663,122 @@ export const graphqlApi: ApiClient = {
     });
   },
 
-  async getOpenPositions(filters?: DataFilters): Promise<OpenPosition[]> {
+  // A6.3: Per-asset funding breakdown (funding grouped by asset)
+  async getFundingByAssetBreakdown(filters?: DataFilters): Promise<FundingAssetBreakdown[]> {
     return withErrorHandling(async () => {
       const client = getGraphQLClient();
 
-      // Build base where clause for filtering
-      const baseConditions: Record<string, unknown>[] = [];
-      if (filters?.accountId) {
-        baseConditions.push({ exchange_account_id: { _eq: filters.accountId } });
-      }
-      if (filters?.tags && filters.tags.length > 0) {
-        baseConditions.push(buildTagConditions(filters.tags));
-      }
+      const fundingWhere = buildFundingWhereClause(filters);
+      const normalizeWhere = (w: Record<string, unknown>) =>
+        Object.keys(w).length > 0 ? w : {};
 
-      const baseWhere = baseConditions.length > 0 ? { _and: baseConditions } : {};
+      const data = await client.request<{
+        funding_payments: Array<{ base_asset: string; amount: string }>;
+      }>(GET_FUNDING_PNL_BY_ASSET, { where: normalizeWhere(fundingWhere) });
 
-      // First, get all trades
-      const tradesQuery = gql`
-        query GetAllTrades($where: trades_bool_exp!) {
-          trades(where: $where, order_by: { timestamp: asc }) {
-            base_asset
-            quote_asset
-            side
-            price
-            quantity
-            market_type
-            exchange_account_id
-            exchange_account {
-              id
-              account_identifier
-              label
-              exchange {
-                id
-                name
-                display_name
-              }
-            }
-          }
+      const assetMap = new Map<string, { received: number; paid: number; paymentCount: number }>();
+
+      for (const fp of data.funding_payments) {
+        const amount = parseFloat(fp.amount) || 0;
+        const entry = assetMap.get(fp.base_asset) || { received: 0, paid: 0, paymentCount: 0 };
+        if (amount >= 0) {
+          entry.received += amount;
+        } else {
+          entry.paid += Math.abs(amount);
         }
-      `;
-
-      const tradesData = await client.request<{
-        trades: Array<{
-          base_asset: string;
-          quote_asset: string;
-          side: string;
-          price: string;
-          quantity: string;
-          market_type: string;
-          exchange_account_id: string;
-          exchange_account: ExchangeAccount;
-        }>;
-      }>(tradesQuery, { where: baseWhere });
-
-      // Track positions with entry price calculation
-      // For perp: track by base/quote/account
-      // For spot: track by asset/account (asset-based)
-      interface PositionEntry {
-        netQty: number;
-        totalCost: number; // For weighted avg entry: sum of (qty * price) for entries
-        totalEntryQty: number; // Sum of entry quantities
-        account: ExchangeAccount;
-        nativeQuoteAsset?: string; // For spot: the quote asset used (e.g., SOL for bSOL/SOL)
+        entry.paymentCount += 1;
+        assetMap.set(fp.base_asset, entry);
       }
 
-      // Perp positions: base_asset/quote_asset/account -> PositionEntry
-      const perpPositions = new Map<string, PositionEntry>();
-
-      // Spot positions: asset/account -> PositionEntry
-      const spotPositions = new Map<string, PositionEntry>();
-
-      const getPerpKey = (base: string, quote: string, accountId: string) =>
-        `${base}/${quote}/${accountId}`;
-
-      const getSpotKey = (asset: string, accountId: string) =>
-        `${asset}/${accountId}`;
-
-      // Process perp trades (pair-based)
-      for (const trade of tradesData.trades) {
-        if (trade.market_type !== "perp") continue;
-
-        const price = parseFloat(trade.price);
-        const qty = parseFloat(trade.quantity);
-        const key = getPerpKey(trade.base_asset, trade.quote_asset, trade.exchange_account_id);
-
-        if (!perpPositions.has(key)) {
-          perpPositions.set(key, {
-            netQty: 0,
-            totalCost: 0,
-            totalEntryQty: 0,
-            account: trade.exchange_account,
-          });
-        }
-
-        const pos = perpPositions.get(key)!;
-        const prevQty = pos.netQty;
-        const delta = trade.side === "buy" ? qty : -qty;
-        pos.netQty += delta;
-
-        // Track entry price: only count trades that add to position
-        const isAddingToPosition =
-          (prevQty >= 0 && trade.side === "buy") ||
-          (prevQty <= 0 && trade.side === "sell");
-
-        if (isAddingToPosition) {
-          pos.totalCost += price * qty;
-          pos.totalEntryQty += qty;
-        }
+      const result: FundingAssetBreakdown[] = [];
+      for (const [asset, entry] of assetMap) {
+        result.push({
+          asset,
+          received: entry.received,
+          paid: entry.paid,
+          net: entry.received - entry.paid,
+          paymentCount: entry.paymentCount,
+        });
       }
 
-      // Process spot/swap trades (asset-based)
-      for (const trade of tradesData.trades) {
-        if (trade.market_type === "perp") continue;
+      result.sort((a, b) => Math.abs(b.net) - Math.abs(a.net));
+      return result;
+    });
+  },
 
-        const price = parseFloat(trade.price);
-        const qty = parseFloat(trade.quantity);
-        const quoteQty = price * qty;
+  // Portfolio / Positions
+  async getOpenPositions(filters?: DataFilters): Promise<Position[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const where = buildPositionsWhereClause(filters, "open");
 
-        // Base asset movement
-        if (trade.base_asset !== "USDC" && trade.base_asset !== "USDT") {
-          const key = getSpotKey(trade.base_asset, trade.exchange_account_id);
+      const data = await client.request<{
+        positions: Position[];
+      }>(GET_OPEN_POSITIONS, { where });
 
-          if (!spotPositions.has(key)) {
-            spotPositions.set(key, {
-              netQty: 0,
-              totalCost: 0,
-              totalEntryQty: 0,
-              account: trade.exchange_account,
-              nativeQuoteAsset: trade.quote_asset,
-            });
-          }
+      return data.positions;
+    });
+  },
 
-          const pos = spotPositions.get(key)!;
-          const prevQty = pos.netQty;
-          const delta = trade.side === "buy" ? qty : -qty;
-          pos.netQty += delta;
+  async getPositions(limit: number, offset: number, filters?: DataFilters): Promise<PositionsResult> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const where = buildPositionsWhereClause(filters, "closed");
 
-          // Track entry: buying adds to long, selling adds to short
-          const isAddingToPosition =
-            (prevQty >= 0 && trade.side === "buy") ||
-            (prevQty <= 0 && trade.side === "sell");
+      const data = await client.request<{
+        positions: Position[];
+        positions_aggregate: { aggregate: { count: number } };
+      }>(GET_POSITIONS_DYNAMIC, {
+        limit,
+        offset,
+        where,
+        order_by: [{ end_time: "desc" }],
+      });
 
-          if (isAddingToPosition) {
-            pos.totalCost += price * qty;
-            pos.totalEntryQty += qty;
-            // Update native quote if this is a non-USD quote
-            if (trade.quote_asset !== "USDC" && trade.quote_asset !== "USDT") {
-              pos.nativeQuoteAsset = trade.quote_asset;
-            }
-          }
-        }
+      return {
+        positions: data.positions,
+        totalCount: data.positions_aggregate.aggregate.count,
+      };
+    });
+  },
 
-        // Quote asset movement (for non-stablecoin quotes)
-        if (
-          trade.quote_asset !== "USDC" &&
-          trade.quote_asset !== "USDT"
-        ) {
-          const key = getSpotKey(trade.quote_asset, trade.exchange_account_id);
+  async getPositionsAggregates(filters?: DataFilters): Promise<PositionsAggregates> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const where = buildPositionsWhereClause(filters, "closed");
 
-          if (!spotPositions.has(key)) {
-            spotPositions.set(key, {
-              netQty: 0,
-              totalCost: 0,
-              totalEntryQty: 0,
-              account: trade.exchange_account,
-              nativeQuoteAsset: trade.base_asset, // When SOL is quote, base is the "quote" for SOL
-            });
-          }
+      // Build perp/spot specific where clauses by adding market_type filter
+      const existingAnd = Array.isArray(where._and) ? where._and : [];
+      const perpWhere = { ...where, _and: [...existingAnd, { market_type: { _eq: "perp" } }] };
+      const spotWhere = { ...where, _and: [...existingAnd, { market_type: { _eq: "spot" } }] };
 
-          const pos = spotPositions.get(key)!;
-          const prevQty = pos.netQty;
-          // Buy base = spend quote, Sell base = receive quote
-          const delta = trade.side === "buy" ? -quoteQty : quoteQty;
-          pos.netQty += delta;
+      type AggResult = {
+        aggregate: {
+          count: number;
+          sum: { total_fees: string | null; cumulative_funding?: string | null };
+        };
+      };
 
-          // Entry tracking for quote asset
-          const isAddingToPosition =
-            (prevQty >= 0 && delta > 0) ||
-            (prevQty <= 0 && delta < 0);
+      const data = await client.request<{
+        all: AggResult;
+        perp: AggResult;
+        spot: AggResult;
+      }>(GET_POSITIONS_AGGREGATES_DYNAMIC, { where, perpWhere, spotWhere });
 
-          if (isAddingToPosition) {
-            // Price is inverted: 1/original_price since we're tracking quote
-            pos.totalCost += Math.abs(quoteQty) * (1 / price);
-            pos.totalEntryQty += Math.abs(quoteQty);
-          }
-        }
-      }
-
-      // Fetch deposits
-      const depositsQuery = gql`
-        query GetAllDeposits($where: deposits_bool_exp!) {
-          deposits(where: $where) {
-            asset
-            direction
-            amount
-            user_cost_basis
-            exchange_account_id
-            exchange_account {
-              id
-              account_identifier
-              label
-              exchange {
-                id
-                name
-                display_name
-              }
-            }
-          }
-        }
-      `;
-
-      const depositsData = await client.request<{
-        deposits: Array<{
-          asset: string;
-          direction: string;
-          amount: string;
-          user_cost_basis: string;
-          exchange_account_id: string;
-          exchange_account: ExchangeAccount;
-        }>;
-      }>(depositsQuery, { where: baseWhere });
-
-      // Process deposits
-      for (const deposit of depositsData.deposits) {
-        if (deposit.asset === "USDC" || deposit.asset === "USDT") continue;
-
-        const qty = parseFloat(deposit.amount);
-        const costBasis = parseFloat(deposit.user_cost_basis) || 0;
-        const key = getSpotKey(deposit.asset, deposit.exchange_account_id);
-
-        if (!spotPositions.has(key)) {
-          spotPositions.set(key, {
-            netQty: 0,
-            totalCost: 0,
-            totalEntryQty: 0,
-            account: deposit.exchange_account,
-            nativeQuoteAsset: "USDC",
-          });
-        }
-
-        const pos = spotPositions.get(key)!;
-        const prevQty = pos.netQty;
-        const delta = deposit.direction === "deposit" ? qty : -qty;
-        pos.netQty += delta;
-
-        // Deposits add to position (entry)
-        if (deposit.direction === "deposit" && prevQty >= 0) {
-          pos.totalCost += costBasis * qty;
-          pos.totalEntryQty += qty;
-        }
-      }
-
-      // Apply filters
-      const assetsToInclude = filters?.baseAssets && filters.baseAssets.length > 0
-        ? new Set(filters.baseAssets)
-        : null;
-      const marketTypesToInclude = filters?.marketTypes && filters.marketTypes.length > 0
-        ? new Set(filters.marketTypes)
-        : null;
-
-      const openPositions: OpenPosition[] = [];
-
-      // Convert perp positions
-      if (!marketTypesToInclude || marketTypesToInclude.has("perp")) {
-        for (const [key, pos] of perpPositions) {
-          if (Math.abs(pos.netQty) < 0.0001) continue;
-
-          const [base, quote] = key.split("/");
-          if (assetsToInclude && !assetsToInclude.has(base)) continue;
-
-          const avgEntryPrice = pos.totalEntryQty > 0
-            ? pos.totalCost / pos.totalEntryQty
-            : 0;
-
-          openPositions.push({
-            base_asset: base,
-            quote_asset: quote,
-            market_type: "perp",
-            side: pos.netQty > 0 ? "long" : "short",
-            net_quantity: Math.abs(pos.netQty),
-            avg_entry_price: avgEntryPrice,
-            total_cost: pos.totalCost,
-            exchange_account_id: key.split("/")[2],
-            exchange_account: pos.account,
-          });
-        }
-      }
-
-      // Convert spot positions
-      if (!marketTypesToInclude || marketTypesToInclude.has("spot")) {
-        for (const [key, pos] of spotPositions) {
-          if (Math.abs(pos.netQty) < 0.0001) continue;
-
-          const [asset] = key.split("/");
-          if (assetsToInclude && !assetsToInclude.has(asset)) continue;
-
-          const avgEntryPrice = pos.totalEntryQty > 0
-            ? pos.totalCost / pos.totalEntryQty
-            : 0;
-
-          openPositions.push({
-            base_asset: asset,
-            quote_asset: pos.nativeQuoteAsset || "USDC",
-            market_type: "spot",
-            side: pos.netQty > 0 ? "long" : "short",
-            net_quantity: Math.abs(pos.netQty),
-            avg_entry_price: avgEntryPrice,
-            total_cost: pos.totalCost,
-            exchange_account_id: key.split("/")[1],
-            exchange_account: pos.account,
-            native_quote_asset: pos.nativeQuoteAsset,
-          });
-        }
-      }
-
-      // Sort by quantity descending
-      openPositions.sort((a, b) => b.net_quantity - a.net_quantity);
-
-      return openPositions;
+      return {
+        totalFees: data.all.aggregate.sum.total_fees || "0",
+        count: data.all.aggregate.count,
+        perp: {
+          totalFees: data.perp.aggregate.sum.total_fees || "0",
+          totalFunding: data.perp.aggregate.sum.cumulative_funding || "0",
+          count: data.perp.aggregate.count,
+        },
+        spot: {
+          totalFees: data.spot.aggregate.sum.total_fees || "0",
+          totalFunding: data.spot.aggregate.sum.cumulative_funding || "0",
+          count: data.spot.aggregate.count,
+        },
+      };
     });
   },
 };

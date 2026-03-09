@@ -1,10 +1,11 @@
 import type { NextConfig } from "next";
 
-// Backend URLs - can be overridden via environment variables
 const HASURA_URL = process.env.HASURA_URL || "http://167.99.145.4";
 const AUTH_URL = process.env.AUTH_URL || "http://167.99.145.4";
+const DISCOVERY_URL = process.env.DISCOVERY_URL || "http://localhost:8082";
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   async rewrites() {
     return [
       {
@@ -14,6 +15,10 @@ const nextConfig: NextConfig = {
       {
         source: "/api/graphql",
         destination: `${HASURA_URL}/v1/graphql`,
+      },
+      {
+        source: "/api/discover/:path*",
+        destination: `${DISCOVERY_URL}/:path*`,
       },
     ];
   },

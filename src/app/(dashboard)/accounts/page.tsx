@@ -11,7 +11,7 @@ export default function AccountsPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
-  const [detectingWalletId, setDetectingWalletId] = useState<string | null>(null);
+  const [detectingWalletIds, setDetectingWalletIds] = useState<Set<string>>(new Set());
 
   const handleRefresh = () => {
     setRefreshKey((prev) => prev + 1);
@@ -22,11 +22,14 @@ export default function AccountsPage() {
   };
 
   const handleWalletAdded = (walletId: string) => {
-    setDetectingWalletId(walletId);
+    setDetectingWalletIds((prev) => new Set(prev).add(walletId));
     handleRefresh();
-    // Clear detecting state after 60 seconds
     setTimeout(() => {
-      setDetectingWalletId(null);
+      setDetectingWalletIds((prev) => {
+        const next = new Set(prev);
+        next.delete(walletId);
+        return next;
+      });
     }, 60000);
   };
 
@@ -73,7 +76,7 @@ export default function AccountsPage() {
         <CardContent>
           <WalletsSection
             refreshKey={refreshKey}
-            detectingWalletId={detectingWalletId}
+            detectingWalletIds={detectingWalletIds}
             onWalletDeleted={handleWalletDeleted}
           />
         </CardContent>

@@ -3,8 +3,10 @@
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { Lock } from "lucide-react";
 import { api } from "@/lib/api";
 import { ExchangeAccount } from "@/lib/queries";
+import { normalizeTags } from "@/lib/utils";
 import { useApi } from "@/hooks/use-api";
 import { useGlobalTags } from "@/contexts/filters-context";
 import { formatRelativeTime } from "@/lib/format";
@@ -21,6 +23,11 @@ import { AccountsTableSkeleton } from "@/components/table-skeleton";
 import { TagInput } from "@/components/tag-input";
 import { ExchangeBadge } from "@/components/exchange-badge";
 import { LabelInput } from "@/components/label-input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface AccountsTableProps {
   refreshKey?: number;
@@ -31,12 +38,31 @@ interface AccountsTableProps {
 // Group accounts by wallet address
 interface WalletGroup {
   walletAddress: string | null;
+  walletLabel: string | null;
   accounts: ExchangeAccount[];
 }
 
 function truncateAddress(address: string, startChars = 6, endChars = 4): string {
   if (address.length <= startChars + endChars + 3) return address;
   return `${address.slice(0, startChars)}...${address.slice(-endChars)}`;
+}
+
+/** A1.6: Visual indicator shown next to the exchange name when the exchange
+ *  requires an API key to access its data.  The data is already gated at the
+ *  GraphQL layer — this badge makes the security posture visible to the user. */
+function ApiKeyLockedBadge() {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex items-center text-muted-foreground ml-1">
+          <Lock className="h-3 w-3" aria-label="Requires API key" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        <p className="text-xs">Requires API key — data gated to authenticated users</p>
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 function getStatusBadge(status: string | undefined) {
@@ -88,7 +114,7 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
   const allAccountTags = useMemo(() => {
     const tagSet = new Set<string>();
     accounts.forEach((account) => {
-      (account.tags || []).forEach((tag) => tagSet.add(tag));
+      normalizeTags(account.tags).forEach((tag) => tagSet.add(tag));
     });
     return Array.from(tagSet).sort();
   }, [accounts]);
@@ -97,7 +123,7 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
   const filteredAccounts = useMemo(() => {
     if (selectedTags.length === 0) return accounts;
     return accounts.filter((account) =>
-      selectedTags.some((tag) => (account.tags || []).includes(tag))
+      selectedTags.some((tag) => normalizeTags(account.tags).includes(tag))
     );
   }, [accounts, selectedTags]);
 
@@ -119,7 +145,11 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
         if (b === null) return -1;
         return a.localeCompare(b);
       })
-      .map(([walletAddress, accts]) => ({ walletAddress, accounts: accts }));
+      .map(([walletAddress, accts]) => ({
+        walletAddress,
+        walletLabel: accts[0]?.wallet?.label || null,
+        accounts: accts,
+      }));
   }, [filteredAccounts]);
 
   // Check if we should show wallet grouping (at least one account has a wallet)
@@ -187,9 +217,12 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
                 onClick={() => router.push(`/accounts/${account.id}`)}
               >
                 <TableCell>
-                  <ExchangeBadge
-                    exchangeName={account.exchange?.display_name || "Unknown"}
-                  />
+                  <span className="inline-flex items-center gap-1">
+                    <ExchangeBadge
+                      exchangeName={account.exchange?.display_name || "Unknown"}
+                    />
+                    {account.exchange?.requires_api_key && <ApiKeyLockedBadge />}
+                  </span>
                 </TableCell>
                 <TableCell>
                   <LabelInput
@@ -203,7 +236,7 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
                 </TableCell>
                 <TableCell>
                   <TagInput
-                    tags={account.tags || []}
+                    tags={normalizeTags(account.tags)}
                     onTagsChange={(tags) => handleTagsChange(account.id, tags)}
                     availableTags={allAccountTags}
                   />
@@ -222,14 +255,18 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
         {walletGroups.map((group) => (
           <div key={group.walletAddress || "ungrouped"} className="space-y-2">
             {group.walletAddress && (
-              <div className="flex items-center gap-2 px-2">
-                <span className="text-sm font-medium text-muted-foreground">Wallet:</span>
-                <code className="text-sm font-mono bg-muted px-2 py-0.5 rounded">
-                  {truncateAddress(group.walletAddress, 8, 6)}
-                </code>
-                <Badge variant="outline" className="text-xs">
-                  {group.accounts.length} account{group.accounts.length !== 1 ? "s" : ""}
-                </Badge>
+              <div className="px-2 space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold">
+                    {group.walletLabel || truncateAddress(group.walletAddress, 8, 6)}
+                  </span>
+                  <Badge variant="outline" className="text-xs">
+                    {group.accounts.length} account{group.accounts.length !== 1 ? "s" : ""}
+                  </Badge>
+                </div>
+                <div className="text-xs text-muted-foreground font-mono break-all">
+                  {group.walletAddress}
+                </div>
               </div>
             )}
             {!group.walletAddress && walletGroups.length > 1 && (
@@ -259,9 +296,13 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
                     onClick={() => router.push(`/accounts/${account.id}`)}
                   >
                     <TableCell>
-                      <ExchangeBadge
-                        exchangeName={account.exchange?.display_name || "Unknown"}
-                      />
+                      {/* A1.6: mirror simple-table lock indicator in grouped view */}
+                      <span className="inline-flex items-center gap-1">
+                        <ExchangeBadge
+                          exchangeName={account.exchange?.display_name || "Unknown"}
+                        />
+                        {account.exchange?.requires_api_key && <ApiKeyLockedBadge />}
+                      </span>
                     </TableCell>
                     <TableCell>
                       <LabelInput
@@ -275,7 +316,7 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
                     </TableCell>
                     <TableCell>
                       <TagInput
-                        tags={account.tags || []}
+                        tags={normalizeTags(account.tags)}
                         onTagsChange={(tags) => handleTagsChange(account.id, tags)}
                         availableTags={allAccountTags}
                       />
