@@ -13,9 +13,9 @@ interface DiscoverResponse {
   error?: string;
 }
 
-// Discovery service URL - uses environment variable or defaults to localhost
+// Discovery service URL - proxied through Next.js rewrites at /api/discover
 const DISCOVERY_SERVICE_URL =
-  process.env.NEXT_PUBLIC_DISCOVERY_URL || "http://localhost:8082";
+  process.env.NEXT_PUBLIC_DISCOVERY_URL || "/api/discover";
 
 /**
  * Discover accounts for any supported exchange via backend service
@@ -42,6 +42,49 @@ export async function discoverAccounts(
   }
 
   return data.accounts;
+}
+
+/**
+ * Search result for a single exchange from the /search endpoint
+ */
+export interface SearchExchangeResult {
+  exchange: string;
+  accounts: DiscoverableAccount[];
+  error?: string;
+}
+
+/**
+ * Full search response from the /search endpoint
+ */
+interface SearchResponse {
+  success: boolean;
+  address: string;
+  results: SearchExchangeResult[];
+}
+
+/**
+ * Search for a wallet address across all supported exchanges.
+ * Automatically detects the chain (Ethereum/Solana) and queries relevant exchanges.
+ */
+export async function searchWallet(
+  walletAddress: string
+): Promise<SearchExchangeResult[]> {
+  const url = new URL("/search", DISCOVERY_SERVICE_URL);
+  url.searchParams.set("wallet", walletAddress.trim());
+
+  const response = await fetch(url.toString());
+
+  if (!response.ok) {
+    throw new Error(`Search failed with status ${response.status}`);
+  }
+
+  const data: SearchResponse = await response.json();
+
+  if (!data.success) {
+    throw new Error("Search failed");
+  }
+
+  return data.results;
 }
 
 /**

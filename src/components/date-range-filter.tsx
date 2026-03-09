@@ -24,6 +24,9 @@ interface DateRangeFilterProps {
   value: DateRangeValue;
   onChange: (value: DateRangeValue) => void;
   className?: string;
+  /** Which timestamp field positions are filtered by ("end_time" = closed date, "start_time" = opened date) */
+  timeField?: "start_time" | "end_time";
+  onTimeFieldChange?: (field: "start_time" | "end_time") => void;
 }
 
 const presets: { value: DateRangePreset; label: string }[] = [
@@ -70,6 +73,8 @@ export function DateRangeFilter({
   value,
   onChange,
   className,
+  timeField,
+  onTimeFieldChange,
 }: DateRangeFilterProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [tempRange, setTempRange] = useState<DateRange | undefined>(
@@ -104,7 +109,35 @@ export function DateRangeFilter({
   };
 
   return (
-    <div className={cn("flex items-center gap-0.5 sm:gap-1 w-full sm:w-auto", className)}>
+    <div className={cn("flex flex-col gap-1.5 w-full sm:w-auto", className)}>
+      {/* Time-field toggle — only shown when a date filter is active and the parent provides the handler */}
+      {onTimeFieldChange && timeField && value.preset !== "all" && (
+        <div className="flex items-center gap-0.5 sm:gap-1">
+          <button
+            onClick={() => onTimeFieldChange("end_time")}
+            className={cn(
+              "flex-1 sm:flex-none px-2 sm:px-3 py-1 text-xs font-medium rounded-md transition-colors",
+              timeField === "end_time"
+                ? "bg-secondary text-secondary-foreground"
+                : "bg-muted text-muted-foreground hover:bg-muted/80"
+            )}
+          >
+            Closed
+          </button>
+          <button
+            onClick={() => onTimeFieldChange("start_time")}
+            className={cn(
+              "flex-1 sm:flex-none px-2 sm:px-3 py-1 text-xs font-medium rounded-md transition-colors",
+              timeField === "start_time"
+                ? "bg-secondary text-secondary-foreground"
+                : "bg-muted text-muted-foreground hover:bg-muted/80"
+            )}
+          >
+            Opened
+          </button>
+        </div>
+      )}
+      <div className="flex items-center gap-0.5 sm:gap-1 w-full sm:w-auto">
       {presets.map((preset) => (
         <button
           key={preset.value}
@@ -168,6 +201,7 @@ export function DateRangeFilter({
           </div>
         </PopoverContent>
       </Popover>
+      </div>
     </div>
   );
 }

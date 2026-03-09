@@ -100,7 +100,8 @@ export function FundingTable({
                               payment.exchange_account?.label,
                               payment.exchange_account?.account_identifier || payment.exchange_account_id,
                               8,
-                              4
+                              4,
+                              payment.exchange_account?.wallet?.label
                             )}
                           </span>
                         </div>

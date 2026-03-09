@@ -5,6 +5,8 @@ export interface Exchange {
   id: string;
   name: string;
   display_name: string;
+  /** A1.6: true when the exchange requires an API key to access account data. */
+  requires_api_key: boolean;
 }
 
 export interface ExchangeAccountType {
@@ -35,6 +37,8 @@ export interface Wallet {
   created_at: string;
   last_detected_at?: string;
   label?: string;
+  verified_at?: string;
+  verification_method?: "signature" | "api_key";
 }
 
 // Queries
@@ -44,6 +48,7 @@ export const GET_EXCHANGES = gql`
       id
       name
       display_name
+      requires_api_key
     }
   }
 `;
@@ -74,6 +79,7 @@ export const GET_ACCOUNTS = gql`
         id
         name
         display_name
+        requires_api_key
       }
       wallet {
         id
@@ -95,6 +101,8 @@ export const GET_WALLETS = gql`
       created_at
       last_detected_at
       label
+      verified_at
+      verification_method
     }
   }
 `;
@@ -103,7 +111,7 @@ export const CREATE_WALLET = gql`
   mutation CreateWallet($address: String!, $chain: String!) {
     insert_wallets_one(
       object: { address: $address, chain: $chain }
-      on_conflict: { constraint: wallets_address_chain_key, update_columns: [] }
+      on_conflict: { constraint: wallets_user_address_chain_key, update_columns: [] }
     ) {
       id
       address
@@ -130,13 +138,15 @@ export const UPDATE_WALLET_LABEL = gql`
   }
 `;
 
-// Wallet with account count (for wallets section)
+// Wallet with account count and exchange info (for wallets section)
 export interface WalletWithAccounts extends Wallet {
-  exchange_accounts_aggregate: {
-    aggregate: {
-      count: number;
-    };
-  };
+  exchange_accounts: {
+    id: string;
+    exchange: {
+      id: string;
+      display_name: string;
+    } | null;
+  }[];
 }
 
 export const GET_WALLETS_WITH_COUNTS = gql`
@@ -148,9 +158,13 @@ export const GET_WALLETS_WITH_COUNTS = gql`
       created_at
       last_detected_at
       label
-      exchange_accounts_aggregate {
-        aggregate {
-          count
+      verified_at
+      verification_method
+      exchange_accounts {
+        id
+        exchange {
+          id
+          display_name
         }
       }
     }
@@ -178,6 +192,7 @@ export const GET_ACCOUNTS_BY_WALLET = gql`
         id
         name
         display_name
+        requires_api_key
       }
       wallet {
         id
@@ -207,6 +222,7 @@ export const GET_ACCOUNT_BY_ID = gql`
         id
         name
         display_name
+        requires_api_key
       }
       wallet {
         id
@@ -876,6 +892,10 @@ export const GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT_WITH_RANGE_FILTER = gql`
 export interface FundingAggregates {
   totalAmount: string;
   count: number;
+  totalReceived: string;
+  totalPaid: string;
+  receivedCount: number;
+  paidCount: number;
 }
 
 // Funding aggregate queries
@@ -1000,6 +1020,9 @@ export const GET_TRADES_DYNAMIC = gql`
           name
           display_name
         }
+        wallet {
+          label
+        }
       }
     }
     trades_aggregate(where: $where) {
@@ -1043,6 +1066,9 @@ export const GET_FUNDING_PAYMENTS_DYNAMIC = gql`
           name
           display_name
         }
+        wallet {
+          label
+        }
       }
     }
     funding_payments_aggregate(where: $where) {
@@ -1063,105 +1089,132 @@ export const GET_FUNDING_AGGREGATES_DYNAMIC = gql`
         }
       }
     }
-  }
-`;
-
-// Position types
-export interface Position {
-  id: string;
-  exchange_account_id: string;
-  base_asset: string;
-  quote_asset: string;
-  side: "long" | "short";
-  market_type: "perp" | "spot" | "swap";
-  start_time: number; // Unix milliseconds (BIGINT)
-  end_time: number; // Unix milliseconds (BIGINT)
-  entry_avg_price: string;
-  exit_avg_price: string;
-  total_quantity: string;
-  total_fees: string;
-  realized_pnl: string;
-  exchange_account?: ExchangeAccount;
-}
-
-export interface PositionTrade {
-  position_id: string;
-  trade_id: string;
-  allocation_percentage: string;
-  allocated_quantity: string;
-  allocated_fees: string;
-  trade?: Trade;
-}
-
-// Position aggregates interface
-export interface PositionsAggregates {
-  totalPnL: string;
-  totalFees: string;
-  count: number;
-}
-
-// Position queries
-export const GET_POSITIONS = gql`
-  query GetPositions($limit: Int!, $offset: Int!) {
-    positions(
-      limit: $limit
-      offset: $offset
-      order_by: { end_time: desc }
+    funding_received: funding_payments_aggregate(
+      where: { _and: [$where, { amount: { _gt: "0" } }] }
     ) {
-      id
-      exchange_account_id
-      base_asset
-      quote_asset
-      side
-      market_type
-      start_time
-      end_time
-      entry_avg_price
-      exit_avg_price
-      total_quantity
-      total_fees
-      realized_pnl
-      exchange_account {
-        id
-        account_identifier
-        account_type
-        exchange {
-          id
-          name
-          display_name
+      aggregate {
+        count
+        sum {
+          amount
+        }
+      }
+    }
+    funding_paid: funding_payments_aggregate(
+      where: { _and: [$where, { amount: { _lt: "0" } }] }
+    ) {
+      aggregate {
+        count
+        sum {
+          amount
         }
       }
     }
   }
 `;
 
-export const GET_POSITIONS_DYNAMIC = gql`
-  query GetPositionsDynamic($limit: Int!, $offset: Int!, $where: positions_bool_exp!) {
-    positions(limit: $limit, offset: $offset, order_by: { end_time: desc }, where: $where) {
+// Position types (matches new unified positions table)
+export interface Position {
+  id: string;
+  exchange_account_id: string;
+  market: string;
+  market_type: "perp" | "spot";
+  side: "long" | "short";
+  status: "open" | "closed";
+  quantity: string;
+  entry_price: string;
+  exit_price: string | null;
+  total_fees: string;
+  cumulative_funding: string;
+  quote_asset: string; // What entry/exit prices are denominated in
+  start_time: number; // Unix milliseconds (BIGINT)
+  end_time: number | null; // Unix milliseconds (BIGINT), null if open
+  order_id: string | null; // Order ID of the closing trade
+  updated_at: string;
+  exchange_account?: ExchangeAccount;
+  position_events?: PositionEvent[];
+}
+
+// Position event (links trades/events to positions)
+export interface PositionEvent {
+  id: string;
+  event_type: string; // "trade"
+  event_id: string;
+  direction: string; // "entry" or "exit"
+  quantity: string;
+  price: string | null;
+  timestamp: number;
+}
+
+// Position aggregates interface
+export interface PositionTypeAggregates {
+  totalFees: string;
+  totalFunding: string;
+  count: number;
+}
+
+export interface PositionsAggregates {
+  totalFees: string;
+  count: number;
+  perp: PositionTypeAggregates;
+  spot: PositionTypeAggregates;
+}
+
+// Position queries (new unified schema)
+const POSITION_FIELDS = `
+  id
+  exchange_account_id
+  market
+  market_type
+  side
+  status
+  quantity
+  entry_price
+  exit_price
+  total_fees
+  cumulative_funding
+  quote_asset
+  start_time
+  end_time
+  order_id
+  updated_at
+  exchange_account {
+    id
+    account_identifier
+    account_type
+    label
+    tags
+    exchange {
       id
-      exchange_account_id
-      base_asset
-      quote_asset
-      side
-      market_type
-      start_time
-      end_time
-      entry_avg_price
-      exit_avg_price
-      total_quantity
-      total_fees
-      realized_pnl
-      exchange_account {
-        id
-        account_identifier
-        account_type
-        label
-        exchange {
-          id
-          name
-          display_name
-        }
-      }
+      name
+      display_name
+    }
+    wallet {
+      label
+    }
+  }
+  position_events(order_by: { timestamp: asc }) {
+    id
+    event_type
+    event_id
+    direction
+    quantity
+    price
+    timestamp
+  }
+`;
+
+export const GET_OPEN_POSITIONS = gql`
+  query GetOpenPositions($where: positions_bool_exp!) {
+    positions(where: $where, order_by: [{ market_type: asc }, { market: asc }]) {
+      ${POSITION_FIELDS}
+    }
+  }
+`;
+
+export const GET_POSITIONS_DYNAMIC = gql`
+  query GetPositionsDynamic($limit: Int!, $offset: Int!, $where: positions_bool_exp!, $order_by: [positions_order_by!]) {
+    positions(limit: $limit, offset: $offset, order_by: $order_by, where: $where) {
+      ${POSITION_FIELDS}
     }
     positions_aggregate(where: $where) {
       aggregate {
@@ -1172,110 +1225,168 @@ export const GET_POSITIONS_DYNAMIC = gql`
 `;
 
 export const GET_POSITIONS_AGGREGATES_DYNAMIC = gql`
-  query GetPositionsAggregatesDynamic($where: positions_bool_exp!) {
-    positions_aggregate(where: $where) {
+  query GetPositionsAggregatesDynamic($where: positions_bool_exp!, $perpWhere: positions_bool_exp!, $spotWhere: positions_bool_exp!) {
+    all: positions_aggregate(where: $where) {
       aggregate {
         count
         sum {
-          realized_pnl
           total_fees
         }
       }
     }
+    perp: positions_aggregate(where: $perpWhere) {
+      aggregate {
+        count
+        sum {
+          total_fees
+          cumulative_funding
+        }
+      }
+    }
+    spot: positions_aggregate(where: $spotWhere) {
+      aggregate {
+        count
+        sum {
+          total_fees
+          cumulative_funding
+        }
+      }
+    }
   }
 `;
 
-export const GET_POSITION_WITH_TRADES = gql`
-  query GetPositionWithTrades($id: uuid!) {
-    positions_by_pk(id: $id) {
+export const GET_DISTINCT_POSITION_MARKETS = gql`
+  query GetDistinctPositionMarkets {
+    positions(distinct_on: market, order_by: { market: asc }) {
+      market
+    }
+  }
+`;
+
+// Transfer types (unified transfers table — replaces old deposits table)
+export interface Transfer {
+  id: string;
+  exchange_account_id: string;
+  type: string; // "deposit", "withdraw", "interest", "reward", "if_stake", "if_unstake"
+  asset: string;
+  amount: string; // signed numeric
+  timestamp: number; // Unix milliseconds (BIGINT)
+  cost_basis?: string;
+  created_at?: string;
+  exchange_account?: ExchangeAccount;
+}
+
+// Transfer queries
+export const GET_TRANSFERS_DYNAMIC = gql`
+  query GetTransfers($where: transfers_bool_exp!, $limit: Int!, $offset: Int!, $order_by: [transfers_order_by!]!) {
+    transfers(where: $where, limit: $limit, offset: $offset, order_by: $order_by) {
       id
       exchange_account_id
-      base_asset
-      quote_asset
-      side
-      market_type
-      start_time
-      end_time
-      entry_avg_price
-      exit_avg_price
-      total_quantity
-      total_fees
-      realized_pnl
+      type
+      asset
+      amount
+      timestamp
+      cost_basis
       exchange_account {
         id
         account_identifier
         account_type
+        label
         exchange {
           id
           name
           display_name
         }
-      }
-      position_trades {
-        position_id
-        trade_id
-        allocation_percentage
-        allocated_quantity
-        allocated_fees
-        trade {
-          id
-          base_asset
-          quote_asset
-          side
-          price
-          quantity
-          timestamp
-          fee
-          order_id
-          trade_id
-          market_type
+        wallet {
+          label
         }
       }
     }
-  }
-`;
-
-export const GET_DISTINCT_POSITION_ASSETS = gql`
-  query GetDistinctPositionAssets {
-    positions(distinct_on: base_asset, order_by: { base_asset: asc }) {
-      base_asset
+    transfers_aggregate(where: $where) {
+      aggregate {
+        count
+      }
     }
   }
 `;
 
-// Deposit types
-export interface Deposit {
+export const GET_DISTINCT_TRANSFER_ASSETS = gql`
+  query GetDistinctTransferAssets {
+    transfers(distinct_on: asset, order_by: { asset: asc }) {
+      asset
+    }
+  }
+`;
+
+// Per-exchange funding breakdown (used on funding page, A6.2)
+export interface ExchangeFundingBreakdown {
+  exchangeId: string;
+  exchangeName: string;
+  displayName: string;
+  totalFunding: string;
+  count: number;
+}
+
+// Per-asset funding breakdown (A6.3)
+export interface FundingAssetBreakdown {
+  /** The base asset, e.g. "BTC", "ETH" */
+  asset: string;
+  /** Total funding received (positive amounts) in USD */
+  received: number;
+  /** Total funding paid (negative amounts) in USD, stored as positive value */
+  paid: number;
+  /** Net funding = received - paid (signed) */
+  net: number;
+  /** Total number of funding payments for this asset */
+  paymentCount: number;
+}
+
+export const GET_FUNDING_PNL_BY_ASSET = gql`
+  query GetFundingPnLByAsset($where: funding_payments_bool_exp!) {
+    funding_payments(where: $where) {
+      base_asset
+      amount
+    }
+  }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OPS.3: Interest payments (derived from spot balance snapshot reconciliation)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** One interest payment row from the interest_payments table. */
+export interface InterestPayment {
   id: string;
   exchange_account_id: string;
   asset: string;
-  direction: "deposit" | "withdraw";
+  /** Signed decimal string: positive = earned (lending), negative = charged (borrowing). */
   amount: string;
-  user_cost_basis: string;
-  timestamp: number; // Unix milliseconds (BIGINT)
-  deposit_id: string;
+  oracle_price: string | null;
+  usd_value: string | null;
+  /** Unix milliseconds — midpoint of reconciliation interval. */
+  timestamp: number;
+  snapshot_from: number;
+  snapshot_to: number;
+  /** True for USDC: perp fees/funding also affect the balance, so interest is approximate. */
+  is_approximate: boolean;
   exchange_account?: ExchangeAccount;
 }
 
-// Deposit aggregates interface
-export interface DepositsAggregates {
-  totalDeposits: string;
-  totalWithdrawals: string;
-  depositCount: number;
-  withdrawalCount: number;
-}
+// ─── Interest payment queries ─────────────────────────────────────────────────
 
-// Deposit queries
-export const GET_DEPOSITS_DYNAMIC = gql`
-  query GetDepositsDynamic($limit: Int!, $offset: Int!, $where: deposits_bool_exp!) {
-    deposits(limit: $limit, offset: $offset, order_by: { timestamp: desc }, where: $where) {
+export const GET_INTEREST_PAYMENTS_DYNAMIC = gql`
+  query GetInterestPaymentsDynamic($limit: Int!, $offset: Int!, $where: interest_payments_bool_exp!) {
+    interest_payments(limit: $limit, offset: $offset, order_by: { timestamp: desc }, where: $where) {
       id
       exchange_account_id
       asset
-      direction
       amount
-      user_cost_basis
+      oracle_price
+      usd_value
       timestamp
-      deposit_id
+      snapshot_from
+      snapshot_to
+      is_approximate
       exchange_account {
         id
         account_identifier
@@ -1286,9 +1397,12 @@ export const GET_DEPOSITS_DYNAMIC = gql`
           name
           display_name
         }
+        wallet {
+          label
+        }
       }
     }
-    deposits_aggregate(where: $where) {
+    interest_payments_aggregate(where: $where) {
       aggregate {
         count
       }
@@ -1296,213 +1410,3 @@ export const GET_DEPOSITS_DYNAMIC = gql`
   }
 `;
 
-export const GET_DEPOSITS_AGGREGATES_DYNAMIC = gql`
-  query GetDepositsAggregatesDynamic($where: deposits_bool_exp!) {
-    deposits: deposits_aggregate(where: $where) {
-      aggregate {
-        count
-        sum {
-          amount
-        }
-      }
-    }
-    deposit_totals: deposits_aggregate(where: { _and: [$where, { direction: { _eq: "deposit" } }] }) {
-      aggregate {
-        count
-        sum {
-          amount
-        }
-      }
-    }
-    withdrawal_totals: deposits_aggregate(where: { _and: [$where, { direction: { _eq: "withdraw" } }] }) {
-      aggregate {
-        count
-        sum {
-          amount
-        }
-      }
-    }
-  }
-`;
-
-export const GET_DISTINCT_DEPOSIT_ASSETS = gql`
-  query GetDistinctDepositAssets {
-    deposits(distinct_on: asset, order_by: { asset: asc }) {
-      asset
-    }
-  }
-`;
-
-// Open Position types (derived from trades)
-export interface OpenPosition {
-  base_asset: string;
-  quote_asset: string;
-  market_type: "perp" | "spot" | "swap";
-  side: "long" | "short";
-  net_quantity: number;
-  avg_entry_price: number;
-  total_cost: number;
-  exchange_account_id?: string;
-  exchange_account?: ExchangeAccount;
-  // For spot positions traded against non-USD (e.g., bSOL/SOL)
-  native_quote_asset?: string; // The actual quote asset (e.g., "SOL" for bSOL/SOL)
-}
-
-// Query to get open positions by aggregating trades
-// This calculates net position = sum(buy quantities) - sum(sell quantities)
-export const GET_OPEN_POSITIONS = gql`
-  query GetOpenPositions {
-    perp_positions: trades(
-      where: { market_type: { _eq: "perp" } }
-      distinct_on: [base_asset, quote_asset, exchange_account_id]
-    ) {
-      base_asset
-      quote_asset
-      exchange_account_id
-      exchange_account {
-        id
-        account_identifier
-        label
-        exchange {
-          id
-          name
-          display_name
-        }
-      }
-    }
-    spot_positions: trades(
-      where: { market_type: { _in: ["spot", "swap"] } }
-      distinct_on: [base_asset, quote_asset, exchange_account_id]
-    ) {
-      base_asset
-      quote_asset
-      exchange_account_id
-      exchange_account {
-        id
-        account_identifier
-        label
-        exchange {
-          id
-          name
-          display_name
-        }
-      }
-    }
-  }
-`;
-
-// Get trade totals for calculating open position quantities
-export const GET_TRADE_TOTALS_BY_ASSET = gql`
-  query GetTradeTotalsByAsset(
-    $base_asset: String!
-    $quote_asset: String!
-    $market_type: String!
-    $exchange_account_id: uuid!
-  ) {
-    buy_total: trades_aggregate(
-      where: {
-        base_asset: { _eq: $base_asset }
-        quote_asset: { _eq: $quote_asset }
-        market_type: { _eq: $market_type }
-        exchange_account_id: { _eq: $exchange_account_id }
-        side: { _eq: "buy" }
-      }
-    ) {
-      aggregate {
-        sum {
-          quantity
-        }
-        count
-      }
-    }
-    sell_total: trades_aggregate(
-      where: {
-        base_asset: { _eq: $base_asset }
-        quote_asset: { _eq: $quote_asset }
-        market_type: { _eq: $market_type }
-        exchange_account_id: { _eq: $exchange_account_id }
-        side: { _eq: "sell" }
-      }
-    ) {
-      aggregate {
-        sum {
-          quantity
-        }
-        count
-      }
-    }
-    # Get weighted average entry price (for the winning side)
-    buy_value: trades_aggregate(
-      where: {
-        base_asset: { _eq: $base_asset }
-        quote_asset: { _eq: $quote_asset }
-        market_type: { _eq: $market_type }
-        exchange_account_id: { _eq: $exchange_account_id }
-        side: { _eq: "buy" }
-      }
-    ) {
-      aggregate {
-        sum {
-          quantity
-        }
-      }
-    }
-    sell_value: trades_aggregate(
-      where: {
-        base_asset: { _eq: $base_asset }
-        quote_asset: { _eq: $quote_asset }
-        market_type: { _eq: $market_type }
-        exchange_account_id: { _eq: $exchange_account_id }
-        side: { _eq: "sell" }
-      }
-    ) {
-      aggregate {
-        sum {
-          quantity
-        }
-      }
-    }
-  }
-`;
-
-// Combined query for spot+swap positions
-export const GET_TRADE_TOTALS_SPOT_SWAP = gql`
-  query GetTradeTotalsSpotSwap(
-    $base_asset: String!
-    $quote_asset: String!
-    $exchange_account_id: uuid!
-  ) {
-    buy_total: trades_aggregate(
-      where: {
-        base_asset: { _eq: $base_asset }
-        quote_asset: { _eq: $quote_asset }
-        market_type: { _in: ["spot", "swap"] }
-        exchange_account_id: { _eq: $exchange_account_id }
-        side: { _eq: "buy" }
-      }
-    ) {
-      aggregate {
-        sum {
-          quantity
-        }
-        count
-      }
-    }
-    sell_total: trades_aggregate(
-      where: {
-        base_asset: { _eq: $base_asset }
-        quote_asset: { _eq: $quote_asset }
-        market_type: { _in: ["spot", "swap"] }
-        exchange_account_id: { _eq: $exchange_account_id }
-        side: { _eq: "sell" }
-      }
-    ) {
-      aggregate {
-        sum {
-          quantity
-        }
-        count
-      }
-    }
-  }
-`;

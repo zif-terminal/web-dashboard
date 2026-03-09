@@ -115,10 +115,10 @@ export default function TradesPage() {
 
       <StatsGrid>
         <StatCard
-          title="Total Fees Paid"
+          title="Total Fees"
           value={aggregates ? formatFees(aggregates.totalFees) : "0"}
           isLoading={isLoadingAggregates}
-          valueClassName="text-red-500"
+          valueClassName={aggregates && parseFloat(aggregates.totalFees) <= 0 ? "text-green-500" : "text-red-500"}
         />
         <StatCard
           title="Total Trades"
@@ -151,7 +151,9 @@ export default function TradesPage() {
                     <SelectItem value="all">All Accounts</SelectItem>
                     {accounts.map((account) => (
                       <SelectItem key={account.id} value={account.id}>
-                        {account.exchange?.display_name || "Unknown"} - {account.account_identifier.slice(0, 10)}...
+                        {account.wallet?.label
+                          ? `${account.wallet.label} - ${account.exchange?.display_name || "Unknown"}`
+                          : `${account.exchange?.display_name || "Unknown"} - ${account.account_identifier.slice(0, 10)}...`}
                       </SelectItem>
                     ))}
                   </SelectContent>

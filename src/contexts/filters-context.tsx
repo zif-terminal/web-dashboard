@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { api } from "@/lib/api";
+import { normalizeTags } from "@/lib/utils";
 
 interface FiltersState {
   globalTags: string[];
@@ -31,7 +32,7 @@ export function FiltersProvider({ children }: { children: ReactNode }) {
       const accounts = await api.getAccounts();
       const tagSet = new Set<string>();
       accounts.forEach((account) => {
-        (account.tags || []).forEach((tag) => tagSet.add(tag));
+        normalizeTags(account.tags).forEach((tag) => tagSet.add(tag));
       });
       setAvailableTags(Array.from(tagSet).sort());
       setHasFetched(true);

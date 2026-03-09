@@ -103,12 +103,24 @@ export default function FundingPage() {
         }
       />
 
-      <StatsGrid>
+      <StatsGrid columns={4}>
         <StatCard
           title="Total Funding PnL"
           value={aggregates ? formatSignedNumber(aggregates.totalAmount) : "+0.00"}
           isLoading={isLoadingAggregates}
           valueClassName={isPositive ? "text-green-500" : "text-red-500"}
+        />
+        <StatCard
+          title="Total Received"
+          value={aggregates ? formatSignedNumber(aggregates.totalReceived) : "+0.00"}
+          isLoading={isLoadingAggregates}
+          valueClassName="text-green-500"
+        />
+        <StatCard
+          title="Total Paid"
+          value={aggregates ? formatSignedNumber(aggregates.totalPaid) : "0.00"}
+          isLoading={isLoadingAggregates}
+          valueClassName="text-red-500"
         />
         <StatCard
           title="Total Payments"
