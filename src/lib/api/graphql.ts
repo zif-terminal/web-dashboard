@@ -56,7 +56,10 @@ function isAuthError(error: unknown): boolean {
     if (response?.errors) {
       return response.errors.some(
         (e) => e.extensions?.code === "access-denied" ||
-               e.message === "no mutations exist"
+               e.message === "no mutations exist" ||
+               (e.extensions?.code === "validation-failed" &&
+                typeof e.message === "string" &&
+                e.message.includes("not found in type: 'query_root'"))
       );
     }
   }
