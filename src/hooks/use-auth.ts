@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { getToken, logout as authLogout, isAuthenticated } from "@/lib/auth";
+import { logout as authLogout, checkAuthStatus } from "@/lib/auth";
 
 export function useAuth() {
   const router = useRouter();
@@ -10,9 +10,10 @@ export function useAuth() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- required for initial auth check
-    setIsLoggedIn(isAuthenticated());
-    setIsLoading(false);
+    checkAuthStatus().then((authenticated) => {
+      setIsLoggedIn(authenticated);
+      setIsLoading(false);
+    });
   }, []);
 
   const logout = useCallback(async () => {
@@ -21,8 +22,8 @@ export function useAuth() {
     router.push("/login");
   }, [router]);
 
-  const checkAuth = useCallback(() => {
-    const authenticated = isAuthenticated();
+  const checkAuth = useCallback(async () => {
+    const authenticated = await checkAuthStatus();
     setIsLoggedIn(authenticated);
     return authenticated;
   }, []);
@@ -30,7 +31,6 @@ export function useAuth() {
   return {
     isLoggedIn,
     isLoading,
-    token: getToken(),
     logout,
     checkAuth,
   };
