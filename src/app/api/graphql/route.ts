@@ -8,11 +8,11 @@ export async function POST(request: NextRequest) {
   const cookieStore = await cookies();
   const token = cookieStore.get(TOKEN_COOKIE_NAME)?.value;
 
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
+  if (!token) {
+    return NextResponse.json(
+      { errors: [{ message: "Authentication required" }] },
+      { status: 401 }
+    );
   }
 
   const body = await request.text();
@@ -21,7 +21,10 @@ export async function POST(request: NextRequest) {
   try {
     hasuraResponse = await fetch(`${HASURA_URL}/v1/graphql`, {
       method: "POST",
-      headers,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body,
     });
   } catch {
