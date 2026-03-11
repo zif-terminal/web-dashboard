@@ -27,6 +27,7 @@ import { ExchangeBadge } from "@/components/exchange-badge";
 import { useGlobalTags } from "@/contexts/filters-context";
 import { cn } from "@/lib/utils";
 import { formatNumber, formatTimestamp, getDisplayName } from "@/lib/format";
+import { DataFreshnessBadge } from "@/components/data-freshness-badge";
 
 const CLOSED_PAGE_SIZE = 50;
 
@@ -245,11 +246,14 @@ export default function PortfolioPage() {
         title="Portfolio"
         description="Current positions and closed position history"
         action={
-          <SyncButton
-            lastRefreshTime={lastRefreshTime}
-            onRefresh={refresh}
-            isLoading={isLoadingOpen || isLoadingClosed}
-          />
+          <div className="flex items-center gap-3">
+            <DataFreshnessBadge accounts={accounts} />
+            <SyncButton
+              lastRefreshTime={lastRefreshTime}
+              onRefresh={refresh}
+              isLoading={isLoadingOpen || isLoadingClosed}
+            />
+          </div>
         }
       />
 

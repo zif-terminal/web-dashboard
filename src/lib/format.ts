@@ -57,6 +57,44 @@ export function formatRelativeTime(timestamp: string | number | null | undefined
   return date.toLocaleDateString();
 }
 
+export type SyncFreshness = "fresh" | "ok" | "stale" | "very-stale" | "never";
+
+/** Classify how fresh a last_synced_at timestamp is. */
+export function getSyncFreshness(timestamp: string | number | null | undefined): SyncFreshness {
+  if (!timestamp) return "never";
+
+  const date = parseTimestamp(timestamp);
+  const diffMs = Date.now() - date.getTime();
+  const diffMin = diffMs / 60_000;
+
+  if (diffMin < 15) return "fresh";
+  if (diffMin < 60) return "ok";
+  if (diffMin < 360) return "stale";
+  return "very-stale";
+}
+
+/** Get Tailwind text color class for a sync freshness level. */
+export function getSyncFreshnessColor(freshness: SyncFreshness): string {
+  switch (freshness) {
+    case "fresh": return "text-green-600 dark:text-green-400";
+    case "ok": return "text-muted-foreground";
+    case "stale": return "text-yellow-600 dark:text-yellow-400";
+    case "very-stale": return "text-red-600 dark:text-red-400";
+    case "never": return "text-red-600 dark:text-red-400";
+  }
+}
+
+/** Human-readable label for sync freshness. */
+export function getSyncFreshnessLabel(freshness: SyncFreshness): string {
+  switch (freshness) {
+    case "fresh": return "Fresh";
+    case "ok": return "OK";
+    case "stale": return "Stale";
+    case "very-stale": return "Very stale";
+    case "never": return "Never synced";
+  }
+}
+
 export function truncateAddress(address: string, startChars = 6, endChars = 4): string {
   if (address.length <= startChars + endChars + 3) return address;
   return `${address.slice(0, startChars)}...${address.slice(-endChars)}`;

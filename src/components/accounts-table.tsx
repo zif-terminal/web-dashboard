@@ -6,10 +6,10 @@ import { toast } from "sonner";
 import { Lock } from "lucide-react";
 import { api } from "@/lib/api";
 import { ExchangeAccount } from "@/lib/queries";
-import { normalizeTags } from "@/lib/utils";
+import { normalizeTags, cn } from "@/lib/utils";
 import { useApi } from "@/hooks/use-api";
 import { useGlobalTags } from "@/contexts/filters-context";
-import { formatRelativeTime } from "@/lib/format";
+import { formatRelativeTime, getSyncFreshness, getSyncFreshnessColor, getSyncFreshnessLabel } from "@/lib/format";
 import {
   Table,
   TableBody,
@@ -65,6 +65,33 @@ function ApiKeyLockedBadge() {
   );
 }
 
+function SyncStatusCell({ lastSyncedAt }: { lastSyncedAt: string | null | undefined }) {
+  const freshness = getSyncFreshness(lastSyncedAt);
+  const colorClass = getSyncFreshnessColor(freshness);
+  const label = getSyncFreshnessLabel(freshness);
+  const relativeTime = formatRelativeTime(lastSyncedAt);
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className={cn("text-sm inline-flex items-center gap-1.5", colorClass)}>
+          <span className={cn(
+            "inline-block w-1.5 h-1.5 rounded-full flex-shrink-0",
+            freshness === "fresh" && "bg-green-500",
+            freshness === "ok" && "bg-muted-foreground",
+            freshness === "stale" && "bg-yellow-500",
+            (freshness === "very-stale" || freshness === "never") && "bg-red-500",
+          )} />
+          {relativeTime}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        <p className="text-xs">{label}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function getStatusBadge(status: string | undefined) {
   if (!status || status === "active") return null;
   if (status === "needs_token") {
@@ -90,6 +117,13 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
   const { globalTags: selectedTags, refreshTags } = useGlobalTags();
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Tick every 60s to refresh relative timestamps and freshness indicators
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => setTick((t) => t + 1), 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   const fetchAccounts = async () => {
     setIsLoading(true);
@@ -207,6 +241,8 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
               <TableHead>Label / Account</TableHead>
               <TableHead>Type</TableHead>
               <TableHead>Tags</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Last Synced</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -240,6 +276,12 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
                     onTagsChange={(tags) => handleTagsChange(account.id, tags)}
                     availableTags={allAccountTags}
                   />
+                </TableCell>
+                <TableCell>
+                  {getStatusBadge(account.status)}
+                </TableCell>
+                <TableCell>
+                  <SyncStatusCell lastSyncedAt={account.last_synced_at} />
                 </TableCell>
               </TableRow>
             ))}
@@ -324,8 +366,8 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
                     <TableCell>
                       {getStatusBadge(account.status)}
                     </TableCell>
-                    <TableCell className="text-muted-foreground text-sm">
-                      {formatRelativeTime(account.last_synced_at)}
+                    <TableCell>
+                      <SyncStatusCell lastSyncedAt={account.last_synced_at} />
                     </TableCell>
                   </TableRow>
                 ))}
