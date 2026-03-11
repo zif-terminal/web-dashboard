@@ -6,6 +6,7 @@ import { Position, ExchangeAccount, PositionsAggregates, PositionEvent } from "@
 import { PageHeader } from "@/components/page-header";
 import { SyncButton } from "@/components/sync-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { StatCard, StatsGrid } from "@/components/stat-card";
 import {
   Select,
   SelectContent,
@@ -135,6 +136,31 @@ export default function PortfolioPage() {
 
   const closedTotalPages = Math.ceil(closedTotalCount / CLOSED_PAGE_SIZE);
 
+  // Portfolio summary metrics
+  const summaryMetrics = useMemo(() => {
+    // Open position totals (client-side)
+    let openFees = 0;
+    let openFunding = 0;
+    for (const p of openPositions) {
+      openFees += parseFloat(p.total_fees) || 0;
+      openFunding += parseFloat(p.cumulative_funding) || 0;
+    }
+
+    // Closed position totals (from aggregates)
+    const closedFees = closedAggregates ? parseFloat(closedAggregates.totalFees) || 0 : 0;
+    const closedFunding = closedAggregates
+      ? (parseFloat(closedAggregates.perp.totalFunding) || 0) +
+        (parseFloat(closedAggregates.spot.totalFunding) || 0)
+      : 0;
+
+    return {
+      totalFees: openFees + closedFees,
+      totalFunding: openFunding + closedFunding,
+      openCount: openPositions.length,
+      closedCount: closedAggregates?.count ?? 0,
+    };
+  }, [openPositions, closedAggregates]);
+
   // Group closed positions by order_id when toggle is on
   const displayedClosedPositions = useMemo(() => {
     if (!groupByOrder) return closedPositions;
@@ -243,6 +269,45 @@ export default function PortfolioPage() {
           ))}
         </SelectContent>
       </Select>
+
+      {/* Portfolio Summary */}
+      <StatsGrid columns={5}>
+        <StatCard
+          title="Realized PnL"
+          value="—"
+          description="Coming soon"
+          isLoading={false}
+          valueClassName="text-muted-foreground"
+        />
+        <StatCard
+          title="Total Funding"
+          value={
+            <span className={summaryMetrics.totalFunding >= 0 ? "text-green-600" : "text-red-600"}>
+              ${formatUSD(summaryMetrics.totalFunding.toFixed(2))}
+            </span>
+          }
+          isLoading={isLoadingOpen || isLoadingClosed}
+        />
+        <StatCard
+          title="Total Fees"
+          value={
+            <span className={summaryMetrics.totalFees <= 0 ? "text-green-600" : "text-red-600"}>
+              ${formatUSD(summaryMetrics.totalFees.toFixed(2))}
+            </span>
+          }
+          isLoading={isLoadingOpen || isLoadingClosed}
+        />
+        <StatCard
+          title="Open Positions"
+          value={summaryMetrics.openCount}
+          isLoading={isLoadingOpen}
+        />
+        <StatCard
+          title="Closed Positions"
+          value={summaryMetrics.closedCount}
+          isLoading={isLoadingClosed}
+        />
+      </StatsGrid>
 
       {/* Open Positions Section */}
       <Card>
