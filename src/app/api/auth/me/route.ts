@@ -15,8 +15,11 @@ export async function GET() {
   // Validate token against the auth service webhook
   try {
     const webhookResponse = await fetch(`${AUTH_URL}/auth/webhook`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${token}` },
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
     });
 
     if (!webhookResponse.ok) {
