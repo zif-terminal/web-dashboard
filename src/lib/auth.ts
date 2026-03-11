@@ -1,13 +1,5 @@
-import Cookies from "js-cookie";
-import { TOKEN_COOKIE_NAME } from "./graphql-client";
-
-// Auth endpoint - uses the Next.js rewrite proxy by default
-const AUTH_ENDPOINT = process.env.NEXT_PUBLIC_AUTH_ENDPOINT || "/api/auth";
-
-export interface LoginResponse {
-  token: string;
-  expires_at: string;
-}
+// Auth endpoint — calls our own API routes which manage HttpOnly cookies
+const AUTH_ENDPOINT = "/api/auth";
 
 export interface AuthError {
   message: string;
@@ -16,7 +8,7 @@ export interface AuthError {
 export async function login(
   username: string,
   password: string
-): Promise<LoginResponse> {
+): Promise<void> {
   let response: Response;
 
   try {
@@ -27,7 +19,7 @@ export async function login(
       },
       body: JSON.stringify({ username, password }),
     });
-  } catch (error) {
+  } catch {
     // Network error - server unreachable, CORS, etc.
     throw new Error(
       "Unable to connect to server. Please check your connection and try again."
@@ -50,41 +42,28 @@ export async function login(
     }
   }
 
-  const data: LoginResponse = await response.json();
-
-  // Store token in cookie
-  const expiresAt = new Date(data.expires_at);
-  Cookies.set(TOKEN_COOKIE_NAME, data.token, {
-    expires: expiresAt,
-    sameSite: "lax",
-  });
-
-  return data;
+  // Token is now stored in an HttpOnly cookie by the API route — no client-side storage needed
 }
 
 export async function logout(): Promise<void> {
-  const token = Cookies.get(TOKEN_COOKIE_NAME);
-
-  if (token) {
-    try {
-      await fetch(`${AUTH_ENDPOINT}/logout`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-    } catch {
-      // Ignore logout errors - we'll clear the cookie anyway
-    }
+  try {
+    await fetch(`${AUTH_ENDPOINT}/logout`, {
+      method: "POST",
+    });
+  } catch {
+    // Ignore logout errors
   }
-
-  Cookies.remove(TOKEN_COOKIE_NAME);
 }
 
-export function getToken(): string | undefined {
-  return Cookies.get(TOKEN_COOKIE_NAME);
-}
-
-export function isAuthenticated(): boolean {
-  return !!getToken();
+/**
+ * Check auth status via server-side API route (cannot read HttpOnly cookie directly).
+ */
+export async function checkAuthStatus(): Promise<boolean> {
+  try {
+    const response = await fetch(`${AUTH_ENDPOINT}/me`);
+    const data = await response.json();
+    return data.authenticated === true;
+  } catch {
+    return false;
+  }
 }

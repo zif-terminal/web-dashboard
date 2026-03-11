@@ -1,5 +1,4 @@
-import Cookies from "js-cookie";
-import { getGraphQLClient, TOKEN_COOKIE_NAME } from "../graphql-client";
+import { getGraphQLClient } from "../graphql-client";
 import {
   GET_EXCHANGES,
   GET_ACCOUNT_TYPES,
@@ -67,7 +66,8 @@ function isAuthError(error: unknown): boolean {
 }
 
 function handleAuthError(): never {
-  Cookies.remove(TOKEN_COOKIE_NAME);
+  // Clear HttpOnly cookie via server-side API route
+  fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
   if (typeof window !== "undefined") {
     window.location.href = "/login";
   }
@@ -598,8 +598,7 @@ export const graphqlApi: ApiClient = {
 
   // A2.1: Wallet ownership verification — challenge/response flow
   async requestWalletChallenge(address: string, chain: string): Promise<import("./types").WalletChallengeResponse> {
-    const authEndpoint = process.env.NEXT_PUBLIC_AUTH_ENDPOINT || "/api/auth";
-    const resp = await fetch(`${authEndpoint}/wallet/challenge`, {
+    const resp = await fetch("/api/auth/wallet/challenge", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ address, chain }),
@@ -617,14 +616,10 @@ export const graphqlApi: ApiClient = {
     signature: string,
     nonce: string,
   ): Promise<import("./types").WalletVerifyResponse> {
-    const authEndpoint = process.env.NEXT_PUBLIC_AUTH_ENDPOINT || "/api/auth";
-    const token = Cookies.get(TOKEN_COOKIE_NAME);
-    const resp = await fetch(`${authEndpoint}/wallet/verify`, {
+    // Auth catch-all API route injects the token from the HttpOnly cookie
+    const resp = await fetch("/api/auth/wallet/verify", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ address, chain, signature, nonce }),
     });
     if (!resp.ok) {
@@ -639,14 +634,10 @@ export const graphqlApi: ApiClient = {
     chain: string,
     apiKey: string,
   ): Promise<import("./types").WalletVerifyResponse> {
-    const authEndpoint = process.env.NEXT_PUBLIC_AUTH_ENDPOINT || "/api/auth";
-    const token = Cookies.get(TOKEN_COOKIE_NAME);
-    const resp = await fetch(`${authEndpoint}/wallet/verify-api-key`, {
+    // Auth catch-all API route injects the token from the HttpOnly cookie
+    const resp = await fetch("/api/auth/wallet/verify-api-key", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ address, chain, api_key: apiKey }),
     });
     if (!resp.ok) {
