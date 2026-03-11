@@ -4,16 +4,24 @@ import { TOKEN_COOKIE_NAME } from "@/lib/cookie-config";
 
 const AUTH_URL = process.env.AUTH_URL || "http://localhost:8081";
 
-/**
- * Catch-all proxy for auth service endpoints (wallet/challenge, wallet/verify, etc.).
- * Injects the JWT token from the HttpOnly cookie as an Authorization header.
- */
-async function proxyToAuth(
+// Only these auth service paths are proxied. All are POST-only.
+const ALLOWED_PATHS = new Set([
+  "wallet/challenge",
+  "wallet/verify",
+  "wallet/verify-api-key",
+]);
+
+export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   const { path } = await params;
   const subPath = path.join("/");
+
+  if (!ALLOWED_PATHS.has(subPath)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   const cookieStore = await cookies();
   const token = cookieStore.get(TOKEN_COOKIE_NAME)?.value;
 
@@ -26,14 +34,12 @@ async function proxyToAuth(
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const url = `${AUTH_URL}/auth/${subPath}`;
-
   let authResponse: Response;
   try {
-    authResponse = await fetch(url, {
-      method: request.method,
+    authResponse = await fetch(`${AUTH_URL}/auth/${subPath}`, {
+      method: "POST",
       headers,
-      body: request.method !== "GET" ? await request.text() : undefined,
+      body: await request.text(),
     });
   } catch {
     return NextResponse.json(
@@ -45,11 +51,9 @@ async function proxyToAuth(
   const responseText = await authResponse.text();
   return new NextResponse(responseText, {
     status: authResponse.status,
-    headers: { "Content-Type": authResponse.headers.get("content-type") || "application/json" },
+    headers: {
+      "Content-Type":
+        authResponse.headers.get("content-type") || "application/json",
+    },
   });
 }
-
-export const GET = proxyToAuth;
-export const POST = proxyToAuth;
-export const PUT = proxyToAuth;
-export const DELETE = proxyToAuth;
