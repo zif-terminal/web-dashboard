@@ -131,6 +131,10 @@ function buildTradesWhereClause(filters?: DataFilters): Record<string, unknown> 
     conditions.push({ market_type: { _in: filters.marketTypes } });
   }
 
+  if (filters?.side) {
+    conditions.push({ side: { _eq: filters.side } });
+  }
+
   if (filters?.tags && filters.tags.length > 0) {
     conditions.push(buildTagConditions(filters.tags));
   }
@@ -354,10 +358,14 @@ export const graphqlApi: ApiClient = {
       const client = getGraphQLClient();
       const where = buildTradesWhereClause(filters);
 
+      const orderBy = filters?.sort
+        ? [{ [filters.sort.column]: filters.sort.direction }]
+        : [{ timestamp: "desc" }];
+
       const data = await client.request<{
         trades: Trade[];
         trades_aggregate: { aggregate: { count: number } };
-      }>(GET_TRADES_DYNAMIC, { limit, offset, where });
+      }>(GET_TRADES_DYNAMIC, { limit, offset, where, order_by: orderBy });
 
       return {
         trades: data.trades,

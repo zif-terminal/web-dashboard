@@ -996,8 +996,8 @@ export const GET_DISTINCT_FUNDING_ASSETS = gql`
 
 // Dynamic filter queries - accept where clause as variable
 export const GET_TRADES_DYNAMIC = gql`
-  query GetTradesDynamic($limit: Int!, $offset: Int!, $where: trades_bool_exp!) {
-    trades(limit: $limit, offset: $offset, order_by: { timestamp: desc }, where: $where) {
+  query GetTradesDynamic($limit: Int!, $offset: Int!, $where: trades_bool_exp!, $order_by: [trades_order_by!]) {
+    trades(limit: $limit, offset: $offset, order_by: $order_by, where: $where) {
       id
       base_asset
       quote_asset

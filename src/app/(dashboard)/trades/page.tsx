@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { api, DataFilters } from "@/lib/api";
 import { Trade, ExchangeAccount, TradesAggregates } from "@/lib/queries";
 import { TradesTable } from "@/components/trades-table";
@@ -19,27 +19,41 @@ import {
 import { DateRangeFilter } from "@/components/date-range-filter";
 import { AssetFilter } from "@/components/asset-filter";
 import { MarketTypeFilter } from "@/components/market-type-filter";
+import { SideFilter } from "@/components/side-filter";
 import { usePaginatedData } from "@/hooks/use-paginated-data";
+import { SortConfig } from "@/lib/api";
 
 const PAGE_SIZE = 100;
-
-async function fetchTrades(
-  limit: number,
-  offset: number,
-  filters: DataFilters
-) {
-  const data = await api.getTrades(limit, offset, filters);
-  return { items: data.trades, totalCount: data.totalCount };
-}
-
-async function fetchTradesAggregates(filters: DataFilters) {
-  return api.getTradesAggregates(filters);
-}
 
 export default function TradesPage() {
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
   const [availableAssets, setAvailableAssets] = useState<string[]>([]);
   const [isLoadingAssets, setIsLoadingAssets] = useState(true);
+  const [selectedSide, setSelectedSide] = useState<"buy" | "sell" | null>(null);
+
+  // Wrap fetch functions to inject side filter
+  const fetchTrades = useCallback(
+    async (limit: number, offset: number, filters: DataFilters) => {
+      const filtersWithSide: DataFilters = {
+        ...filters,
+        side: selectedSide ?? undefined,
+      };
+      const data = await api.getTrades(limit, offset, filtersWithSide);
+      return { items: data.trades, totalCount: data.totalCount };
+    },
+    [selectedSide]
+  );
+
+  const fetchTradesAggregates = useCallback(
+    async (filters: DataFilters) => {
+      const filtersWithSide: DataFilters = {
+        ...filters,
+        side: selectedSide ?? undefined,
+      };
+      return api.getTradesAggregates(filtersWithSide);
+    },
+    [selectedSide]
+  );
 
   const {
     items: trades,
@@ -52,12 +66,14 @@ export default function TradesPage() {
     dateRange,
     selectedAssets,
     selectedMarketTypes,
+    sort,
     isNew,
     handlePageChange,
     handleAccountChange,
     handleDateRangeChange,
     handleAssetChange,
     handleMarketTypeChange,
+    handleSortChange,
     refresh,
     lastRefreshTime,
   } = usePaginatedData<Trade, TradesAggregates>({
@@ -66,6 +82,15 @@ export default function TradesPage() {
     pageSize: PAGE_SIZE,
     useGlobalTags: true,
   });
+
+  // Refresh when side filter changes
+  useEffect(() => {
+    refresh();
+  }, [selectedSide]);
+
+  const handleSideChange = useCallback((side: "buy" | "sell" | null) => {
+    setSelectedSide(side);
+  }, []);
 
   useEffect(() => {
     const fetchAccounts = async () => {
@@ -165,6 +190,7 @@ export default function TradesPage() {
               value={selectedMarketTypes}
               onChange={handleMarketTypeChange}
             />
+            <SideFilter value={selectedSide} onChange={handleSideChange} />
             <DateRangeFilter value={dateRange} onChange={handleDateRangeChange} />
           </FilterBar>
         </CardHeader>
@@ -178,6 +204,8 @@ export default function TradesPage() {
             showAccount={true}
             isLoading={isLoading}
             isNewItem={isNew}
+            sort={sort}
+            onSortChange={handleSortChange}
           />
         </CardContent>
       </Card>
