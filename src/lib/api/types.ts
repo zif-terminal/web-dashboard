@@ -70,6 +70,7 @@ export interface DataFilters {
   exchangeIds?: string[];
   timeField?: "start_time" | "end_time";
   sort?: SortConfig;
+  markets?: string[];
 }
 
 export interface ApiClient {
