@@ -1,9 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-
-// Cookie name can be customized via env var to allow multiple instances on same host
-const COOKIE_SUFFIX = process.env.NEXT_PUBLIC_COOKIE_SUFFIX || "";
-const TOKEN_COOKIE_NAME = `zif_auth_token${COOKIE_SUFFIX}`;
+import { TOKEN_COOKIE_NAME } from "@/lib/cookie-config";
 
 // Paths that should redirect to the dashboard when the user is already logged in.
 // /login and /signup: no point showing auth forms to a logged-in user.
