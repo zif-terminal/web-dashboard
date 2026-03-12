@@ -49,6 +49,7 @@ export function LoginForm() {
     try {
       await login(data.username, data.password);
       toast.success("Logged in successfully");
+      router.refresh();
       router.push("/accounts");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Login failed");

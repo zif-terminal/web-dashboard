@@ -1,4 +1,3 @@
-import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { TOKEN_COOKIE_NAME } from "@/lib/cookie-config";
 
@@ -33,8 +32,11 @@ export async function POST(request: NextRequest) {
   const data = await authResponse.json();
   const { token, expires_at } = data;
 
-  const cookieStore = await cookies();
-  cookieStore.set(TOKEN_COOKIE_NAME, token, {
+  // Set cookie directly on the response object to ensure the Set-Cookie
+  // header is included. Using (await cookies()).set() can fail to propagate
+  // when a separate NextResponse is returned.
+  const response = NextResponse.json({ authenticated: true, expires_at });
+  response.cookies.set(TOKEN_COOKIE_NAME, token, {
     httpOnly: true,
     secure: IS_PRODUCTION,
     sameSite: "lax",
@@ -42,6 +44,5 @@ export async function POST(request: NextRequest) {
     path: "/",
   });
 
-  // Return success without the raw token — client doesn't need it
-  return NextResponse.json({ authenticated: true, expires_at });
+  return response;
 }

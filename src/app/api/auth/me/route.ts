@@ -24,8 +24,9 @@ export async function GET() {
 
     if (!webhookResponse.ok) {
       // Token is expired or invalid — clear the stale cookie
-      cookieStore.delete(TOKEN_COOKIE_NAME);
-      return NextResponse.json({ authenticated: false });
+      const response = NextResponse.json({ authenticated: false });
+      response.cookies.delete(TOKEN_COOKIE_NAME);
+      return response;
     }
 
     return NextResponse.json({ authenticated: true });
