@@ -20,6 +20,9 @@ export async function POST() {
     }
   }
 
-  cookieStore.delete(TOKEN_COOKIE_NAME);
-  return NextResponse.json({ success: true });
+  // Delete cookie on the response object to ensure the Set-Cookie header
+  // is included in the actual response sent to the browser.
+  const response = NextResponse.json({ success: true });
+  response.cookies.delete(TOKEN_COOKIE_NAME);
+  return response;
 }
