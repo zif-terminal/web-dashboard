@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { api, DataFilters } from "@/lib/api";
 import { Trade, ExchangeAccount, TradesAggregates } from "@/lib/queries";
 import { TradesTable } from "@/components/trades-table";
@@ -20,7 +20,9 @@ import { DateRangeFilter } from "@/components/date-range-filter";
 import { AssetFilter } from "@/components/asset-filter";
 import { MarketTypeFilter } from "@/components/market-type-filter";
 import { SideFilter } from "@/components/side-filter";
+import { ExportButton } from "@/components/export-button";
 import { usePaginatedData } from "@/hooks/use-paginated-data";
+import { getTimestampsFromDateRange } from "@/components/date-range-filter";
 import { SortConfig } from "@/lib/api";
 
 const PAGE_SIZE = 100;
@@ -124,17 +126,32 @@ export default function TradesPage() {
     return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
   };
 
+  // Build export params from current filter state
+  const exportParams = useMemo(() => {
+    const params: Record<string, string | undefined> = {};
+    const { since, until } = getTimestampsFromDateRange(dateRange);
+    if (since !== undefined) params.from = String(since);
+    if (until !== undefined) params.to = String(until);
+    if (selectedAssets.length === 1) params.asset = selectedAssets[0];
+    if (selectedSide) params.side = selectedSide;
+    if (selectedMarketTypes.length === 1) params.market_type = selectedMarketTypes[0];
+    return params;
+  }, [dateRange, selectedAssets, selectedSide, selectedMarketTypes]);
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Trade History"
         description="View all trades across your exchange accounts"
         action={
-          <SyncButton
-            lastRefreshTime={lastRefreshTime}
-            onRefresh={refresh}
-            isLoading={isLoading}
-          />
+          <div className="flex items-center gap-2">
+            <ExportButton endpoint="/api/export/trades" params={exportParams} />
+            <SyncButton
+              lastRefreshTime={lastRefreshTime}
+              onRefresh={refresh}
+              isLoading={isLoading}
+            />
+          </div>
         }
       />
 
