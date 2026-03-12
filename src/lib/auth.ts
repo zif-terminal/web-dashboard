@@ -30,16 +30,22 @@ export async function login(
     if (response.status === 401) {
       throw new Error("Invalid username or password");
     }
+    if (response.status === 429) {
+      throw new Error(
+        "Too many login attempts. Please wait a minute and try again."
+      );
+    }
     if (response.status === 500) {
       throw new Error("Server error. Please try again later.");
     }
     // Try to get error message from response body
+    let text: string | undefined;
     try {
-      const text = await response.text();
-      throw new Error(text || `Login failed (${response.status})`);
+      text = await response.text();
     } catch {
-      throw new Error(`Login failed (${response.status})`);
+      // ignore body read failure
     }
+    throw new Error(text || `Login failed (${response.status})`);
   }
 
   // Token is now stored in an HttpOnly cookie by the API route — no client-side storage needed
