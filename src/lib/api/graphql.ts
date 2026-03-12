@@ -266,6 +266,10 @@ function buildPositionsWhereClause(filters?: DataFilters, status?: "open" | "clo
     conditions.push({ exchange_account: { exchange_id: { _in: filters.exchangeIds } } });
   }
 
+  if (filters?.markets && filters.markets.length > 0) {
+    conditions.push({ market: { _in: filters.markets } });
+  }
+
   if (conditions.length === 0) return {};
   if (conditions.length === 1) return conditions[0];
   return { _and: conditions };
@@ -719,6 +723,10 @@ export const graphqlApi: ApiClient = {
       const client = getGraphQLClient();
       const where = buildPositionsWhereClause(filters, "closed");
 
+      const orderBy = filters?.sort
+        ? [{ [filters.sort.column]: filters.sort.direction }]
+        : [{ end_time: "desc" }];
+
       const data = await client.request<{
         positions: Position[];
         positions_aggregate: { aggregate: { count: number } };
@@ -726,7 +734,7 @@ export const graphqlApi: ApiClient = {
         limit,
         offset,
         where,
-        order_by: [{ end_time: "desc" }],
+        order_by: orderBy,
       });
 
       return {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
-import { api, DataFilters } from "@/lib/api";
+import { api, DataFilters, SortConfig } from "@/lib/api";
 import { Position, ExchangeAccount, PositionsAggregates, PositionEvent } from "@/lib/queries";
 import { PageHeader } from "@/components/page-header";
 import { SyncButton } from "@/components/sync-button";
@@ -31,9 +31,9 @@ import { DataFreshnessBadge } from "@/components/data-freshness-badge";
 
 const CLOSED_PAGE_SIZE = 50;
 
-function formatUSD(value: string, decimals = 2): string {
-  const num = parseFloat(value);
-  if (isNaN(num)) return value;
+function formatUSD(value: string | number, decimals = 2): string {
+  const num = typeof value === "number" ? value : parseFloat(value);
+  if (isNaN(num)) return String(value);
   return num.toLocaleString(undefined, {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
@@ -47,10 +47,36 @@ function formatPrice(value: string, quoteAsset: string): string {
   return `${formatUSD(value)} ${quoteAsset}`;
 }
 
+/** Calculate realized PnL for a closed position from entry/exit prices. */
+function calcRealizedPnL(pos: Position): number | null {
+  if (!pos.exit_price || pos.status !== "closed") return null;
+  const entry = parseFloat(pos.entry_price);
+  const exit = parseFloat(pos.exit_price);
+  const qty = parseFloat(pos.quantity);
+  const fees = parseFloat(pos.total_fees) || 0;
+  const funding = parseFloat(pos.cumulative_funding) || 0;
+  if (isNaN(entry) || isNaN(exit) || isNaN(qty)) return null;
+
+  const pricePnL = pos.side === "long"
+    ? (exit - entry) * qty
+    : (entry - exit) * qty;
+
+  // fees are typically negative (cost), funding can be +/-
+  return pricePnL + fees + funding;
+}
+
+type SortColumn = "end_time" | "start_time" | "quantity" | "market";
+
 export default function PortfolioPage() {
   const { globalTags } = useGlobalTags();
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState("all");
+  const [selectedMarket, setSelectedMarket] = useState("all");
+  const [distinctMarkets, setDistinctMarkets] = useState<string[]>([]);
+
+  // Sort state for closed positions
+  const [sortColumn, setSortColumn] = useState<SortColumn>("end_time");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
 
   // Open positions state
   const [openPositions, setOpenPositions] = useState<Position[]>([]);
@@ -73,15 +99,19 @@ export default function PortfolioPage() {
     if (selectedAccountId !== "all") {
       filters.accountId = selectedAccountId;
     }
+    if (selectedMarket !== "all") {
+      filters.markets = [selectedMarket];
+    }
     if (globalTags.length > 0) {
       filters.tags = globalTags;
     }
     return filters;
-  }, [selectedAccountId, globalTags]);
+  }, [selectedAccountId, selectedMarket, globalTags]);
 
-  // Load accounts
+  // Load accounts and distinct markets
   useEffect(() => {
     api.getAccounts().then(setAccounts).catch(console.error);
+    api.getDistinctBaseAssets("positions").then(setDistinctMarkets).catch(console.error);
   }, []);
 
   // Load open positions
@@ -101,8 +131,10 @@ export default function PortfolioPage() {
   const fetchClosedPositions = useCallback(async () => {
     setIsLoadingClosed(true);
     try {
+      const filters = buildFilters();
+      filters.sort = { column: sortColumn, direction: sortDirection };
       const [data, aggs] = await Promise.all([
-        api.getPositions(CLOSED_PAGE_SIZE, closedPage * CLOSED_PAGE_SIZE, buildFilters()),
+        api.getPositions(CLOSED_PAGE_SIZE, closedPage * CLOSED_PAGE_SIZE, filters),
         api.getPositionsAggregates(buildFilters()),
       ]);
       setClosedPositions(data.positions);
@@ -113,7 +145,7 @@ export default function PortfolioPage() {
     } finally {
       setIsLoadingClosed(false);
     }
-  }, [buildFilters, closedPage]);
+  }, [buildFilters, closedPage, sortColumn, sortDirection]);
 
   useEffect(() => {
     fetchOpenPositions();
@@ -128,6 +160,21 @@ export default function PortfolioPage() {
 
   const handleAccountChange = (value: string) => {
     setSelectedAccountId(value);
+    setClosedPage(0);
+  };
+
+  const handleMarketChange = (value: string) => {
+    setSelectedMarket(value);
+    setClosedPage(0);
+  };
+
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortColumn(column);
+      setSortDirection(column === "end_time" || column === "start_time" ? "desc" : "asc");
+    }
     setClosedPage(0);
   };
 
@@ -154,13 +201,23 @@ export default function PortfolioPage() {
         (parseFloat(closedAggregates.spot.totalFunding) || 0)
       : 0;
 
+    // Total realized PnL from all closed positions on current page
+    // Note: for accuracy across all pages, we'd need a server aggregate.
+    // For now, we show page-level PnL or rely on aggregates.
+    let totalRealizedPnL = 0;
+    for (const p of closedPositions) {
+      const pnl = calcRealizedPnL(p);
+      if (pnl !== null) totalRealizedPnL += pnl;
+    }
+
     return {
       totalFees: openFees + closedFees,
       totalFunding: openFunding + closedFunding,
       openCount: openPositions.length,
       closedCount: closedAggregates?.count ?? 0,
+      totalRealizedPnL,
     };
-  }, [openPositions, closedAggregates]);
+  }, [openPositions, closedAggregates, closedPositions]);
 
   // Group closed positions by order_id when toggle is on
   const displayedClosedPositions = useMemo(() => {
@@ -240,6 +297,11 @@ export default function PortfolioPage() {
     setExpandedPositionId((prev) => (prev === posId ? null : posId));
   };
 
+  const SortIndicator = ({ column }: { column: SortColumn }) => {
+    if (sortColumn !== column) return <span className="text-muted-foreground/30 ml-1">&uarr;&darr;</span>;
+    return <span className="ml-1">{sortDirection === "asc" ? "\u2191" : "\u2193"}</span>;
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -257,31 +319,54 @@ export default function PortfolioPage() {
         }
       />
 
-      {/* Account filter */}
-      <Select value={selectedAccountId} onValueChange={handleAccountChange}>
-        <SelectTrigger className="w-full sm:w-[280px]">
-          <SelectValue placeholder="Filter by account" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">All Accounts</SelectItem>
-          {accounts.map((account) => (
-            <SelectItem key={account.id} value={account.id}>
-              {account.wallet?.label
-                ? `${account.wallet.label} - ${account.exchange?.display_name || "Unknown"}`
-                : `${account.exchange?.display_name || "Unknown"} - ${account.account_identifier.slice(0, 10)}...`}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {/* Filters */}
+      <div className="flex flex-wrap gap-3">
+        <Select value={selectedAccountId} onValueChange={handleAccountChange}>
+          <SelectTrigger className="w-full sm:w-[280px]">
+            <SelectValue placeholder="Filter by account" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Accounts</SelectItem>
+            {accounts.map((account) => (
+              <SelectItem key={account.id} value={account.id}>
+                {account.wallet?.label
+                  ? `${account.wallet.label} - ${account.exchange?.display_name || "Unknown"}`
+                  : `${account.exchange?.display_name || "Unknown"} - ${account.account_identifier.slice(0, 10)}...`}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={selectedMarket} onValueChange={handleMarketChange}>
+          <SelectTrigger className="w-full sm:w-[200px]">
+            <SelectValue placeholder="Filter by market" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Markets</SelectItem>
+            {distinctMarkets.map((market) => (
+              <SelectItem key={market} value={market}>
+                {market}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
       {/* Portfolio Summary */}
       <StatsGrid columns={5}>
         <StatCard
           title="Realized PnL"
-          value="—"
-          description="Coming soon"
-          isLoading={false}
-          valueClassName="text-muted-foreground"
+          value={
+            closedPositions.length > 0 ? (
+              <span className={summaryMetrics.totalRealizedPnL >= 0 ? "text-green-600" : "text-red-600"}>
+                ${formatUSD(summaryMetrics.totalRealizedPnL)}
+              </span>
+            ) : (
+              "\u2014"
+            )
+          }
+          description={closedPositions.length > 0 ? "Current page" : undefined}
+          isLoading={isLoadingClosed}
         />
         <StatCard
           title="Total Funding"
@@ -505,15 +590,36 @@ export default function PortfolioPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Market</TableHead>
+                    <TableHead
+                      className="cursor-pointer select-none"
+                      onClick={() => handleSort("market")}
+                    >
+                      Market<SortIndicator column="market" />
+                    </TableHead>
                     <TableHead>Side</TableHead>
-                    <TableHead className="text-right">Size</TableHead>
+                    <TableHead
+                      className="text-right cursor-pointer select-none"
+                      onClick={() => handleSort("quantity")}
+                    >
+                      Size<SortIndicator column="quantity" />
+                    </TableHead>
                     <TableHead className="text-right">Entry</TableHead>
                     <TableHead className="text-right">Exit</TableHead>
+                    <TableHead className="text-right">Realized PnL</TableHead>
                     <TableHead className="text-right">Fees</TableHead>
                     <TableHead className="text-right">Funding</TableHead>
-                    <TableHead>Opened</TableHead>
-                    <TableHead>Closed</TableHead>
+                    <TableHead
+                      className="cursor-pointer select-none"
+                      onClick={() => handleSort("start_time")}
+                    >
+                      Opened<SortIndicator column="start_time" />
+                    </TableHead>
+                    <TableHead
+                      className="cursor-pointer select-none"
+                      onClick={() => handleSort("end_time")}
+                    >
+                      Closed<SortIndicator column="end_time" />
+                    </TableHead>
                     <TableHead className="text-right">Events</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -525,6 +631,7 @@ export default function PortfolioPage() {
                     const fundingEvents = events.filter((e) => e.event_type === "funding");
                     const entryEvents = tradeEvents.filter((e) => e.direction === "entry");
                     const exitEvents = tradeEvents.filter((e) => e.direction === "exit");
+                    const realizedPnL = calcRealizedPnL(pos);
 
                     return (
                       <Fragment key={pos.id}>
@@ -591,6 +698,13 @@ export default function PortfolioPage() {
                             {pos.exit_price ? formatPrice(pos.exit_price, pos.quote_asset) : "-"}
                           </TableCell>
                           <TableCell className="py-3 text-right font-mono">
+                            {realizedPnL !== null ? (
+                              <span className={realizedPnL >= 0 ? "text-green-600" : "text-red-600"}>
+                                ${formatUSD(realizedPnL)}
+                              </span>
+                            ) : "-"}
+                          </TableCell>
+                          <TableCell className="py-3 text-right font-mono">
                             <span className={parseFloat(pos.total_fees) <= 0 ? "text-green-600" : "text-red-600"}>
                               ${formatUSD(pos.total_fees)}
                             </span>
@@ -625,7 +739,7 @@ export default function PortfolioPage() {
                         {/* Expanded events detail */}
                         {isExpanded && events.length > 0 && (
                           <TableRow className="bg-muted/20 hover:bg-muted/20">
-                            <TableCell colSpan={10} className="p-0">
+                            <TableCell colSpan={11} className="p-0">
                               <div className="px-6 py-4">
                                 {/* Tabs */}
                                 <div className="flex gap-1 mb-3 border-b border-border">
