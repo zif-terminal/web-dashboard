@@ -66,6 +66,7 @@ export interface DataFilters {
   until?: number;
   baseAssets?: string[];
   marketTypes?: ("perp" | "spot" | "swap")[];
+  side?: "buy" | "sell";
   tags?: string[];
   exchangeIds?: string[];
   timeField?: "start_time" | "end_time";

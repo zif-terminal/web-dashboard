@@ -1,6 +1,7 @@
 "use client";
 
 import { Trade } from "@/lib/queries";
+import { SortConfig, SortDirection } from "@/lib/api";
 import {
   Table,
   TableBody,
@@ -15,6 +16,8 @@ import { ExchangeBadge } from "@/components/exchange-badge";
 import { getDisplayName } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
+type SortableColumn = "timestamp" | "price" | "quantity" | "fee";
+
 interface TradesTableProps {
   trades: Trade[];
   totalCount: number;
@@ -25,6 +28,10 @@ interface TradesTableProps {
   isLoading?: boolean;
   /** Function to check if a trade is new (for highlighting) */
   isNewItem?: (id: string) => boolean;
+  /** Current sort configuration */
+  sort?: SortConfig | null;
+  /** Called when a sortable column header is clicked */
+  onSortChange?: (sort: SortConfig | null) => void;
 }
 
 function formatTimestamp(timestamp: string): string {
@@ -41,6 +48,13 @@ function formatNumber(value: string, decimals: number = 4): string {
   });
 }
 
+function SortIndicator({ column, sort }: { column: SortableColumn; sort?: SortConfig | null }) {
+  if (!sort || sort.column !== column) {
+    return <span className="text-muted-foreground/30 ml-1">{"\u2191\u2193"}</span>;
+  }
+  return <span className="ml-1">{sort.direction === "asc" ? "\u2191" : "\u2193"}</span>;
+}
+
 export function TradesTable({
   trades,
   totalCount,
@@ -50,10 +64,32 @@ export function TradesTable({
   showAccount = false,
   isLoading = false,
   isNewItem,
+  sort,
+  onSortChange,
 }: TradesTableProps) {
   const totalPages = Math.ceil(totalCount / pageSize);
   const startItem = page * pageSize + 1;
   const endItem = Math.min((page + 1) * pageSize, totalCount);
+
+  const handleSort = (column: SortableColumn) => {
+    if (!onSortChange) return;
+    if (sort?.column === column) {
+      onSortChange({ column, direction: sort.direction === "asc" ? "desc" : "asc" });
+    } else {
+      const defaultDir: SortDirection = column === "timestamp" ? "desc" : "desc";
+      onSortChange({ column, direction: defaultDir });
+    }
+  };
+
+  const sortableHeader = (label: string, column: SortableColumn, className?: string) => (
+    <TableHead
+      className={cn("cursor-pointer select-none hover:text-foreground", className)}
+      onClick={() => handleSort(column)}
+    >
+      {label}
+      <SortIndicator column={column} sort={sort} />
+    </TableHead>
+  );
 
   // Only show skeleton on initial load (when there's no data yet)
   if (isLoading && trades.length === 0) {
@@ -76,12 +112,12 @@ export function TradesTable({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Time</TableHead>
+            {sortableHeader("Time", "timestamp")}
             <TableHead>Pair</TableHead>
             <TableHead>Side</TableHead>
-            <TableHead className="text-right">Price</TableHead>
-            <TableHead className="text-right">Quantity</TableHead>
-            <TableHead className="text-right">Fee</TableHead>
+            {sortableHeader("Price", "price", "text-right")}
+            {sortableHeader("Quantity", "quantity", "text-right")}
+            {sortableHeader("Fee", "fee", "text-right")}
           </TableRow>
         </TableHeader>
         <TableBody>
