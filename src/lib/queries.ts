@@ -1318,6 +1318,34 @@ export const GET_DISTINCT_TRANSFER_ASSETS = gql`
   }
 `;
 
+// Lightweight transfer summary — fetch type, amount, cost_basis for client-side USD aggregation
+export const GET_TRANSFERS_SUMMARY = gql`
+  query GetTransfersSummary($where: transfers_bool_exp!) {
+    deposits: transfers_aggregate(where: { _and: [$where, { type: { _eq: "deposit" } }] }) {
+      aggregate { count }
+      nodes { amount, cost_basis }
+    }
+    withdrawals: transfers_aggregate(where: { _and: [$where, { type: { _eq: "withdraw" } }] }) {
+      aggregate { count }
+      nodes { amount, cost_basis }
+    }
+    interest: transfers_aggregate(where: { _and: [$where, { type: { _eq: "interest" } }] }) {
+      aggregate { count }
+      nodes { amount, cost_basis }
+    }
+  }
+`;
+
+export interface TransfersSummary {
+  totalDepositsUSD: number;
+  totalWithdrawalsUSD: number;
+  totalInterestUSD: number;
+  netFlowUSD: number;
+  depositCount: number;
+  withdrawalCount: number;
+  interestCount: number;
+}
+
 // Per-exchange funding breakdown (used on funding page, A6.2)
 export interface ExchangeFundingBreakdown {
   exchangeId: string;

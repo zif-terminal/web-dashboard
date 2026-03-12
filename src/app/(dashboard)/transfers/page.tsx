@@ -2,13 +2,15 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { api, DataFilters } from "@/lib/api";
-import { Transfer, ExchangeAccount } from "@/lib/queries";
+import { Transfer, TransfersSummary, ExchangeAccount } from "@/lib/queries";
 import { TransfersTable } from "@/components/transfers-table";
 import { SyncButton } from "@/components/sync-button";
 import { PageHeader } from "@/components/page-header";
 import { FilterBar } from "@/components/filter-bar";
 import { AccountFilter } from "@/components/account-filter";
+import { AssetFilter } from "@/components/asset-filter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { StatCard, StatsGrid } from "@/components/stat-card";
 import {
   Select,
   SelectContent,
@@ -21,9 +23,16 @@ import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { useApi } from "@/hooks/use-api";
 import { useFilters } from "@/contexts/filters-context";
 
-const PAGE_SIZE = 100;
+const PAGE_SIZE = 50;
 
 type TransferTypeFilter = "all" | "deposits" | "interest";
+
+function formatUSD(value: number): string {
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
 
 export default function TransfersPage() {
   const { withErrorReporting } = useApi();
@@ -37,12 +46,18 @@ export default function TransfersPage() {
   const [dateRange, setDateRange] = useState<DateRangeValue>({ preset: "all" });
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>("all");
+  const [selectedAssets, setSelectedAssets] = useState<string[]>([]);
+  const [availableAssets, setAvailableAssets] = useState<string[]>([]);
+  const [isLoadingAssets, setIsLoadingAssets] = useState(true);
+  const [summary, setSummary] = useState<TransfersSummary | null>(null);
+  const [isLoadingSummary, setIsLoadingSummary] = useState(true);
 
   const pageRef = useRef(page);
   const dateRangeRef = useRef(dateRange);
   const globalTagsRef = useRef(globalTags);
   const transferTypeRef = useRef(transferType);
   const selectedAccountIdRef = useRef(selectedAccountId);
+  const selectedAssetsRef = useRef(selectedAssets);
 
   useEffect(() => {
     pageRef.current = page;
@@ -50,10 +65,15 @@ export default function TransfersPage() {
     globalTagsRef.current = globalTags;
     transferTypeRef.current = transferType;
     selectedAccountIdRef.current = selectedAccountId;
-  }, [page, dateRange, globalTags, transferType, selectedAccountId]);
+    selectedAssetsRef.current = selectedAssets;
+  }, [page, dateRange, globalTags, transferType, selectedAccountId, selectedAssets]);
 
   useEffect(() => {
     api.getAccounts().then(setAccounts).catch(console.error);
+    api.getDistinctTransferAssets()
+      .then(setAvailableAssets)
+      .catch(console.error)
+      .finally(() => setIsLoadingAssets(false));
   }, []);
 
   const handleAccountChange = useCallback((id: string) => {
@@ -61,39 +81,40 @@ export default function TransfersPage() {
     setPage(0);
   }, []);
 
-  const buildFilters = useCallback(
-    (dateRangeValue: DateRangeValue, tags: string[], accountId: string): DataFilters => {
-      const { since, until } = getTimestampsFromDateRange(dateRangeValue);
-      return {
-        since, until,
-        tags: tags.length > 0 ? tags : undefined,
-        accountId: accountId === "all" ? undefined : accountId,
-      };
-    },
-    []
-  );
+  const handleAssetChange = useCallback((assets: string[]) => {
+    setSelectedAssets(assets);
+    setPage(0);
+  }, []);
+
+  const buildFilters = useCallback((): DataFilters => {
+    const { since, until } = getTimestampsFromDateRange(dateRangeRef.current);
+    return {
+      since, until,
+      tags: globalTagsRef.current.length > 0 ? globalTagsRef.current : undefined,
+      accountId: selectedAccountIdRef.current === "all" ? undefined : selectedAccountIdRef.current,
+      baseAssets: selectedAssetsRef.current.length > 0 ? selectedAssetsRef.current : undefined,
+    };
+  }, []);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
-    const filters = buildFilters(dateRangeRef.current, globalTagsRef.current, selectedAccountIdRef.current);
+    const filters = buildFilters();
     const offset = pageRef.current * PAGE_SIZE;
 
     try {
       const data = await withErrorReporting(() => api.getTransfers(PAGE_SIZE, offset, filters));
-      // Client-side filter by transfer type if needed
+      // Client-side filter by transfer type
       const type = transferTypeRef.current;
       if (type === "deposits") {
         const filtered = data.transfers.filter((t) => t.type === "deposit" || t.type === "withdraw");
         setTransfers(filtered);
-        setTotalCount(data.totalCount); // Note: server count may differ from client filter; for precise counts, server-side filtering would be needed
       } else if (type === "interest") {
         const filtered = data.transfers.filter((t) => t.type === "interest");
         setTransfers(filtered);
-        setTotalCount(data.totalCount);
       } else {
         setTransfers(data.transfers);
-        setTotalCount(data.totalCount);
       }
+      setTotalCount(data.totalCount);
     } catch (error) {
       console.error("Failed to fetch transfers:", error);
     } finally {
@@ -101,25 +122,84 @@ export default function TransfersPage() {
     }
   }, [withErrorReporting, buildFilters]);
 
+  const fetchSummary = useCallback(async () => {
+    setIsLoadingSummary(true);
+    try {
+      const filters = buildFilters();
+      const data = await api.getTransfersSummary(filters);
+      setSummary(data);
+    } catch (error) {
+      console.error("Failed to fetch transfers summary:", error);
+    } finally {
+      setIsLoadingSummary(false);
+    }
+  }, [buildFilters]);
+
   const { lastRefreshTime, refresh } = useAutoRefresh(fetchData, { interval: 30000 });
 
-  useEffect(() => { refresh(); }, []);
-  useEffect(() => { setPage(0); refresh(); }, [transferType, dateRange, globalTags, selectedAccountId]);
+  useEffect(() => { refresh(); fetchSummary(); }, []);
+  useEffect(() => { setPage(0); refresh(); fetchSummary(); }, [transferType, dateRange, globalTags, selectedAccountId, selectedAssets]);
   useEffect(() => { refresh(); }, [page]);
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Transfers"
-        description="View deposits, withdrawals, interest, and other transfers across your accounts"
+        description="Deposits, withdrawals, and interest across your exchange accounts"
         action={
           <SyncButton
             lastRefreshTime={lastRefreshTime}
-            onRefresh={refresh}
+            onRefresh={() => { refresh(); fetchSummary(); }}
             isLoading={isLoading}
           />
         }
       />
+
+      {/* Summary Cards */}
+      <StatsGrid columns={4}>
+        <StatCard
+          title="Total Deposited"
+          value={
+            <span className="text-green-600">
+              ${summary ? formatUSD(summary.totalDepositsUSD) : "0.00"}
+            </span>
+          }
+          description={summary ? `${summary.depositCount} deposits` : undefined}
+          isLoading={isLoadingSummary}
+        />
+        <StatCard
+          title="Total Withdrawn"
+          value={
+            <span className="text-red-600">
+              ${summary ? formatUSD(summary.totalWithdrawalsUSD) : "0.00"}
+            </span>
+          }
+          description={summary ? `${summary.withdrawalCount} withdrawals` : undefined}
+          isLoading={isLoadingSummary}
+        />
+        <StatCard
+          title="Interest Earned"
+          value={
+            <span className="text-blue-600">
+              ${summary ? formatUSD(summary.totalInterestUSD) : "0.00"}
+            </span>
+          }
+          description={summary ? `${summary.interestCount} payments` : undefined}
+          isLoading={isLoadingSummary}
+        />
+        <StatCard
+          title="Net Fund Flow"
+          value={
+            summary ? (
+              <span className={summary.netFlowUSD >= 0 ? "text-green-600" : "text-red-600"}>
+                ${formatUSD(summary.netFlowUSD)}
+              </span>
+            ) : "$0.00"
+          }
+          description="Deposits - withdrawals + interest"
+          isLoading={isLoadingSummary}
+        />
+      </StatsGrid>
 
       <Card>
         <CardHeader className="space-y-3 px-3 md:px-6">
@@ -129,6 +209,12 @@ export default function TransfersPage() {
           <FilterBar
             compact={
               <>
+                <AssetFilter
+                  assets={availableAssets}
+                  selectedAssets={selectedAssets}
+                  onSelectionChange={handleAssetChange}
+                  isLoading={isLoadingAssets}
+                />
                 <AccountFilter
                   accounts={accounts}
                   selectedAccountId={selectedAccountId}

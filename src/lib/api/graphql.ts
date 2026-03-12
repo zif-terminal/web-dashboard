@@ -38,10 +38,12 @@ import {
   Wallet,
   WalletWithAccounts,
   Transfer,
+  TransfersSummary,
   FundingAssetBreakdown,
   InterestPayment,
   Position,
   PositionsAggregates,
+  GET_TRANSFERS_SUMMARY,
 } from "../queries";
 import { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, TransfersResult, InterestPaymentsResult, PositionsResult, DataFilters } from "./types";
 import { ApiError } from "./errors";
@@ -510,6 +512,48 @@ export const graphqlApi: ApiClient = {
       return {
         transfers: data.transfers,
         totalCount: data.transfers_aggregate.aggregate.count,
+      };
+    });
+  },
+
+  async getTransfersSummary(filters?: DataFilters): Promise<TransfersSummary> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const where = buildTransfersWhereClause(filters);
+
+      interface AggNode { amount: string; cost_basis: string | null }
+      interface AggBucket { aggregate: { count: number }; nodes: AggNode[] }
+
+      const data = await client.request<{
+        deposits: AggBucket;
+        withdrawals: AggBucket;
+        interest: AggBucket;
+      }>(GET_TRANSFERS_SUMMARY, { where: Object.keys(where).length > 0 ? where : {} });
+
+      function sumUSD(nodes: AggNode[]): number {
+        let total = 0;
+        for (const n of nodes) {
+          const amount = Math.abs(parseFloat(n.amount) || 0);
+          const price = parseFloat(n.cost_basis || "") || 0;
+          // If cost_basis is available, use it for USD conversion; otherwise use raw amount
+          // (works for stablecoins like USDC where 1 unit ≈ $1)
+          total += price > 0 ? amount * price : amount;
+        }
+        return total;
+      }
+
+      const totalDepositsUSD = sumUSD(data.deposits.nodes);
+      const totalWithdrawalsUSD = sumUSD(data.withdrawals.nodes);
+      const totalInterestUSD = sumUSD(data.interest.nodes);
+
+      return {
+        totalDepositsUSD,
+        totalWithdrawalsUSD,
+        totalInterestUSD,
+        netFlowUSD: totalDepositsUSD - totalWithdrawalsUSD + totalInterestUSD,
+        depositCount: data.deposits.aggregate.count,
+        withdrawalCount: data.withdrawals.aggregate.count,
+        interestCount: data.interest.aggregate.count,
       };
     });
   },
