@@ -51,6 +51,61 @@ export async function login(
   // Token is now stored in an HttpOnly cookie by the API route — no client-side storage needed
 }
 
+export async function signup(
+  email: string,
+  password: string,
+  username?: string
+): Promise<void> {
+  let response: Response;
+
+  try {
+    response = await fetch(`${AUTH_ENDPOINT}/register`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email, password, username }),
+    });
+  } catch {
+    throw new Error(
+      "Unable to connect to server. Please check your connection and try again."
+    );
+  }
+
+  if (!response.ok) {
+    if (response.status === 409) {
+      let text: string | undefined;
+      try {
+        text = await response.text();
+      } catch {
+        // ignore
+      }
+      throw new Error(text?.trim() || "Email or username already taken");
+    }
+    if (response.status === 400) {
+      let text: string | undefined;
+      try {
+        text = await response.text();
+      } catch {
+        // ignore
+      }
+      throw new Error(text?.trim() || "Invalid registration details");
+    }
+    if (response.status === 500) {
+      throw new Error("Server error. Please try again later.");
+    }
+    let text: string | undefined;
+    try {
+      text = await response.text();
+    } catch {
+      // ignore
+    }
+    throw new Error(text || `Registration failed (${response.status})`);
+  }
+
+  // Token is now stored in an HttpOnly cookie by the API route
+}
+
 export async function logout(): Promise<void> {
   try {
     await fetch(`${AUTH_ENDPOINT}/logout`, {

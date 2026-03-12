@@ -8,6 +8,7 @@ import { z } from "zod";
 import { toast } from "sonner";
 import { login } from "@/lib/auth";
 import { LoadingButton } from "@/components/ui/loading-button";
+import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import {
   Form,
@@ -104,6 +105,12 @@ export function LoginForm() {
             </LoadingButton>
           </form>
         </Form>
+        <p className="mt-4 text-center text-sm text-muted-foreground">
+          Don&apos;t have an account?{" "}
+          <Link href="/signup" className="text-primary underline-offset-4 hover:underline">
+            Sign up
+          </Link>
+        </p>
       </CardContent>
     </Card>
   );

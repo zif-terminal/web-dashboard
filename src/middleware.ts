@@ -6,8 +6,8 @@ const COOKIE_SUFFIX = process.env.NEXT_PUBLIC_COOKIE_SUFFIX || "";
 const TOKEN_COOKIE_NAME = `zif_auth_token${COOKIE_SUFFIX}`;
 
 // Paths that should redirect to the dashboard when the user is already logged in.
-// Only /login qualifies: there is no point showing the login form to a logged-in user.
-const authRedirectPaths = ["/login"];
+// /login and /signup: no point showing auth forms to a logged-in user.
+const authRedirectPaths = ["/login", "/signup"];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
