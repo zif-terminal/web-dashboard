@@ -1128,6 +1128,8 @@ export interface Position {
   quote_asset: string; // What entry/exit prices are denominated in
   start_time: number; // Unix milliseconds (BIGINT)
   end_time: number | null; // Unix milliseconds (BIGINT), null if open
+  realized_pnl: string | null; // Computed by PnL service, NULL until populated
+  pnl_denomination: string | null; // Currency of realized_pnl (e.g. "USDC")
   order_id: string | null; // Order ID of the closing trade
   updated_at: string;
   exchange_account?: ExchangeAccount;
@@ -1175,6 +1177,8 @@ const POSITION_FIELDS = `
   quote_asset
   start_time
   end_time
+  realized_pnl
+  pnl_denomination
   order_id
   updated_at
   exchange_account {
