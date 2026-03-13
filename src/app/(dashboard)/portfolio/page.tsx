@@ -186,20 +186,24 @@ export default function PortfolioPage() {
 
   // Portfolio summary metrics
   const summaryMetrics = useMemo(() => {
-    // Compute total PnL from closed positions that have pnl data
-    let totalPnl = 0;
+    // Total realized PnL from DB values (populated by PnL service).
+    // Only sums positions that have a non-null realized_pnl.
+    let totalRealizedPnL: number | null = null;
     for (const p of closedPositions) {
-      if (p.pnl && p.pnl.length > 0) {
-        totalPnl += parseFloat(p.pnl[0].value) || 0;
+      if (p.realized_pnl !== null) {
+        const pnl = parseFloat(p.realized_pnl);
+        if (!isNaN(pnl)) {
+          totalRealizedPnL = (totalRealizedPnL ?? 0) + pnl;
+        }
       }
     }
 
     return {
-      totalPnl,
       openCount: openPositions.length,
       closedCount: closedAggregates?.count ?? 0,
+      totalRealizedPnL,
     };
-  }, [openPositions, closedPositions, closedAggregates]);
+  }, [openPositions, closedAggregates, closedPositions]);
 
   const toggleExpand = (posId: string) => {
     setExpandedPositionId((prev) => (prev === posId ? null : posId));
@@ -265,10 +269,15 @@ export default function PortfolioPage() {
         <StatCard
           title="Total PnL"
           value={
-            <span className={summaryMetrics.totalPnl >= 0 ? "text-green-600" : "text-red-600"}>
-              ${formatUSD(summaryMetrics.totalPnl.toFixed(2))}
-            </span>
+            summaryMetrics.totalRealizedPnL !== null ? (
+              <span className={summaryMetrics.totalRealizedPnL >= 0 ? "text-green-600" : "text-red-600"}>
+                ${formatUSD(summaryMetrics.totalRealizedPnL)}
+              </span>
+            ) : (
+              "\u2014"
+            )
           }
+          description={summaryMetrics.totalRealizedPnL !== null ? "Current page" : "Pending"}
           isLoading={isLoadingClosed}
         />
         <StatCard
@@ -534,6 +543,7 @@ export default function PortfolioPage() {
                     const fundingEvents = events.filter((e) => e.event_type === "funding");
                     const entryEvents = tradeEvents.filter((e) => e.direction === "entry");
                     const exitEvents = tradeEvents.filter((e) => e.direction === "exit");
+                    const realizedPnL = pos.realized_pnl !== null ? parseFloat(pos.realized_pnl) : null;
 
                     return (
                       <Fragment key={pos.id}>
