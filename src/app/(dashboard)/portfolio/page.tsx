@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
 import { api, DataFilters, SortConfig } from "@/lib/api";
-import { Position, ExchangeAccount, PositionsAggregates, PositionEvent } from "@/lib/queries";
+import { Position, ExchangeAccount, PositionsAggregates } from "@/lib/queries";
 import { PageHeader } from "@/components/page-header";
 import { SyncButton } from "@/components/sync-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,24 +47,6 @@ function formatPrice(value: string, quoteAsset: string): string {
   return `${formatUSD(value)} ${quoteAsset}`;
 }
 
-/** Calculate realized PnL for a closed position from entry/exit prices. */
-function calcRealizedPnL(pos: Position): number | null {
-  if (!pos.exit_price || pos.status !== "closed") return null;
-  const entry = parseFloat(pos.entry_price);
-  const exit = parseFloat(pos.exit_price);
-  const qty = parseFloat(pos.quantity);
-  const fees = parseFloat(pos.total_fees) || 0;
-  const funding = parseFloat(pos.cumulative_funding) || 0;
-  if (isNaN(entry) || isNaN(exit) || isNaN(qty)) return null;
-
-  const pricePnL = pos.side === "long"
-    ? (exit - entry) * qty
-    : (entry - exit) * qty;
-
-  // fees are typically negative (cost), funding can be +/-
-  return pricePnL + fees + funding;
-}
-
 type SortColumn = "end_time" | "start_time" | "quantity" | "market";
 
 export default function PortfolioPage() {
@@ -89,7 +71,6 @@ export default function PortfolioPage() {
   const [isLoadingClosed, setIsLoadingClosed] = useState(true);
   const [closedAggregates, setClosedAggregates] = useState<PositionsAggregates | null>(null);
 
-  const [groupByOrder, setGroupByOrder] = useState(false);
   const [expandedPositionId, setExpandedPositionId] = useState<string | null>(null);
   const [expandedTab, setExpandedTab] = useState<"trades" | "funding">("trades");
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
@@ -201,97 +182,13 @@ export default function PortfolioPage() {
         (parseFloat(closedAggregates.spot.totalFunding) || 0)
       : 0;
 
-    // Total realized PnL from all closed positions on current page
-    // Note: for accuracy across all pages, we'd need a server aggregate.
-    // For now, we show page-level PnL or rely on aggregates.
-    let totalRealizedPnL = 0;
-    for (const p of closedPositions) {
-      const pnl = calcRealizedPnL(p);
-      if (pnl !== null) totalRealizedPnL += pnl;
-    }
-
     return {
       totalFees: openFees + closedFees,
       totalFunding: openFunding + closedFunding,
       openCount: openPositions.length,
       closedCount: closedAggregates?.count ?? 0,
-      totalRealizedPnL,
     };
-  }, [openPositions, closedAggregates, closedPositions]);
-
-  // Group closed positions by order_id when toggle is on
-  const displayedClosedPositions = useMemo(() => {
-    if (!groupByOrder) return closedPositions;
-
-    const groups = new Map<string, Position[]>();
-    const ungrouped: Position[] = [];
-
-    for (const pos of closedPositions) {
-      if (!pos.order_id) {
-        ungrouped.push(pos);
-        continue;
-      }
-      const existing = groups.get(pos.order_id);
-      if (existing) {
-        existing.push(pos);
-      } else {
-        groups.set(pos.order_id, [pos]);
-      }
-    }
-
-    const grouped: Position[] = [];
-    for (const [orderId, positions] of groups) {
-      if (positions.length === 1) {
-        grouped.push(positions[0]);
-        continue;
-      }
-
-      // Aggregate: sum qty, weighted avg entry/exit, sum fees/funding
-      let totalQty = 0;
-      let totalEntryValue = 0;
-      let totalExitValue = 0;
-      let totalFees = 0;
-      let totalFunding = 0;
-      let minStart = Infinity;
-      let maxEnd = 0;
-      const allEvents: PositionEvent[] = [];
-
-      for (const p of positions) {
-        const qty = parseFloat(p.quantity);
-        totalQty += qty;
-        totalEntryValue += qty * parseFloat(p.entry_price);
-        if (p.exit_price) totalExitValue += qty * parseFloat(p.exit_price);
-        totalFees += parseFloat(p.total_fees);
-        totalFunding += parseFloat(p.cumulative_funding);
-        if (p.start_time < minStart) minStart = p.start_time;
-        if (p.end_time && p.end_time > maxEnd) maxEnd = p.end_time;
-        if (p.position_events) allEvents.push(...p.position_events);
-      }
-
-      const avgEntry = totalQty > 0 ? totalEntryValue / totalQty : 0;
-      const avgExit = totalQty > 0 ? totalExitValue / totalQty : 0;
-      const first = positions[0];
-
-      grouped.push({
-        ...first,
-        id: `group-${orderId}`,
-        quantity: totalQty.toString(),
-        entry_price: avgEntry.toString(),
-        exit_price: avgExit > 0 ? avgExit.toString() : null,
-        total_fees: totalFees.toString(),
-        cumulative_funding: totalFunding.toString(),
-        start_time: minStart,
-        end_time: maxEnd > 0 ? maxEnd : null,
-        order_id: orderId,
-        position_events: allEvents,
-      });
-    }
-
-    // Sort all by end_time descending (most recent first)
-    const all = [...grouped, ...ungrouped];
-    all.sort((a, b) => (b.end_time || 0) - (a.end_time || 0));
-    return all;
-  }, [closedPositions, groupByOrder]);
+  }, [openPositions, closedAggregates]);
 
   const toggleExpand = (posId: string) => {
     setExpandedPositionId((prev) => (prev === posId ? null : posId));
@@ -353,21 +250,7 @@ export default function PortfolioPage() {
       </div>
 
       {/* Portfolio Summary */}
-      <StatsGrid columns={5}>
-        <StatCard
-          title="Realized PnL"
-          value={
-            closedPositions.length > 0 ? (
-              <span className={summaryMetrics.totalRealizedPnL >= 0 ? "text-green-600" : "text-red-600"}>
-                ${formatUSD(summaryMetrics.totalRealizedPnL)}
-              </span>
-            ) : (
-              "\u2014"
-            )
-          }
-          description={closedPositions.length > 0 ? "Current page" : undefined}
-          isLoading={isLoadingClosed}
-        />
+      <StatsGrid columns={4}>
         <StatCard
           title="Total Funding"
           value={
@@ -562,13 +445,6 @@ export default function PortfolioPage() {
           <div className="flex items-center justify-between flex-wrap gap-2">
             <CardTitle className="text-base md:text-lg">Closed Positions</CardTitle>
             <div className="flex items-center gap-4 text-sm">
-              <Button
-                variant={groupByOrder ? "default" : "outline"}
-                size="sm"
-                onClick={() => setGroupByOrder((v) => !v)}
-              >
-                {groupByOrder ? "Grouped by Order" : "Individual Trades"}
-              </Button>
               {closedAggregates && closedAggregates.count > 0 && (
                 <span className="text-muted-foreground">
                   {closedAggregates.count} positions
@@ -605,7 +481,6 @@ export default function PortfolioPage() {
                     </TableHead>
                     <TableHead className="text-right">Entry</TableHead>
                     <TableHead className="text-right">Exit</TableHead>
-                    <TableHead className="text-right">Realized PnL</TableHead>
                     <TableHead className="text-right">Fees</TableHead>
                     <TableHead className="text-right">Funding</TableHead>
                     <TableHead
@@ -624,14 +499,13 @@ export default function PortfolioPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {displayedClosedPositions.map((pos) => {
+                  {closedPositions.map((pos) => {
                     const isExpanded = expandedPositionId === pos.id;
                     const events = pos.position_events || [];
                     const tradeEvents = events.filter((e) => e.event_type === "trade");
                     const fundingEvents = events.filter((e) => e.event_type === "funding");
                     const entryEvents = tradeEvents.filter((e) => e.direction === "entry");
                     const exitEvents = tradeEvents.filter((e) => e.direction === "exit");
-                    const realizedPnL = calcRealizedPnL(pos);
 
                     return (
                       <Fragment key={pos.id}>
@@ -698,13 +572,6 @@ export default function PortfolioPage() {
                             {pos.exit_price ? formatPrice(pos.exit_price, pos.quote_asset) : "-"}
                           </TableCell>
                           <TableCell className="py-3 text-right font-mono">
-                            {realizedPnL !== null ? (
-                              <span className={realizedPnL >= 0 ? "text-green-600" : "text-red-600"}>
-                                ${formatUSD(realizedPnL)}
-                              </span>
-                            ) : "-"}
-                          </TableCell>
-                          <TableCell className="py-3 text-right font-mono">
                             <span className={parseFloat(pos.total_fees) <= 0 ? "text-green-600" : "text-red-600"}>
                               ${formatUSD(pos.total_fees)}
                             </span>
@@ -739,7 +606,7 @@ export default function PortfolioPage() {
                         {/* Expanded events detail */}
                         {isExpanded && events.length > 0 && (
                           <TableRow className="bg-muted/20 hover:bg-muted/20">
-                            <TableCell colSpan={11} className="p-0">
+                            <TableCell colSpan={10} className="p-0">
                               <div className="px-6 py-4">
                                 {/* Tabs */}
                                 <div className="flex gap-1 mb-3 border-b border-border">

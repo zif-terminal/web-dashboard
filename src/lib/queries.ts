@@ -1128,7 +1128,6 @@ export interface Position {
   quote_asset: string; // What entry/exit prices are denominated in
   start_time: number; // Unix milliseconds (BIGINT)
   end_time: number | null; // Unix milliseconds (BIGINT), null if open
-  order_id: string | null; // Order ID of the closing trade
   updated_at: string;
   exchange_account?: ExchangeAccount;
   position_events?: PositionEvent[];
@@ -1175,7 +1174,6 @@ const POSITION_FIELDS = `
   quote_asset
   start_time
   end_time
-  order_id
   updated_at
   exchange_account {
     id
