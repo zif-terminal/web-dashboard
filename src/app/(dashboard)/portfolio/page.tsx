@@ -47,24 +47,6 @@ function formatPrice(value: string, quoteAsset: string): string {
   return `${formatUSD(value)} ${quoteAsset}`;
 }
 
-/** Calculate realized PnL for a closed position from entry/exit prices. */
-function calcRealizedPnL(pos: Position): number | null {
-  if (!pos.exit_price || pos.status !== "closed") return null;
-  const entry = parseFloat(pos.entry_price);
-  const exit = parseFloat(pos.exit_price);
-  const qty = parseFloat(pos.quantity);
-  const fees = parseFloat(pos.total_fees) || 0;
-  const funding = parseFloat(pos.cumulative_funding) || 0;
-  if (isNaN(entry) || isNaN(exit) || isNaN(qty)) return null;
-
-  const pricePnL = pos.side === "long"
-    ? (exit - entry) * qty
-    : (entry - exit) * qty;
-
-  // fees are typically negative (cost), funding can be +/-
-  return pricePnL + fees + funding;
-}
-
 type SortColumn = "end_time" | "start_time" | "quantity" | "market";
 
 export default function PortfolioPage() {
@@ -201,13 +183,16 @@ export default function PortfolioPage() {
         (parseFloat(closedAggregates.spot.totalFunding) || 0)
       : 0;
 
-    // Total realized PnL from all closed positions on current page
-    // Note: for accuracy across all pages, we'd need a server aggregate.
-    // For now, we show page-level PnL or rely on aggregates.
-    let totalRealizedPnL = 0;
+    // Total realized PnL from DB values (populated by PnL service).
+    // Only sums positions that have a non-null realized_pnl.
+    let totalRealizedPnL: number | null = null;
     for (const p of closedPositions) {
-      const pnl = calcRealizedPnL(p);
-      if (pnl !== null) totalRealizedPnL += pnl;
+      if (p.realized_pnl !== null) {
+        const pnl = parseFloat(p.realized_pnl);
+        if (!isNaN(pnl)) {
+          totalRealizedPnL = (totalRealizedPnL ?? 0) + pnl;
+        }
+      }
     }
 
     return {
@@ -357,7 +342,7 @@ export default function PortfolioPage() {
         <StatCard
           title="Realized PnL"
           value={
-            closedPositions.length > 0 ? (
+            summaryMetrics.totalRealizedPnL !== null ? (
               <span className={summaryMetrics.totalRealizedPnL >= 0 ? "text-green-600" : "text-red-600"}>
                 ${formatUSD(summaryMetrics.totalRealizedPnL)}
               </span>
@@ -365,7 +350,7 @@ export default function PortfolioPage() {
               "\u2014"
             )
           }
-          description={closedPositions.length > 0 ? "Current page" : undefined}
+          description={summaryMetrics.totalRealizedPnL !== null ? "Current page" : "Pending"}
           isLoading={isLoadingClosed}
         />
         <StatCard
@@ -631,7 +616,7 @@ export default function PortfolioPage() {
                     const fundingEvents = events.filter((e) => e.event_type === "funding");
                     const entryEvents = tradeEvents.filter((e) => e.direction === "entry");
                     const exitEvents = tradeEvents.filter((e) => e.direction === "exit");
-                    const realizedPnL = calcRealizedPnL(pos);
+                    const realizedPnL = pos.realized_pnl !== null ? parseFloat(pos.realized_pnl) : null;
 
                     return (
                       <Fragment key={pos.id}>
