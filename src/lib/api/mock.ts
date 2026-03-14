@@ -1,4 +1,4 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Wallet, WalletWithAccounts, Transfer, TransfersSummary, FundingAssetBreakdown, ExchangeFundingBreakdown } from "../queries";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Wallet, WalletWithAccounts, Transfer, TransfersSummary, FundingAssetBreakdown, ExchangeFundingBreakdown, InterestByAsset } from "../queries";
 import { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, TransfersResult, InterestPaymentsResult, DataFilters } from "./types";
 
 // Mock wallets
@@ -412,6 +412,11 @@ export const mockApi: ApiClient = {
   async getTransfersSummary(_filters?: DataFilters): Promise<TransfersSummary> {
     await delay(200);
     return { totalDepositsUSD: 0, totalWithdrawalsUSD: 0, totalInterestUSD: 0, netFlowUSD: 0, depositCount: 0, withdrawalCount: 0, interestCount: 0 };
+  },
+
+  async getInterestByAsset(_filters?: DataFilters): Promise<InterestByAsset[]> {
+    await delay(200);
+    return [];
   },
 
   async getDistinctTransferAssets(): Promise<string[]> {

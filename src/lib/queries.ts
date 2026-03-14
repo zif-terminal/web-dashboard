@@ -1344,6 +1344,24 @@ export interface TransfersSummary {
   interestCount: number;
 }
 
+// Interest per asset (for portfolio page)
+export const GET_INTEREST_BY_ASSET = gql`
+  query GetInterestByAsset($where: transfers_bool_exp!) {
+    transfers(where: { _and: [$where, { type: { _eq: "interest" } }] }, order_by: { timestamp: desc }) {
+      asset
+      amount
+    }
+  }
+`;
+
+export interface InterestByAsset {
+  asset: string;
+  earned: number;
+  paid: number;
+  net: number;
+  count: number;
+}
+
 // Per-exchange funding breakdown (used on funding page, A6.2)
 export interface ExchangeFundingBreakdown {
   exchangeId: string;

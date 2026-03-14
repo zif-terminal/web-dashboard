@@ -44,6 +44,8 @@ import {
   Position,
   PositionsAggregates,
   GET_TRANSFERS_SUMMARY,
+  GET_INTEREST_BY_ASSET,
+  InterestByAsset,
 } from "../queries";
 import { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, TransfersResult, InterestPaymentsResult, PositionsResult, DataFilters } from "./types";
 import { ApiError } from "./errors";
@@ -563,6 +565,41 @@ export const graphqlApi: ApiClient = {
         withdrawalCount: data.withdrawals.aggregate.count,
         interestCount: data.interest.aggregate.count,
       };
+    });
+  },
+
+  async getInterestByAsset(filters?: DataFilters): Promise<InterestByAsset[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const where = buildTransfersWhereClause(filters);
+
+      const data = await client.request<{
+        transfers: { asset: string; amount: string }[];
+      }>(GET_INTEREST_BY_ASSET, { where: Object.keys(where).length > 0 ? where : {} });
+
+      // Aggregate client-side by asset
+      const byAsset = new Map<string, { earned: number; paid: number; count: number }>();
+      for (const t of data.transfers) {
+        const amt = parseFloat(t.amount) || 0;
+        const entry = byAsset.get(t.asset) || { earned: 0, paid: 0, count: 0 };
+        if (amt >= 0) {
+          entry.earned += amt;
+        } else {
+          entry.paid += Math.abs(amt);
+        }
+        entry.count += 1;
+        byAsset.set(t.asset, entry);
+      }
+
+      return Array.from(byAsset.entries())
+        .map(([asset, { earned, paid, count }]) => ({
+          asset,
+          earned,
+          paid,
+          net: earned - paid,
+          count,
+        }))
+        .sort((a, b) => Math.abs(b.net) - Math.abs(a.net));
     });
   },
 
