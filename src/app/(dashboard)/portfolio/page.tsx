@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
 import { api, DataFilters, SortConfig } from "@/lib/api";
-import { Position, ExchangeAccount, PositionsAggregates } from "@/lib/queries";
+import { Position, ExchangeAccount, PositionsAggregates, InterestByAsset } from "@/lib/queries";
 import { PageHeader } from "@/components/page-header";
 import { SyncButton } from "@/components/sync-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -71,6 +71,10 @@ export default function PortfolioPage() {
   const [isLoadingClosed, setIsLoadingClosed] = useState(true);
   const [closedAggregates, setClosedAggregates] = useState<PositionsAggregates | null>(null);
 
+  // Interest by asset state
+  const [interestByAsset, setInterestByAsset] = useState<InterestByAsset[]>([]);
+  const [isLoadingInterest, setIsLoadingInterest] = useState(true);
+
   const [expandedPositionId, setExpandedPositionId] = useState<string | null>(null);
   const [expandedTab, setExpandedTab] = useState<"trades" | "funding">("trades");
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
@@ -128,16 +132,31 @@ export default function PortfolioPage() {
     }
   }, [buildFilters, closedPage, sortColumn, sortDirection]);
 
+  // Load interest by asset
+  const fetchInterest = useCallback(async () => {
+    setIsLoadingInterest(true);
+    try {
+      const data = await api.getInterestByAsset(buildFilters());
+      setInterestByAsset(data);
+    } catch (error) {
+      console.error("Failed to fetch interest data:", error);
+    } finally {
+      setIsLoadingInterest(false);
+    }
+  }, [buildFilters]);
+
   useEffect(() => {
     fetchOpenPositions();
     fetchClosedPositions();
-  }, [fetchOpenPositions, fetchClosedPositions]);
+    fetchInterest();
+  }, [fetchOpenPositions, fetchClosedPositions, fetchInterest]);
 
   const refresh = useCallback(() => {
     fetchOpenPositions();
     fetchClosedPositions();
+    fetchInterest();
     setLastRefreshTime(new Date());
-  }, [fetchOpenPositions, fetchClosedPositions]);
+  }, [fetchOpenPositions, fetchClosedPositions, fetchInterest]);
 
   const handleAccountChange = (value: string) => {
     setSelectedAccountId(value);
@@ -280,6 +299,53 @@ export default function PortfolioPage() {
           isLoading={isLoadingClosed}
         />
       </StatsGrid>
+
+      {/* Interest Earned / Paid */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base md:text-lg">Interest Earned / Paid</CardTitle>
+        </CardHeader>
+        <CardContent className="px-2 md:px-6">
+          {isLoadingInterest && interestByAsset.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">Loading...</p>
+          ) : interestByAsset.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">No interest data</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Asset</TableHead>
+                  <TableHead className="text-right">Earned</TableHead>
+                  <TableHead className="text-right">Paid</TableHead>
+                  <TableHead className="text-right">Net</TableHead>
+                  <TableHead className="text-right">Payments</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {interestByAsset.map((row) => (
+                  <TableRow key={row.asset}>
+                    <TableCell className="py-3 font-medium">{row.asset}</TableCell>
+                    <TableCell className="py-3 text-right font-mono text-green-600">
+                      +{formatNumber(row.earned.toString())}
+                    </TableCell>
+                    <TableCell className="py-3 text-right font-mono text-red-600">
+                      -{formatNumber(row.paid.toString())}
+                    </TableCell>
+                    <TableCell className="py-3 text-right font-mono">
+                      <span className={row.net >= 0 ? "text-green-600" : "text-red-600"}>
+                        {row.net >= 0 ? "+" : ""}{formatNumber(row.net.toString())}
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-3 text-right text-muted-foreground">
+                      {row.count}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Open Positions Section */}
       <Card>
