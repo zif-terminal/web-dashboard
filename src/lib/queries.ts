@@ -1417,6 +1417,80 @@ export interface InterestPayment {
 
 // ─── Interest payment queries ─────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Portfolio Overview: True PnL from deposits, withdrawals, and current value
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface PriceCache {
+  asset: string;
+  denomination: string;
+  price: string;
+  timestamp: string;
+}
+
+export interface BalanceSnapshot {
+  asset: string;
+  balance: number;
+}
+
+export interface PortfolioOverview {
+  totalDepositedUSD: number;
+  totalWithdrawnUSD: number;
+  netDepositsUSD: number;
+  currentPortfolioValueUSD: number;
+  unrealizedPerpPnlUSD: number;
+  realizedPnlUSD: number;
+  truePnlUSD: number;
+  returnPct: number;
+}
+
+export const GET_LATEST_PRICES = gql`
+  query GetLatestPrices {
+    price_cache(order_by: [{asset: asc}, {timestamp: desc}], distinct_on: asset) {
+      asset
+      denomination
+      price
+      timestamp
+    }
+  }
+`;
+
+export const GET_BALANCE_SNAPSHOTS = gql`
+  query GetBalanceSnapshots {
+    spot_balance_snapshots(order_by: [{asset: asc}, {timestamp: desc}], distinct_on: asset) {
+      asset
+      balance
+    }
+  }
+`;
+
+export const GET_DEPOSIT_WITHDRAWAL_TOTALS = gql`
+  query GetDepositWithdrawalTotals {
+    deposits: transfers(where: {type: {_eq: "deposit"}}) {
+      asset
+      amount
+      cost_basis
+    }
+    withdrawals: transfers(where: {type: {_eq: "withdraw"}}) {
+      asset
+      amount
+      cost_basis
+    }
+  }
+`;
+
+export const GET_REALIZED_PNL_TOTAL = gql`
+  query GetRealizedPnlTotal {
+    usdc_pnl: position_pnl_aggregate(where: {denomination: {_eq: "USDC"}}) {
+      aggregate {
+        sum {
+          value
+        }
+      }
+    }
+  }
+`;
+
 export const GET_INTEREST_PAYMENTS_DYNAMIC = gql`
   query GetInterestPaymentsDynamic($limit: Int!, $offset: Int!, $where: interest_payments_bool_exp!) {
     interest_payments(limit: $limit, offset: $offset, order_by: { timestamp: desc }, where: $where) {

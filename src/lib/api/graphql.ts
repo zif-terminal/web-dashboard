@@ -46,6 +46,13 @@ import {
   GET_TRANSFERS_SUMMARY,
   GET_INTEREST_BY_ASSET,
   InterestByAsset,
+  GET_LATEST_PRICES,
+  GET_BALANCE_SNAPSHOTS,
+  GET_DEPOSIT_WITHDRAWAL_TOTALS,
+  GET_REALIZED_PNL_TOTAL,
+  PriceCache,
+  BalanceSnapshot,
+  PortfolioOverview,
 } from "../queries";
 import { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, TransfersResult, InterestPaymentsResult, PositionsResult, DataFilters } from "./types";
 import { ApiError } from "./errors";
@@ -876,6 +883,67 @@ export const graphqlApi: ApiClient = {
         spot: {
           count: data.spot.aggregate.count,
         },
+      };
+    });
+  },
+
+  async getPortfolioOverview(): Promise<PortfolioOverview> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+
+      const [pricesData, snapshotsData, transfersData, pnlData] = await Promise.all([
+        client.request<{ price_cache: PriceCache[] }>(GET_LATEST_PRICES),
+        client.request<{ spot_balance_snapshots: BalanceSnapshot[] }>(GET_BALANCE_SNAPSHOTS),
+        client.request<{
+          deposits: { asset: string; amount: number; cost_basis: number }[];
+          withdrawals: { asset: string; amount: number; cost_basis: number }[];
+        }>(GET_DEPOSIT_WITHDRAWAL_TOTALS),
+        client.request<{
+          usdc_pnl: { aggregate: { sum: { value: number | null } } };
+        }>(GET_REALIZED_PNL_TOTAL),
+      ]);
+
+      // Build price lookup
+      const prices: Record<string, number> = {};
+      for (const p of pricesData.price_cache) {
+        prices[p.asset] = parseFloat(p.price);
+      }
+
+      // Calculate total USD deposited/withdrawn using cost_basis (per-unit price at time)
+      let totalDepositedUSD = 0;
+      for (const d of transfersData.deposits) {
+        totalDepositedUSD += Math.abs(d.amount) * d.cost_basis;
+      }
+      let totalWithdrawnUSD = 0;
+      for (const w of transfersData.withdrawals) {
+        totalWithdrawnUSD += Math.abs(w.amount) * w.cost_basis;
+      }
+      const netDepositsUSD = totalDepositedUSD - totalWithdrawnUSD;
+
+      // Current spot portfolio value
+      let currentPortfolioValueUSD = 0;
+      for (const s of snapshotsData.spot_balance_snapshots) {
+        const price = prices[s.asset] ?? 0;
+        currentPortfolioValueUSD += s.balance * price;
+      }
+
+      // Realized PnL (USDC perp positions — already accurate)
+      const realizedPnlUSD = pnlData.usdc_pnl.aggregate.sum.value ?? 0;
+
+      // True PnL = current value - net deposits
+      // (unrealized perp PnL would need entry prices which we skip for now)
+      const truePnlUSD = currentPortfolioValueUSD - netDepositsUSD;
+      const returnPct = netDepositsUSD !== 0 ? (truePnlUSD / netDepositsUSD) * 100 : 0;
+
+      return {
+        totalDepositedUSD,
+        totalWithdrawnUSD,
+        netDepositsUSD,
+        currentPortfolioValueUSD,
+        unrealizedPerpPnlUSD: 0, // TODO: compute from open perp positions + entry prices
+        realizedPnlUSD,
+        truePnlUSD,
+        returnPct,
       };
     });
   },

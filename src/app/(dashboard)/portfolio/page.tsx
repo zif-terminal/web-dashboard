@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
 import { api, DataFilters, SortConfig } from "@/lib/api";
-import { Position, ExchangeAccount, PositionsAggregates, InterestByAsset } from "@/lib/queries";
+import { Position, ExchangeAccount, PositionsAggregates, InterestByAsset, PortfolioOverview } from "@/lib/queries";
 import { PageHeader } from "@/components/page-header";
 import { SyncButton } from "@/components/sync-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -75,6 +75,10 @@ export default function PortfolioPage() {
   const [interestByAsset, setInterestByAsset] = useState<InterestByAsset[]>([]);
   const [isLoadingInterest, setIsLoadingInterest] = useState(true);
 
+  // Portfolio overview state
+  const [portfolioOverview, setPortfolioOverview] = useState<PortfolioOverview | null>(null);
+  const [isLoadingOverview, setIsLoadingOverview] = useState(true);
+
   const [expandedPositionId, setExpandedPositionId] = useState<string | null>(null);
   const [expandedTab, setExpandedTab] = useState<"trades" | "funding">("trades");
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
@@ -145,18 +149,33 @@ export default function PortfolioPage() {
     }
   }, [buildFilters]);
 
+  // Load portfolio overview
+  const fetchOverview = useCallback(async () => {
+    setIsLoadingOverview(true);
+    try {
+      const data = await api.getPortfolioOverview();
+      setPortfolioOverview(data);
+    } catch (error) {
+      console.error("Failed to fetch portfolio overview:", error);
+    } finally {
+      setIsLoadingOverview(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchOpenPositions();
     fetchClosedPositions();
     fetchInterest();
-  }, [fetchOpenPositions, fetchClosedPositions, fetchInterest]);
+    fetchOverview();
+  }, [fetchOpenPositions, fetchClosedPositions, fetchInterest, fetchOverview]);
 
   const refresh = useCallback(() => {
     fetchOpenPositions();
     fetchClosedPositions();
     fetchInterest();
+    fetchOverview();
     setLastRefreshTime(new Date());
-  }, [fetchOpenPositions, fetchClosedPositions, fetchInterest]);
+  }, [fetchOpenPositions, fetchClosedPositions, fetchInterest, fetchOverview]);
 
   const handleAccountChange = (value: string) => {
     setSelectedAccountId(value);
@@ -260,10 +279,68 @@ export default function PortfolioPage() {
         </Select>
       </div>
 
-      {/* Portfolio Summary */}
+      {/* Portfolio Overview */}
+      {portfolioOverview && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base md:text-lg">Portfolio Overview</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div>
+                <p className="text-xs text-muted-foreground">Total Deposited</p>
+                <p className="text-lg font-mono">${formatUSD(portfolioOverview.totalDepositedUSD)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Total Withdrawn</p>
+                <p className="text-lg font-mono">${formatUSD(portfolioOverview.totalWithdrawnUSD)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Net Deposits</p>
+                <p className="text-lg font-mono">${formatUSD(portfolioOverview.netDepositsUSD)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Current Value</p>
+                <p className="text-lg font-mono">${formatUSD(portfolioOverview.currentPortfolioValueUSD)}</p>
+              </div>
+            </div>
+            <div className="mt-4 pt-4 border-t flex items-center justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground">True PnL</p>
+                <p className={cn(
+                  "text-2xl font-bold font-mono",
+                  portfolioOverview.truePnlUSD >= 0 ? "text-green-600" : "text-red-600"
+                )}>
+                  {portfolioOverview.truePnlUSD >= 0 ? "+" : ""}${formatUSD(portfolioOverview.truePnlUSD)}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-muted-foreground">Return</p>
+                <p className={cn(
+                  "text-2xl font-bold font-mono",
+                  portfolioOverview.returnPct >= 0 ? "text-green-600" : "text-red-600"
+                )}>
+                  {portfolioOverview.returnPct >= 0 ? "+" : ""}{portfolioOverview.returnPct.toFixed(1)}%
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-muted-foreground">Realized (Perp)</p>
+                <p className={cn(
+                  "text-lg font-mono",
+                  portfolioOverview.realizedPnlUSD >= 0 ? "text-green-600" : "text-red-600"
+                )}>
+                  {portfolioOverview.realizedPnlUSD >= 0 ? "+" : ""}${formatUSD(portfolioOverview.realizedPnlUSD)}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Position Counts */}
       <StatsGrid columns={3}>
         <StatCard
-          title="Total PnL"
+          title="Realized PnL (Page)"
           value={
             <span className={summaryMetrics.totalPnl >= 0 ? "text-green-600" : "text-red-600"}>
               ${formatUSD(summaryMetrics.totalPnl.toFixed(2))}
