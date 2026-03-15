@@ -151,8 +151,13 @@ function buildTradesWhereClause(filters?: DataFilters): Record<string, unknown> 
 }
 
 // Build where clause for funding payments based on filters
+// Funding is now stored in the transfers table with type="funding"
+// The baseAssets filter maps to metadata.market via JSONB _contains
 function buildFundingWhereClause(filters?: DataFilters): Record<string, unknown> {
   const conditions: Record<string, unknown>[] = [];
+
+  // Always filter to funding type
+  conditions.push({ type: { _eq: "funding" } });
 
   if (filters?.accountId) {
     conditions.push({ exchange_account_id: { _eq: filters.accountId } });
@@ -165,7 +170,15 @@ function buildFundingWhereClause(filters?: DataFilters): Record<string, unknown>
   }
 
   if (filters?.baseAssets && filters.baseAssets.length > 0) {
-    conditions.push({ base_asset: { _in: filters.baseAssets } });
+    // Filter by market in metadata JSONB — use _or with _contains for each asset
+    if (filters.baseAssets.length === 1) {
+      conditions.push({ metadata: { _contains: { market: filters.baseAssets[0] } } });
+    } else {
+      const assetConditions = filters.baseAssets.map(asset => ({
+        metadata: { _contains: { market: asset } }
+      }));
+      conditions.push({ _or: assetConditions });
+    }
   }
 
   if (filters?.tags && filters.tags.length > 0) {
@@ -176,7 +189,6 @@ function buildFundingWhereClause(filters?: DataFilters): Record<string, unknown>
     conditions.push({ exchange_account: { exchange_id: { _in: filters.exchangeIds } } });
   }
 
-  if (conditions.length === 0) return {};
   if (conditions.length === 1) return conditions[0];
   return { _and: conditions };
 }
@@ -346,8 +358,8 @@ export const graphqlApi: ApiClient = {
         const data = await client.request<{ trades: { base_asset: string }[] }>(GET_DISTINCT_TRADE_ASSETS);
         return [...new Set(data.trades.map((t) => t.base_asset))].sort();
       } else if (type === "funding") {
-        const data = await client.request<{ funding_payments: { base_asset: string }[] }>(GET_DISTINCT_FUNDING_ASSETS);
-        return [...new Set(data.funding_payments.map((f) => f.base_asset))].sort();
+        const data = await client.request<{ transfers: { asset: string }[] }>(GET_DISTINCT_FUNDING_ASSETS);
+        return [...new Set(data.transfers.map((f) => f.asset))].sort();
       } else {
         const data = await client.request<{ positions: { market: string }[] }>(GET_DISTINCT_POSITION_MARKETS);
         return [...new Set(data.positions.map((p) => p.market))].sort();
@@ -404,13 +416,13 @@ export const graphqlApi: ApiClient = {
       const where = buildFundingWhereClause(filters);
 
       const data = await client.request<{
-        funding_payments: FundingPayment[];
-        funding_payments_aggregate: { aggregate: { count: number } };
+        transfers: FundingPayment[];
+        transfers_aggregate: { aggregate: { count: number } };
       }>(GET_FUNDING_PAYMENTS_DYNAMIC, { limit, offset, where });
 
       return {
-        fundingPayments: data.funding_payments,
-        totalCount: data.funding_payments_aggregate.aggregate.count,
+        fundingPayments: data.transfers,
+        totalCount: data.transfers_aggregate.aggregate.count,
       };
     });
   },
@@ -421,7 +433,7 @@ export const graphqlApi: ApiClient = {
       const where = buildFundingWhereClause(filters);
 
       const data = await client.request<{
-        funding_payments_aggregate: {
+        transfers_aggregate: {
           aggregate: {
             count: number;
             sum: { amount: string | null };
@@ -442,8 +454,8 @@ export const graphqlApi: ApiClient = {
       }>(GET_FUNDING_AGGREGATES_DYNAMIC, { where });
 
       return {
-        totalAmount: data.funding_payments_aggregate.aggregate.sum.amount || "0",
-        count: data.funding_payments_aggregate.aggregate.count,
+        totalAmount: data.transfers_aggregate.aggregate.sum.amount || "0",
+        count: data.transfers_aggregate.aggregate.count,
         totalReceived: data.funding_received.aggregate.sum.amount || "0",
         totalPaid: data.funding_paid.aggregate.sum.amount || "0",
         receivedCount: data.funding_received.aggregate.count,
@@ -471,7 +483,7 @@ export const graphqlApi: ApiClient = {
       const exchangesData = await client.request<{ exchanges: Exchange[] }>(GET_EXCHANGES);
 
       type AggResponse = {
-        funding_payments_aggregate: {
+        transfers_aggregate: {
           aggregate: {
             count: number;
             sum: { amount: string | null };
@@ -498,8 +510,8 @@ export const graphqlApi: ApiClient = {
             exchangeId: ex.id,
             exchangeName: ex.name,
             displayName: ex.display_name,
-            totalFunding: data.funding_payments_aggregate.aggregate.sum.amount || "0",
-            count: data.funding_payments_aggregate.aggregate.count,
+            totalFunding: data.transfers_aggregate.aggregate.sum.amount || "0",
+            count: data.transfers_aggregate.aggregate.count,
           };
         })
       );
@@ -750,7 +762,7 @@ export const graphqlApi: ApiClient = {
     });
   },
 
-  // A6.3: Per-asset funding breakdown (funding grouped by asset)
+  // A6.3: Per-asset funding breakdown (funding grouped by market from metadata)
   async getFundingByAssetBreakdown(filters?: DataFilters): Promise<FundingAssetBreakdown[]> {
     return withErrorHandling(async () => {
       const client = getGraphQLClient();
@@ -760,21 +772,22 @@ export const graphqlApi: ApiClient = {
         Object.keys(w).length > 0 ? w : {};
 
       const data = await client.request<{
-        funding_payments: Array<{ base_asset: string; amount: string }>;
+        transfers: Array<{ metadata: { market?: string } | null; amount: string }>;
       }>(GET_FUNDING_PNL_BY_ASSET, { where: normalizeWhere(fundingWhere) });
 
       const assetMap = new Map<string, { received: number; paid: number; paymentCount: number }>();
 
-      for (const fp of data.funding_payments) {
+      for (const fp of data.transfers) {
         const amount = parseFloat(fp.amount) || 0;
-        const entry = assetMap.get(fp.base_asset) || { received: 0, paid: 0, paymentCount: 0 };
+        const market = fp.metadata?.market || "Unknown";
+        const entry = assetMap.get(market) || { received: 0, paid: 0, paymentCount: 0 };
         if (amount >= 0) {
           entry.received += amount;
         } else {
           entry.paid += Math.abs(amount);
         }
         entry.paymentCount += 1;
-        assetMap.set(fp.base_asset, entry);
+        assetMap.set(market, entry);
       }
 
       const result: FundingAssetBreakdown[] = [];
