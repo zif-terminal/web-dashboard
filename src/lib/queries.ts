@@ -1134,18 +1134,21 @@ export interface Position {
   end_time: number | null; // Unix milliseconds (BIGINT), null if open
   updated_at: string;
   exchange_account?: ExchangeAccount;
-  position_events?: PositionEvent[];
+  position_trades?: PositionTrade[];
 }
 
-// Position event (links trades/events to positions)
-export interface PositionEvent {
+// Position trade (links source events to positions)
+export interface PositionTrade {
   id: string;
-  event_type: string; // "trade"
+  event_type: string; // "trade", "transfer", "funding"
   event_id: string;
-  direction: string; // "entry" or "exit"
+  direction: string; // "entry", "exit", "received", "paid"
   quantity: string;
-  price: string | null;
-  timestamp: number;
+  created_at: string;
+  trade?: {
+    price: string;
+    timestamp: number;
+  } | null;
 }
 
 // Position aggregates interface
@@ -1194,14 +1197,17 @@ const POSITION_FIELDS = `
       label
     }
   }
-  position_events(order_by: { timestamp: asc }) {
+  position_trades(order_by: { created_at: asc }) {
     id
     event_type
     event_id
     direction
     quantity
-    price
-    timestamp
+    created_at
+    trade {
+      price
+      timestamp
+    }
   }
 `;
 

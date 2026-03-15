@@ -567,7 +567,7 @@ export default function PortfolioPage() {
                 <TableBody>
                   {closedPositions.map((pos) => {
                     const isExpanded = expandedPositionId === pos.id;
-                    const events = pos.position_events || [];
+                    const events = pos.position_trades || [];
                     const tradeEvents = events.filter((e) => e.event_type === "trade");
                     const fundingEvents = events.filter((e) => e.event_type === "funding");
                     const entryEvents = tradeEvents.filter((e) => e.direction === "entry");
@@ -713,12 +713,12 @@ export default function PortfolioPage() {
                                             <div key={evt.id} className="flex items-center gap-4 text-sm font-mono px-3 py-1.5 rounded bg-background/50">
                                               <span className="text-green-600 font-medium w-12 shrink-0">ENTRY</span>
                                               <span className="text-muted-foreground w-44 shrink-0">
-                                                {formatTimestamp(evt.timestamp)}
+                                                {evt.trade?.timestamp ? formatTimestamp(evt.trade.timestamp) : "-"}
                                               </span>
                                               <span>qty: {formatNumber(evt.quantity)}</span>
-                                              {evt.price && (
+                                              {evt.trade?.price && (
                                                 <span className="text-muted-foreground">
-                                                  @ {formatPrice(evt.price, pos.quote_asset)}
+                                                  @ {formatPrice(evt.trade.price, pos.quote_asset)}
                                                 </span>
                                               )}
                                               <span className="text-xs text-muted-foreground/50 ml-auto">
@@ -739,12 +739,12 @@ export default function PortfolioPage() {
                                             <div key={evt.id} className="flex items-center gap-4 text-sm font-mono px-3 py-1.5 rounded bg-background/50">
                                               <span className="text-red-600 font-medium w-12 shrink-0">EXIT</span>
                                               <span className="text-muted-foreground w-44 shrink-0">
-                                                {formatTimestamp(evt.timestamp)}
+                                                {evt.trade?.timestamp ? formatTimestamp(evt.trade.timestamp) : "-"}
                                               </span>
                                               <span>qty: {formatNumber(evt.quantity)}</span>
-                                              {evt.price && (
+                                              {evt.trade?.price && (
                                                 <span className="text-muted-foreground">
-                                                  @ {formatPrice(evt.price, pos.quote_asset)}
+                                                  @ {formatPrice(evt.trade.price, pos.quote_asset)}
                                                 </span>
                                               )}
                                               <span className="text-xs text-muted-foreground/50 ml-auto">
@@ -773,9 +773,6 @@ export default function PortfolioPage() {
                                               evt.direction === "received" ? "text-green-600" : "text-red-600"
                                             )}>
                                               {evt.direction === "received" ? "RECV" : "PAID"}
-                                            </span>
-                                            <span className="text-muted-foreground w-44 shrink-0">
-                                              {formatTimestamp(evt.timestamp)}
                                             </span>
                                             <span className={evt.direction === "received" ? "text-green-600" : "text-red-600"}>
                                               {evt.direction === "received" ? "+" : "-"}${formatUSD(evt.quantity)}
