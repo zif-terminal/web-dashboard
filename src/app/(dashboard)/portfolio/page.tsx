@@ -567,7 +567,7 @@ export default function PortfolioPage() {
                 <TableBody>
                   {closedPositions.map((pos) => {
                     const isExpanded = expandedPositionId === pos.id;
-                    const events = pos.position_trades || [];
+                    const events = pos.position_events || [];
                     const tradeEvents = events.filter((e) => e.event_type === "trade");
                     const fundingEvents = events.filter((e) => e.event_type === "funding");
                     const entryEvents = tradeEvents.filter((e) => e.direction === "entry");

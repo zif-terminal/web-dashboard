@@ -1134,11 +1134,11 @@ export interface Position {
   end_time: number | null; // Unix milliseconds (BIGINT), null if open
   updated_at: string;
   exchange_account?: ExchangeAccount;
-  position_trades?: PositionTrade[];
+  position_events?: PositionEvent[];
 }
 
-// Position trade (links source events to positions)
-export interface PositionTrade {
+// Position event (links source events to positions)
+export interface PositionEvent {
   id: string;
   event_type: string; // "trade", "transfer", "funding"
   event_id: string;
@@ -1197,7 +1197,7 @@ const POSITION_FIELDS = `
       label
     }
   }
-  position_trades(order_by: { created_at: asc }) {
+  position_events(order_by: { created_at: asc }) {
     id
     event_type
     event_id
