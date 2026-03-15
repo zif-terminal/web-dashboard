@@ -1125,16 +1125,18 @@ export interface Position {
   side: "long" | "short";
   status: "open" | "closed";
   quantity: string;
-  entry_price: string;
-  exit_price: string | null;
-  total_fees: string;
-  cumulative_funding: string;
-  quote_asset: string; // What entry/exit prices are denominated in
+  quote_asset: string;
   start_time: number; // Unix milliseconds (BIGINT)
   end_time: number | null; // Unix milliseconds (BIGINT), null if open
   updated_at: string;
   exchange_account?: ExchangeAccount;
   position_events?: PositionEvent[];
+  pnl?: PositionPnl[];
+}
+
+export interface PositionPnl {
+  denomination: string;
+  value: string;
 }
 
 // Position event (links source events to positions)
@@ -1153,13 +1155,10 @@ export interface PositionEvent {
 
 // Position aggregates interface
 export interface PositionTypeAggregates {
-  totalFees: string;
-  totalFunding: string;
   count: number;
 }
 
 export interface PositionsAggregates {
-  totalFees: string;
   count: number;
   perp: PositionTypeAggregates;
   spot: PositionTypeAggregates;
@@ -1174,10 +1173,6 @@ const POSITION_FIELDS = `
   side
   status
   quantity
-  entry_price
-  exit_price
-  total_fees
-  cumulative_funding
   quote_asset
   start_time
   end_time
@@ -1209,6 +1204,10 @@ const POSITION_FIELDS = `
       timestamp
     }
   }
+  pnl {
+    denomination
+    value
+  }
 `;
 
 export const GET_OPEN_POSITIONS = gql`
@@ -1237,27 +1236,16 @@ export const GET_POSITIONS_AGGREGATES_DYNAMIC = gql`
     all: positions_aggregate(where: $where) {
       aggregate {
         count
-        sum {
-          total_fees
-        }
       }
     }
     perp: positions_aggregate(where: $perpWhere) {
       aggregate {
         count
-        sum {
-          total_fees
-          cumulative_funding
-        }
       }
     }
     spot: positions_aggregate(where: $spotWhere) {
       aggregate {
         count
-        sum {
-          total_fees
-          cumulative_funding
-        }
       }
     }
   }
