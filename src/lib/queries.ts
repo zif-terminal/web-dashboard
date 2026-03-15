@@ -640,35 +640,39 @@ export const GET_TRADES_AGGREGATES_BY_ACCOUNT_WITH_RANGE_FILTER = gql`
   }
 `;
 
-// Funding payment types
+// Funding payment types (now stored in unified transfers table with type="funding")
 export interface FundingPayment {
   id: string;
-  base_asset: string;
-  quote_asset: string;
+  exchange_account_id: string;
+  type: string; // "funding"
+  asset: string; // funding currency (was quote_asset)
   amount: string;
   timestamp: number; // Unix milliseconds (BIGINT)
-  payment_id: string;
-  exchange_account_id: string;
+  metadata: {
+    market: string; // e.g. "SOL" (was base_asset)
+    payment_id: string; // (was payment_id)
+  };
   exchange_account?: ExchangeAccount;
 }
 
-// Funding payment queries
+// Funding payment queries — now query the transfers table with type="funding"
 // Note: We have two versions - one with date filter and one without
 // This is because Hasura doesn't accept null for bigint _gte comparisons
 export const GET_FUNDING_PAYMENTS = gql`
   query GetFundingPayments($limit: Int!, $offset: Int!) {
-    funding_payments(
+    transfers(
       limit: $limit
       offset: $offset
       order_by: { timestamp: desc }
+      where: { type: { _eq: "funding" } }
     ) {
       id
-      base_asset
-      quote_asset
+      exchange_account_id
+      type
+      asset
       amount
       timestamp
-      payment_id
-      exchange_account_id
+      metadata
       exchange_account {
         id
         account_identifier
@@ -685,19 +689,19 @@ export const GET_FUNDING_PAYMENTS = gql`
 
 export const GET_FUNDING_PAYMENTS_WITH_FILTER = gql`
   query GetFundingPaymentsWithFilter($limit: Int!, $offset: Int!, $since: bigint!) {
-    funding_payments(
+    transfers(
       limit: $limit
       offset: $offset
       order_by: { timestamp: desc }
-      where: { timestamp: { _gte: $since } }
+      where: { type: { _eq: "funding" }, timestamp: { _gte: $since } }
     ) {
       id
-      base_asset
-      quote_asset
+      exchange_account_id
+      type
+      asset
       amount
       timestamp
-      payment_id
-      exchange_account_id
+      metadata
       exchange_account {
         id
         account_identifier
@@ -714,19 +718,19 @@ export const GET_FUNDING_PAYMENTS_WITH_FILTER = gql`
 
 export const GET_FUNDING_PAYMENTS_WITH_RANGE_FILTER = gql`
   query GetFundingPaymentsWithRangeFilter($limit: Int!, $offset: Int!, $since: bigint!, $until: bigint!) {
-    funding_payments(
+    transfers(
       limit: $limit
       offset: $offset
       order_by: { timestamp: desc }
-      where: { timestamp: { _gte: $since, _lte: $until } }
+      where: { type: { _eq: "funding" }, timestamp: { _gte: $since, _lte: $until } }
     ) {
       id
-      base_asset
-      quote_asset
+      exchange_account_id
+      type
+      asset
       amount
       timestamp
-      payment_id
-      exchange_account_id
+      metadata
       exchange_account {
         id
         account_identifier
@@ -743,19 +747,19 @@ export const GET_FUNDING_PAYMENTS_WITH_RANGE_FILTER = gql`
 
 export const GET_FUNDING_PAYMENTS_BY_ACCOUNT = gql`
   query GetFundingPaymentsByAccount($accountId: uuid!, $limit: Int!, $offset: Int!) {
-    funding_payments(
-      where: { exchange_account_id: { _eq: $accountId } }
+    transfers(
+      where: { type: { _eq: "funding" }, exchange_account_id: { _eq: $accountId } }
       limit: $limit
       offset: $offset
       order_by: { timestamp: desc }
     ) {
       id
-      base_asset
-      quote_asset
+      exchange_account_id
+      type
+      asset
       amount
       timestamp
-      payment_id
-      exchange_account_id
+      metadata
       exchange_account {
         id
         account_identifier
@@ -772,19 +776,19 @@ export const GET_FUNDING_PAYMENTS_BY_ACCOUNT = gql`
 
 export const GET_FUNDING_PAYMENTS_BY_ACCOUNT_WITH_FILTER = gql`
   query GetFundingPaymentsByAccountWithFilter($accountId: uuid!, $limit: Int!, $offset: Int!, $since: bigint!) {
-    funding_payments(
-      where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since } }
+    transfers(
+      where: { type: { _eq: "funding" }, exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since } }
       limit: $limit
       offset: $offset
       order_by: { timestamp: desc }
     ) {
       id
-      base_asset
-      quote_asset
+      exchange_account_id
+      type
+      asset
       amount
       timestamp
-      payment_id
-      exchange_account_id
+      metadata
       exchange_account {
         id
         account_identifier
@@ -801,19 +805,19 @@ export const GET_FUNDING_PAYMENTS_BY_ACCOUNT_WITH_FILTER = gql`
 
 export const GET_FUNDING_PAYMENTS_BY_ACCOUNT_WITH_RANGE_FILTER = gql`
   query GetFundingPaymentsByAccountWithRangeFilter($accountId: uuid!, $limit: Int!, $offset: Int!, $since: bigint!, $until: bigint!) {
-    funding_payments(
-      where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since, _lte: $until } }
+    transfers(
+      where: { type: { _eq: "funding" }, exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since, _lte: $until } }
       limit: $limit
       offset: $offset
       order_by: { timestamp: desc }
     ) {
       id
-      base_asset
-      quote_asset
+      exchange_account_id
+      type
+      asset
       amount
       timestamp
-      payment_id
-      exchange_account_id
+      metadata
       exchange_account {
         id
         account_identifier
@@ -830,7 +834,7 @@ export const GET_FUNDING_PAYMENTS_BY_ACCOUNT_WITH_RANGE_FILTER = gql`
 
 export const GET_FUNDING_PAYMENTS_COUNT = gql`
   query GetFundingPaymentsCount {
-    funding_payments_aggregate {
+    transfers_aggregate(where: { type: { _eq: "funding" } }) {
       aggregate {
         count
       }
@@ -840,7 +844,7 @@ export const GET_FUNDING_PAYMENTS_COUNT = gql`
 
 export const GET_FUNDING_PAYMENTS_COUNT_WITH_FILTER = gql`
   query GetFundingPaymentsCountWithFilter($since: bigint!) {
-    funding_payments_aggregate(where: { timestamp: { _gte: $since } }) {
+    transfers_aggregate(where: { type: { _eq: "funding" }, timestamp: { _gte: $since } }) {
       aggregate {
         count
       }
@@ -850,7 +854,7 @@ export const GET_FUNDING_PAYMENTS_COUNT_WITH_FILTER = gql`
 
 export const GET_FUNDING_PAYMENTS_COUNT_WITH_RANGE_FILTER = gql`
   query GetFundingPaymentsCountWithRangeFilter($since: bigint!, $until: bigint!) {
-    funding_payments_aggregate(where: { timestamp: { _gte: $since, _lte: $until } }) {
+    transfers_aggregate(where: { type: { _eq: "funding" }, timestamp: { _gte: $since, _lte: $until } }) {
       aggregate {
         count
       }
@@ -860,7 +864,7 @@ export const GET_FUNDING_PAYMENTS_COUNT_WITH_RANGE_FILTER = gql`
 
 export const GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT = gql`
   query GetFundingPaymentsCountByAccount($accountId: uuid!) {
-    funding_payments_aggregate(where: { exchange_account_id: { _eq: $accountId } }) {
+    transfers_aggregate(where: { type: { _eq: "funding" }, exchange_account_id: { _eq: $accountId } }) {
       aggregate {
         count
       }
@@ -870,7 +874,7 @@ export const GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT = gql`
 
 export const GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT_WITH_FILTER = gql`
   query GetFundingPaymentsCountByAccountWithFilter($accountId: uuid!, $since: bigint!) {
-    funding_payments_aggregate(where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since } }) {
+    transfers_aggregate(where: { type: { _eq: "funding" }, exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since } }) {
       aggregate {
         count
       }
@@ -880,7 +884,7 @@ export const GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT_WITH_FILTER = gql`
 
 export const GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT_WITH_RANGE_FILTER = gql`
   query GetFundingPaymentsCountByAccountWithRangeFilter($accountId: uuid!, $since: bigint!, $until: bigint!) {
-    funding_payments_aggregate(where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since, _lte: $until } }) {
+    transfers_aggregate(where: { type: { _eq: "funding" }, exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since, _lte: $until } }) {
       aggregate {
         count
       }
@@ -898,10 +902,10 @@ export interface FundingAggregates {
   paidCount: number;
 }
 
-// Funding aggregate queries
+// Funding aggregate queries — now query the transfers table with type="funding"
 export const GET_FUNDING_AGGREGATES = gql`
   query GetFundingAggregates {
-    funding_payments_aggregate {
+    transfers_aggregate(where: { type: { _eq: "funding" } }) {
       aggregate {
         count
         sum {
@@ -914,7 +918,7 @@ export const GET_FUNDING_AGGREGATES = gql`
 
 export const GET_FUNDING_AGGREGATES_WITH_FILTER = gql`
   query GetFundingAggregatesWithFilter($since: bigint!) {
-    funding_payments_aggregate(where: { timestamp: { _gte: $since } }) {
+    transfers_aggregate(where: { type: { _eq: "funding" }, timestamp: { _gte: $since } }) {
       aggregate {
         count
         sum {
@@ -927,7 +931,7 @@ export const GET_FUNDING_AGGREGATES_WITH_FILTER = gql`
 
 export const GET_FUNDING_AGGREGATES_WITH_RANGE_FILTER = gql`
   query GetFundingAggregatesWithRangeFilter($since: bigint!, $until: bigint!) {
-    funding_payments_aggregate(where: { timestamp: { _gte: $since, _lte: $until } }) {
+    transfers_aggregate(where: { type: { _eq: "funding" }, timestamp: { _gte: $since, _lte: $until } }) {
       aggregate {
         count
         sum {
@@ -940,7 +944,7 @@ export const GET_FUNDING_AGGREGATES_WITH_RANGE_FILTER = gql`
 
 export const GET_FUNDING_AGGREGATES_BY_ACCOUNT = gql`
   query GetFundingAggregatesByAccount($accountId: uuid!) {
-    funding_payments_aggregate(where: { exchange_account_id: { _eq: $accountId } }) {
+    transfers_aggregate(where: { type: { _eq: "funding" }, exchange_account_id: { _eq: $accountId } }) {
       aggregate {
         count
         sum {
@@ -953,7 +957,7 @@ export const GET_FUNDING_AGGREGATES_BY_ACCOUNT = gql`
 
 export const GET_FUNDING_AGGREGATES_BY_ACCOUNT_WITH_FILTER = gql`
   query GetFundingAggregatesByAccountWithFilter($accountId: uuid!, $since: bigint!) {
-    funding_payments_aggregate(where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since } }) {
+    transfers_aggregate(where: { type: { _eq: "funding" }, exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since } }) {
       aggregate {
         count
         sum {
@@ -966,7 +970,7 @@ export const GET_FUNDING_AGGREGATES_BY_ACCOUNT_WITH_FILTER = gql`
 
 export const GET_FUNDING_AGGREGATES_BY_ACCOUNT_WITH_RANGE_FILTER = gql`
   query GetFundingAggregatesByAccountWithRangeFilter($accountId: uuid!, $since: bigint!, $until: bigint!) {
-    funding_payments_aggregate(where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since, _lte: $until } }) {
+    transfers_aggregate(where: { type: { _eq: "funding" }, exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since, _lte: $until } }) {
       aggregate {
         count
         sum {
@@ -988,8 +992,8 @@ export const GET_DISTINCT_TRADE_ASSETS = gql`
 
 export const GET_DISTINCT_FUNDING_ASSETS = gql`
   query GetDistinctFundingAssets {
-    funding_payments(distinct_on: base_asset, order_by: { base_asset: asc }) {
-      base_asset
+    transfers(distinct_on: asset, where: { type: { _eq: "funding" } }, order_by: { asset: asc }) {
+      asset
     }
   }
 `;
@@ -1047,15 +1051,15 @@ export const GET_TRADES_AGGREGATES_DYNAMIC = gql`
 `;
 
 export const GET_FUNDING_PAYMENTS_DYNAMIC = gql`
-  query GetFundingPaymentsDynamic($limit: Int!, $offset: Int!, $where: funding_payments_bool_exp!) {
-    funding_payments(limit: $limit, offset: $offset, order_by: { timestamp: desc }, where: $where) {
+  query GetFundingPaymentsDynamic($limit: Int!, $offset: Int!, $where: transfers_bool_exp!) {
+    transfers(limit: $limit, offset: $offset, order_by: { timestamp: desc }, where: $where) {
       id
-      base_asset
-      quote_asset
+      exchange_account_id
+      type
+      asset
       amount
       timestamp
-      payment_id
-      exchange_account_id
+      metadata
       exchange_account {
         id
         account_identifier
@@ -1071,7 +1075,7 @@ export const GET_FUNDING_PAYMENTS_DYNAMIC = gql`
         }
       }
     }
-    funding_payments_aggregate(where: $where) {
+    transfers_aggregate(where: $where) {
       aggregate {
         count
       }
@@ -1080,8 +1084,8 @@ export const GET_FUNDING_PAYMENTS_DYNAMIC = gql`
 `;
 
 export const GET_FUNDING_AGGREGATES_DYNAMIC = gql`
-  query GetFundingAggregatesDynamic($where: funding_payments_bool_exp!) {
-    funding_payments_aggregate(where: $where) {
+  query GetFundingAggregatesDynamic($where: transfers_bool_exp!) {
+    transfers_aggregate(where: $where) {
       aggregate {
         count
         sum {
@@ -1089,7 +1093,7 @@ export const GET_FUNDING_AGGREGATES_DYNAMIC = gql`
         }
       }
     }
-    funding_received: funding_payments_aggregate(
+    funding_received: transfers_aggregate(
       where: { _and: [$where, { amount: { _gt: "0" } }] }
     ) {
       aggregate {
@@ -1099,7 +1103,7 @@ export const GET_FUNDING_AGGREGATES_DYNAMIC = gql`
         }
       }
     }
-    funding_paid: funding_payments_aggregate(
+    funding_paid: transfers_aggregate(
       where: { _and: [$where, { amount: { _lt: "0" } }] }
     ) {
       aggregate {
@@ -1265,11 +1269,12 @@ export const GET_DISTINCT_POSITION_MARKETS = gql`
 export interface Transfer {
   id: string;
   exchange_account_id: string;
-  type: string; // "deposit", "withdraw", "interest", "reward", "if_stake", "if_unstake"
+  type: string; // "deposit", "withdraw", "interest", "reward", "if_stake", "if_unstake", "funding"
   asset: string;
   amount: string; // signed numeric
   timestamp: number; // Unix milliseconds (BIGINT)
   cost_basis?: string;
+  metadata?: Record<string, unknown>; // JSONB — e.g. { market: "SOL", payment_id: "..." } for funding
   created_at?: string;
   exchange_account?: ExchangeAccount;
 }
@@ -1386,9 +1391,9 @@ export interface FundingAssetBreakdown {
 }
 
 export const GET_FUNDING_PNL_BY_ASSET = gql`
-  query GetFundingPnLByAsset($where: funding_payments_bool_exp!) {
-    funding_payments(where: $where) {
-      base_asset
+  query GetFundingPnLByAsset($where: transfers_bool_exp!) {
+    transfers(where: $where) {
+      metadata
       amount
     }
   }

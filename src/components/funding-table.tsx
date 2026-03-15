@@ -110,7 +110,7 @@ export function FundingTable({
                   </div>
                 </TableCell>
                 <TableCell className="py-3 font-medium">
-                  {payment.base_asset}-{payment.quote_asset}
+                  {payment.metadata?.market || "?"}/{payment.asset}
                 </TableCell>
                 <TableCell
                   className={cn(

@@ -109,36 +109,36 @@ const mockTrades: Trade[] = [
   },
 ];
 
-// Mock funding payments (timestamp is Unix milliseconds)
+// Mock funding payments (now stored in transfers schema with type="funding")
 const mockFundingPayments: FundingPayment[] = [
   {
     id: "mock-funding-001",
-    base_asset: "ETH",
-    quote_asset: "USDC",
+    exchange_account_id: "mock-acc-001",
+    type: "funding",
+    asset: "USDC",
     amount: "12.50",
     timestamp: Date.now() - 1000 * 60 * 60 * 8,
-    payment_id: "funding-payment-001",
-    exchange_account_id: "mock-acc-001",
+    metadata: { market: "ETH", payment_id: "funding-payment-001" },
     exchange_account: mockAccounts[0],
   },
   {
     id: "mock-funding-002",
-    base_asset: "BTC",
-    quote_asset: "USDC",
+    exchange_account_id: "mock-acc-001",
+    type: "funding",
+    asset: "USDC",
     amount: "-8.75",
     timestamp: Date.now() - 1000 * 60 * 60 * 16,
-    payment_id: "funding-payment-002",
-    exchange_account_id: "mock-acc-001",
+    metadata: { market: "BTC", payment_id: "funding-payment-002" },
     exchange_account: mockAccounts[0],
   },
   {
     id: "mock-funding-003",
-    base_asset: "SOL",
-    quote_asset: "USDC",
+    exchange_account_id: "mock-acc-002",
+    type: "funding",
+    asset: "USDC",
     amount: "5.25",
     timestamp: Date.now() - 1000 * 60 * 60 * 24,
-    payment_id: "funding-payment-003",
-    exchange_account_id: "mock-acc-002",
+    metadata: { market: "SOL", payment_id: "funding-payment-003" },
     exchange_account: mockAccounts[1],
   },
 ];
@@ -233,7 +233,7 @@ function filterFundingPayments(payments: FundingPayment[], filters?: DataFilters
   }
 
   if (filters?.baseAssets && filters.baseAssets.length > 0) {
-    result = result.filter((payment) => filters.baseAssets!.includes(payment.base_asset));
+    result = result.filter((payment) => filters.baseAssets!.includes(payment.metadata.market));
   }
 
   return result;
@@ -330,7 +330,7 @@ export const mockApi: ApiClient = {
       const assets = [...new Set(mockTrades.map((t) => t.base_asset))];
       return assets.sort();
     } else if (type === "funding") {
-      const assets = [...new Set(mockFundingPayments.map((f) => f.base_asset))];
+      const assets = [...new Set(mockFundingPayments.map((f) => f.metadata.market))];
       return assets.sort();
     } else {
       return [];
@@ -551,14 +551,15 @@ export const mockApi: ApiClient = {
 
     for (const fp of filteredFunding) {
       const amount = parseFloat(fp.amount) || 0;
-      const entry = assetMap.get(fp.base_asset) || { received: 0, paid: 0, paymentCount: 0 };
+      const market = fp.metadata.market;
+      const entry = assetMap.get(market) || { received: 0, paid: 0, paymentCount: 0 };
       if (amount >= 0) {
         entry.received += amount;
       } else {
         entry.paid += Math.abs(amount);
       }
       entry.paymentCount += 1;
-      assetMap.set(fp.base_asset, entry);
+      assetMap.set(market, entry);
     }
 
     const result: FundingAssetBreakdown[] = [];
