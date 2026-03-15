@@ -186,28 +186,20 @@ export default function PortfolioPage() {
 
   // Portfolio summary metrics
   const summaryMetrics = useMemo(() => {
-    // Open position totals (client-side)
-    let openFees = 0;
-    let openFunding = 0;
-    for (const p of openPositions) {
-      openFees += parseFloat(p.total_fees) || 0;
-      openFunding += parseFloat(p.cumulative_funding) || 0;
+    // Compute total PnL from closed positions that have pnl data
+    let totalPnl = 0;
+    for (const p of closedPositions) {
+      if (p.pnl && p.pnl.length > 0) {
+        totalPnl += parseFloat(p.pnl[0].value) || 0;
+      }
     }
 
-    // Closed position totals (from aggregates)
-    const closedFees = closedAggregates ? parseFloat(closedAggregates.totalFees) || 0 : 0;
-    const closedFunding = closedAggregates
-      ? (parseFloat(closedAggregates.perp.totalFunding) || 0) +
-        (parseFloat(closedAggregates.spot.totalFunding) || 0)
-      : 0;
-
     return {
-      totalFees: openFees + closedFees,
-      totalFunding: openFunding + closedFunding,
+      totalPnl,
       openCount: openPositions.length,
       closedCount: closedAggregates?.count ?? 0,
     };
-  }, [openPositions, closedAggregates]);
+  }, [openPositions, closedPositions, closedAggregates]);
 
   const toggleExpand = (posId: string) => {
     setExpandedPositionId((prev) => (prev === posId ? null : posId));
@@ -269,24 +261,15 @@ export default function PortfolioPage() {
       </div>
 
       {/* Portfolio Summary */}
-      <StatsGrid columns={4}>
+      <StatsGrid columns={3}>
         <StatCard
-          title="Total Funding"
+          title="Total PnL"
           value={
-            <span className={summaryMetrics.totalFunding >= 0 ? "text-green-600" : "text-red-600"}>
-              ${formatUSD(summaryMetrics.totalFunding.toFixed(2))}
+            <span className={summaryMetrics.totalPnl >= 0 ? "text-green-600" : "text-red-600"}>
+              ${formatUSD(summaryMetrics.totalPnl.toFixed(2))}
             </span>
           }
-          isLoading={isLoadingOpen || isLoadingClosed}
-        />
-        <StatCard
-          title="Total Fees"
-          value={
-            <span className={summaryMetrics.totalFees <= 0 ? "text-green-600" : "text-red-600"}>
-              ${formatUSD(summaryMetrics.totalFees.toFixed(2))}
-            </span>
-          }
-          isLoading={isLoadingOpen || isLoadingClosed}
+          isLoading={isLoadingClosed}
         />
         <StatCard
           title="Open Positions"
@@ -369,10 +352,8 @@ export default function PortfolioPage() {
                         <TableHead>Market</TableHead>
                         <TableHead>Side</TableHead>
                         <TableHead className="text-right">Size</TableHead>
-                        <TableHead className="text-right">Entry Price</TableHead>
-                        <TableHead className="text-right">Funding</TableHead>
-                        <TableHead className="text-right">Fees</TableHead>
                         <TableHead>Opened</TableHead>
+                        <TableHead className="text-right">Events</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -418,23 +399,11 @@ export default function PortfolioPage() {
                           <TableCell className="py-3 text-right font-mono">
                             {formatNumber(pos.quantity)}
                           </TableCell>
-                          <TableCell className="py-3 text-right font-mono">
-                            {formatPrice(pos.entry_price, pos.quote_asset)}
-                          </TableCell>
-                          <TableCell className="py-3 text-right font-mono">
-                            <span className={cn(
-                              parseFloat(pos.cumulative_funding) >= 0 ? "text-green-600" : "text-red-600"
-                            )}>
-                              ${formatUSD(pos.cumulative_funding)}
-                            </span>
-                          </TableCell>
-                          <TableCell className="py-3 text-right font-mono">
-                            <span className={parseFloat(pos.total_fees) <= 0 ? "text-green-600" : "text-red-600"}>
-                              ${formatUSD(pos.total_fees)}
-                            </span>
-                          </TableCell>
                           <TableCell className="py-3 text-sm">
                             {formatTimestamp(pos.start_time)}
+                          </TableCell>
+                          <TableCell className="py-3 text-right text-xs text-muted-foreground">
+                            {pos.position_events?.length || 0}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -453,7 +422,6 @@ export default function PortfolioPage() {
                         <TableHead>Asset</TableHead>
                         <TableHead>Side</TableHead>
                         <TableHead className="text-right">Balance</TableHead>
-                        <TableHead className="text-right">Avg Entry Price</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -490,9 +458,6 @@ export default function PortfolioPage() {
                           </TableCell>
                           <TableCell className="py-3 text-right font-mono">
                             {formatNumber(pos.quantity)}
-                          </TableCell>
-                          <TableCell className="py-3 text-right font-mono">
-                            {formatPrice(pos.entry_price, pos.quote_asset)}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -545,10 +510,7 @@ export default function PortfolioPage() {
                     >
                       Size<SortIndicator column="quantity" />
                     </TableHead>
-                    <TableHead className="text-right">Entry</TableHead>
-                    <TableHead className="text-right">Exit</TableHead>
-                    <TableHead className="text-right">Fees</TableHead>
-                    <TableHead className="text-right">Funding</TableHead>
+                    <TableHead className="text-right">PnL</TableHead>
                     <TableHead
                       className="cursor-pointer select-none"
                       onClick={() => handleSort("start_time")}
@@ -632,22 +594,13 @@ export default function PortfolioPage() {
                             {formatNumber(pos.quantity)}
                           </TableCell>
                           <TableCell className="py-3 text-right font-mono">
-                            {formatPrice(pos.entry_price, pos.quote_asset)}
-                          </TableCell>
-                          <TableCell className="py-3 text-right font-mono">
-                            {pos.exit_price ? formatPrice(pos.exit_price, pos.quote_asset) : "-"}
-                          </TableCell>
-                          <TableCell className="py-3 text-right font-mono">
-                            <span className={parseFloat(pos.total_fees) <= 0 ? "text-green-600" : "text-red-600"}>
-                              ${formatUSD(pos.total_fees)}
-                            </span>
-                          </TableCell>
-                          <TableCell className="py-3 text-right font-mono">
-                            <span className={cn(
-                              parseFloat(pos.cumulative_funding) >= 0 ? "text-green-600" : "text-red-600"
-                            )}>
-                              ${formatUSD(pos.cumulative_funding)}
-                            </span>
+                            {pos.pnl && pos.pnl.length > 0 ? (
+                              <span className={parseFloat(pos.pnl[0].value) >= 0 ? "text-green-600" : "text-red-600"}>
+                                ${formatUSD(pos.pnl[0].value)}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
                           </TableCell>
                           <TableCell className="py-3 text-sm text-muted-foreground">
                             {formatTimestamp(pos.start_time)}
@@ -672,7 +625,7 @@ export default function PortfolioPage() {
                         {/* Expanded events detail */}
                         {isExpanded && events.length > 0 && (
                           <TableRow className="bg-muted/20 hover:bg-muted/20">
-                            <TableCell colSpan={10} className="p-0">
+                            <TableCell colSpan={7} className="p-0">
                               <div className="px-6 py-4">
                                 {/* Tabs */}
                                 <div className="flex gap-1 mb-3 border-b border-border">

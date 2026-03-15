@@ -859,7 +859,6 @@ export const graphqlApi: ApiClient = {
       type AggResult = {
         aggregate: {
           count: number;
-          sum: { total_fees: string | null; cumulative_funding?: string | null };
         };
       };
 
@@ -870,16 +869,11 @@ export const graphqlApi: ApiClient = {
       }>(GET_POSITIONS_AGGREGATES_DYNAMIC, { where, perpWhere, spotWhere });
 
       return {
-        totalFees: data.all.aggregate.sum.total_fees || "0",
         count: data.all.aggregate.count,
         perp: {
-          totalFees: data.perp.aggregate.sum.total_fees || "0",
-          totalFunding: data.perp.aggregate.sum.cumulative_funding || "0",
           count: data.perp.aggregate.count,
         },
         spot: {
-          totalFees: data.spot.aggregate.sum.total_fees || "0",
-          totalFunding: data.spot.aggregate.sum.cumulative_funding || "0",
           count: data.spot.aggregate.count,
         },
       };
