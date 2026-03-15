@@ -585,7 +585,7 @@ export const mockApi: ApiClient = {
     return { positions: [], totalCount: 0 };
   },
   async getPositionsAggregates(): Promise<import("../queries").PositionsAggregates> {
-    const empty = { totalFees: "0", totalFunding: "0", count: 0 };
-    return { totalFees: "0", count: 0, perp: empty, spot: empty };
+    const empty = { count: 0 };
+    return { count: 0, perp: empty, spot: empty };
   },
 };
