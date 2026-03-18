@@ -14,9 +14,7 @@ const mockWallets: Wallet[] = [
 
 // Mock exchanges
 const mockExchanges: Exchange[] = [
-  { id: "hyperliquid", name: "hyperliquid", display_name: "Hyperliquid", requires_api_key: false },
-  { id: "lighter",     name: "lighter",     display_name: "Lighter",     requires_api_key: true  },
-  { id: "drift",       name: "drift",       display_name: "Drift",       requires_api_key: false },
+  { id: "drift", name: "drift", display_name: "Drift", requires_api_key: false },
 ];
 
 // Mock account types
@@ -30,33 +28,23 @@ const mockAccountTypes: ExchangeAccountType[] = [
 const mockAccounts: ExchangeAccount[] = [
   {
     id: "mock-acc-001",
-    exchange_id: "hyperliquid",
-    account_identifier: "0x1234567890abcdef1234567890abcdef12345678",
-    account_type: "main",
-    account_type_metadata: {},
-    exchange: mockExchanges[0],
-    tags: ["main", "trading"],
-    label: "Primary HL",
-  },
-  {
-    id: "mock-acc-002",
-    exchange_id: "hyperliquid",
-    account_identifier: "0xabcdef1234567890abcdef1234567890abcdef12",
-    account_type: "main",
-    account_type_metadata: {},
-    exchange: mockExchanges[0],
-    tags: ["defi"],
-    label: undefined,
-  },
-  {
-    id: "mock-acc-003",
     exchange_id: "drift",
     account_identifier: "HN4xHDBPK7oSGGRafaJWS6jT8M7xyEk7Kos24xp27Kpq",
     account_type: "main",
     account_type_metadata: {},
-    exchange: mockExchanges[2],
-    tags: [],
+    exchange: mockExchanges[0],
+    tags: ["main", "trading"],
     label: "Drift Main",
+  },
+  {
+    id: "mock-acc-002",
+    exchange_id: "drift",
+    account_identifier: "7RCz8wb6WXxUhAigok9ttgrVgDFFFbibcirECzWSBauM",
+    account_type: "sub_account",
+    account_type_metadata: {},
+    exchange: mockExchanges[0],
+    tags: ["defi"],
+    label: undefined,
   },
 ];
 
@@ -152,7 +140,6 @@ const mockTransfers: Transfer[] = [
     asset: "SOL",
     amount: "100.5",
     timestamp: Date.now() - 1000 * 60 * 60 * 24 * 7,
-    cost_basis: "180.00",
     exchange_account: mockAccounts[0],
   },
   {
@@ -162,7 +149,6 @@ const mockTransfers: Transfer[] = [
     asset: "USDC",
     amount: "10000",
     timestamp: Date.now() - 1000 * 60 * 60 * 24 * 5,
-    cost_basis: "1.00",
     exchange_account: mockAccounts[0],
   },
   {
@@ -172,7 +158,6 @@ const mockTransfers: Transfer[] = [
     asset: "SOL",
     amount: "-50.25",
     timestamp: Date.now() - 1000 * 60 * 60 * 24 * 3,
-    cost_basis: "190.00",
     exchange_account: mockAccounts[1],
   },
   {
@@ -587,5 +572,12 @@ export const mockApi: ApiClient = {
   async getPositionsAggregates(): Promise<import("../queries").PositionsAggregates> {
     const empty = { count: 0 };
     return { count: 0, perp: empty, spot: empty };
+  },
+  async getPortfolioOverview(): Promise<import("../queries").PortfolioOverview> {
+    return {
+      totalDepositedUSD: 0, totalWithdrawnUSD: 0, netDepositsUSD: 0,
+      currentPortfolioValueUSD: 0, unrealizedPerpPnlUSD: 0,
+      realizedPnlUSD: 0, truePnlUSD: 0, returnPct: 0,
+    };
   },
 };
