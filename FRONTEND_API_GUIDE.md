@@ -198,12 +198,12 @@ curl -X POST http://167.99.145.4/v1/graphql \
 
 #### 1. `exchanges`
 
-Supported cryptocurrency exchanges (Hyperliquid, Lighter, Drift).
+Supported cryptocurrency exchanges.
 
 **Fields:**
 - `id` (UUID) - Primary key
-- `name` (String) - Internal identifier: "hyperliquid", "lighter", "drift"
-- `display_name` (String) - User-friendly name: "Hyperliquid", "Lighter", "Drift"
+- `name` (String) - Internal identifier (e.g., "drift")
+- `display_name` (String) - User-friendly name (e.g., "Drift")
 
 **Relationships:**
 - `exchange_accounts` (Array) - All accounts for this exchange
@@ -405,7 +405,7 @@ curl -X POST http://167.99.145.4/v1/graphql \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <token>" \
   -d '{
-    "query": "query FilteredAccounts { exchange_accounts(where: { account_type: { _eq: \"main\" } exchange: { name: { _in: [\"hyperliquid\", \"lighter\"] } } account_identifier: { _like: \"0x%\" } }) { id account_identifier exchange { display_name } } }"
+    "query": "query FilteredAccounts { exchange_accounts(where: { account_type: { _eq: \"main\" } exchange: { name: { _eq: \"drift\" } } }) { id account_identifier exchange { display_name } } }"
   }'
 ```
 
