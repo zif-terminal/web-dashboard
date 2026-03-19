@@ -573,11 +573,4 @@ export const mockApi: ApiClient = {
     const empty = { count: 0 };
     return { count: 0, perp: empty, spot: empty };
   },
-  async getPortfolioOverview(): Promise<import("../queries").PortfolioOverview> {
-    return {
-      totalDepositedUSD: 0, totalWithdrawnUSD: 0, netDepositsUSD: 0,
-      currentPortfolioValueUSD: 0, unrealizedPerpPnlUSD: 0,
-      realizedPnlUSD: 0, truePnlUSD: 0, returnPct: 0,
-    };
-  },
 };
