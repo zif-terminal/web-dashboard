@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { TOKEN_COOKIE_NAME } from "@/lib/cookie-config";
 
 const AUTH_URL = process.env.AUTH_URL || "http://localhost:8081";
-const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const IS_PRODUCTION =
+  process.env.NODE_ENV === "production" &&
+  process.env.INSECURE_COOKIES !== "1";
 
 export async function POST(request: NextRequest) {
   const body = await request.text();

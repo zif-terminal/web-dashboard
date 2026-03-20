@@ -1145,13 +1145,17 @@ export interface PositionPnl {
 // Position event (links source events to positions)
 export interface PositionEvent {
   id: string;
-  event_type: string; // "trade", "transfer", "funding"
+  event_type: string; // "trade", "transfer", "funding", "interest"
   event_id: string;
   direction: string; // "entry", "exit", "received", "paid"
   quantity: string;
   created_at: string;
   trade?: {
     price: string;
+    timestamp: number;
+  } | null;
+  transfer?: {
+    amount: string;
     timestamp: number;
   } | null;
 }
@@ -1207,6 +1211,10 @@ const POSITION_FIELDS = `
     created_at
     trade {
       price
+      timestamp
+    }
+    transfer {
+      amount
       timestamp
     }
   }
