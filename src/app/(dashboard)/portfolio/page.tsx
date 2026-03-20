@@ -530,7 +530,7 @@ export default function PortfolioPage() {
                   {closedPositions.map((pos) => {
                     const isExpanded = expandedPositionId === pos.id;
                     const events = pos.position_events || [];
-                    const tradeEvents = events.filter((e) => e.event_type === "trade");
+                    const tradeEvents = events.filter((e) => e.event_type === "trade" || e.event_type === "interest" || e.event_type === "transfer");
                     const fundingEvents = events.filter((e) => e.event_type === "funding");
                     const entryEvents = tradeEvents.filter((e) => e.direction === "entry");
                     const exitEvents = tradeEvents.filter((e) => e.direction === "exit");
@@ -638,7 +638,7 @@ export default function PortfolioPage() {
                                     )}
                                     onClick={(e) => { e.stopPropagation(); setExpandedTab("trades"); }}
                                   >
-                                    Trades ({tradeEvents.length})
+                                    Events ({tradeEvents.length})
                                   </button>
                                   <button
                                     className={cn(
@@ -659,57 +659,69 @@ export default function PortfolioPage() {
                                     {entryEvents.length > 0 && (
                                       <div>
                                         <h4 className="text-xs font-medium text-muted-foreground uppercase mb-2">
-                                          Entry Trades ({entryEvents.length})
+                                          Entries ({entryEvents.length})
                                         </h4>
                                         <div className="space-y-1">
-                                          {entryEvents.map((evt) => (
-                                            <div key={evt.id} className="flex items-center gap-4 text-sm font-mono px-3 py-1.5 rounded bg-background/50">
-                                              <span className="text-green-600 font-medium w-12 shrink-0">ENTRY</span>
-                                              <span className="text-muted-foreground w-44 shrink-0">
-                                                {evt.trade?.timestamp ? formatTimestamp(evt.trade.timestamp) : "-"}
-                                              </span>
-                                              <span>qty: {formatNumber(evt.quantity)}</span>
-                                              {evt.trade?.price && (
-                                                <span className="text-muted-foreground">
-                                                  @ {formatPrice(evt.trade.price, pos.quote_asset)}
+                                          {entryEvents.map((evt) => {
+                                            const isTrade = evt.event_type === "trade";
+                                            const ts = isTrade ? evt.trade?.timestamp : evt.transfer?.timestamp;
+                                            const price = isTrade ? evt.trade?.price : undefined;
+                                            return (
+                                              <div key={evt.id} className="flex items-center gap-4 text-sm font-mono px-3 py-1.5 rounded bg-background/50">
+                                                <span className="text-green-600 font-medium w-12 shrink-0">ENTRY</span>
+                                                <span className="text-muted-foreground w-44 shrink-0">
+                                                  {ts ? formatTimestamp(ts) : "-"}
                                                 </span>
-                                              )}
-                                              <span className="text-xs text-muted-foreground/50 ml-auto">
-                                                {evt.event_id.slice(0, 8)}...
-                                              </span>
-                                            </div>
-                                          ))}
+                                                <span>qty: {formatNumber(evt.quantity)}</span>
+                                                {price && (
+                                                  <span className="text-muted-foreground">
+                                                    @ {formatPrice(price, pos.quote_asset)}
+                                                  </span>
+                                                )}
+                                                <span className="text-xs text-muted-foreground/50 ml-auto">
+                                                  {evt.event_type !== "trade" && <span className="mr-2">{evt.event_type}</span>}
+                                                  {evt.event_id.slice(0, 8)}...
+                                                </span>
+                                              </div>
+                                            );
+                                          })}
                                         </div>
                                       </div>
                                     )}
                                     {exitEvents.length > 0 && (
                                       <div>
                                         <h4 className="text-xs font-medium text-muted-foreground uppercase mb-2">
-                                          Exit Trades ({exitEvents.length})
+                                          Exits ({exitEvents.length})
                                         </h4>
                                         <div className="space-y-1">
-                                          {exitEvents.map((evt) => (
-                                            <div key={evt.id} className="flex items-center gap-4 text-sm font-mono px-3 py-1.5 rounded bg-background/50">
-                                              <span className="text-red-600 font-medium w-12 shrink-0">EXIT</span>
-                                              <span className="text-muted-foreground w-44 shrink-0">
-                                                {evt.trade?.timestamp ? formatTimestamp(evt.trade.timestamp) : "-"}
-                                              </span>
-                                              <span>qty: {formatNumber(evt.quantity)}</span>
-                                              {evt.trade?.price && (
-                                                <span className="text-muted-foreground">
-                                                  @ {formatPrice(evt.trade.price, pos.quote_asset)}
+                                          {exitEvents.map((evt) => {
+                                            const isTrade = evt.event_type === "trade";
+                                            const ts = isTrade ? evt.trade?.timestamp : evt.transfer?.timestamp;
+                                            const price = isTrade ? evt.trade?.price : undefined;
+                                            return (
+                                              <div key={evt.id} className="flex items-center gap-4 text-sm font-mono px-3 py-1.5 rounded bg-background/50">
+                                                <span className="text-red-600 font-medium w-12 shrink-0">EXIT</span>
+                                                <span className="text-muted-foreground w-44 shrink-0">
+                                                  {ts ? formatTimestamp(ts) : "-"}
                                                 </span>
-                                              )}
-                                              <span className="text-xs text-muted-foreground/50 ml-auto">
-                                                {evt.event_id.slice(0, 8)}...
-                                              </span>
-                                            </div>
-                                          ))}
+                                                <span>qty: {formatNumber(evt.quantity)}</span>
+                                                {price && (
+                                                  <span className="text-muted-foreground">
+                                                    @ {formatPrice(price, pos.quote_asset)}
+                                                  </span>
+                                                )}
+                                                <span className="text-xs text-muted-foreground/50 ml-auto">
+                                                  {evt.event_type !== "trade" && <span className="mr-2">{evt.event_type}</span>}
+                                                  {evt.event_id.slice(0, 8)}...
+                                                </span>
+                                              </div>
+                                            );
+                                          })}
                                         </div>
                                       </div>
                                     )}
                                     {tradeEvents.length === 0 && (
-                                      <p className="text-xs text-muted-foreground">No trade events</p>
+                                      <p className="text-xs text-muted-foreground">No events</p>
                                     )}
                                   </div>
                                 )}
