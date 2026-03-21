@@ -1,4 +1,4 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Wallet, WalletWithAccounts, Transfer, TransfersSummary, FundingAssetBreakdown, ExchangeFundingBreakdown, InterestPayment, InterestByAsset, Position, PositionsAggregates } from "../queries";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Wallet, WalletWithAccounts, Transfer, TransfersSummary, FundingAssetBreakdown, ExchangeFundingBreakdown, InterestByAsset, Position, PositionsAggregates } from "../queries";
 
 export interface CreateAccountInput {
   exchange_id: string;
@@ -40,11 +40,6 @@ export interface FundingPaymentsResult {
 
 export interface TransfersResult {
   transfers: Transfer[];
-  totalCount: number;
-}
-
-export interface InterestPaymentsResult {
-  payments: InterestPayment[];
   totalCount: number;
 }
 
@@ -92,8 +87,6 @@ export interface ApiClient {
   getTransfersSummary(filters?: DataFilters): Promise<TransfersSummary>;
   getInterestByAsset(filters?: DataFilters): Promise<InterestByAsset[]>;
   getDistinctTransferAssets(): Promise<string[]>;
-  // Interest payments (Transfers page)
-  getInterestPayments(limit: number, offset: number, filters?: DataFilters): Promise<InterestPaymentsResult>;
   // Wallet methods
   getWallets(): Promise<Wallet[]>;
   getWalletsWithCounts(): Promise<WalletWithAccounts[]>;
