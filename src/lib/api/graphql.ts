@@ -543,7 +543,7 @@ export const graphqlApi: ApiClient = {
       const client = getGraphQLClient();
       const where = buildTransfersWhereClause(filters);
 
-      interface AggNode { amount: string; cost_basis: string | null }
+      interface AggNode { amount: string }
       interface AggBucket { aggregate: { count: number }; nodes: AggNode[] }
 
       const data = await client.request<{
@@ -555,11 +555,7 @@ export const graphqlApi: ApiClient = {
       function sumUSD(nodes: AggNode[]): number {
         let total = 0;
         for (const n of nodes) {
-          const amount = Math.abs(parseFloat(n.amount) || 0);
-          const price = parseFloat(n.cost_basis || "") || 0;
-          // If cost_basis is available, use it for USD conversion; otherwise use raw amount
-          // (works for stablecoins like USDC where 1 unit ≈ $1)
-          total += price > 0 ? amount * price : amount;
+          total += Math.abs(parseFloat(n.amount) || 0);
         }
         return total;
       }

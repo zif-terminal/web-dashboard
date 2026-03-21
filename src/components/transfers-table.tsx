@@ -92,16 +92,12 @@ function typeLabel(transfer: Transfer): { text: string; color: string; barColor:
   }
 }
 
-function amountDisplay(transfer: Transfer): { text: string; positive: boolean; usd?: string } {
+function amountDisplay(transfer: Transfer): { text: string; positive: boolean } {
   const num = parseFloat(transfer.amount);
   const positive = num >= 0;
-  const costBasis = transfer.cost_basis ? parseFloat(transfer.cost_basis) : NaN;
-  const absAmount = Math.abs(num);
-  const totalUsd = !isNaN(costBasis) && costBasis > 0 ? absAmount * costBasis : undefined;
   return {
     text: `${positive ? "+" : ""}${formatNumber(transfer.amount)}`,
     positive,
-    usd: totalUsd !== undefined ? `$${formatNumber(totalUsd.toFixed(2), 2)}` : undefined,
   };
 }
 
@@ -149,7 +145,7 @@ export function TransfersTable({
           {rows.map((transfer) => {
             const id = transfer.id;
             const { text: typeText, color: typeColor, barColor } = typeLabel(transfer);
-            const { text: amtText, positive, usd } = amountDisplay(transfer);
+            const { text: amtText, positive } = amountDisplay(transfer);
             const acct = transfer.exchange_account;
 
             return (
@@ -186,11 +182,7 @@ export function TransfersTable({
                   <span className={cn(positive ? "text-green-600" : "text-red-600")}>{amtText}</span>
                 </TableCell>
                 <TableCell className="py-3 text-right font-mono">
-                  {usd ? (
-                    <span className={cn(positive ? "text-green-600" : "text-red-600")}>{usd}</span>
-                  ) : (
-                    <span className="text-muted-foreground">-</span>
-                  )}
+                  <span className="text-muted-foreground">-</span>
                 </TableCell>
               </TableRow>
             );
