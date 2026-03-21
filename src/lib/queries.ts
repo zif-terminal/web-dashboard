@@ -1281,7 +1281,6 @@ export interface Transfer {
   asset: string;
   amount: string; // signed numeric
   timestamp: number; // Unix milliseconds (BIGINT)
-  cost_basis?: string;
   metadata?: Record<string, unknown>; // JSONB — e.g. { market: "SOL", payment_id: "..." } for funding
   created_at?: string;
   exchange_account?: ExchangeAccount;
@@ -1297,7 +1296,6 @@ export const GET_TRANSFERS_DYNAMIC = gql`
       asset
       amount
       timestamp
-      cost_basis
       exchange_account {
         id
         account_identifier
@@ -1329,20 +1327,20 @@ export const GET_DISTINCT_TRANSFER_ASSETS = gql`
   }
 `;
 
-// Lightweight transfer summary — fetch type, amount, cost_basis for client-side USD aggregation
+// Lightweight transfer summary — fetch type, amount for client-side USD aggregation
 export const GET_TRANSFERS_SUMMARY = gql`
   query GetTransfersSummary($where: transfers_bool_exp!) {
     deposits: transfers_aggregate(where: { _and: [$where, { type: { _eq: "deposit" } }] }) {
       aggregate { count }
-      nodes { amount, cost_basis }
+      nodes { amount }
     }
     withdrawals: transfers_aggregate(where: { _and: [$where, { type: { _eq: "withdraw" } }] }) {
       aggregate { count }
-      nodes { amount, cost_basis }
+      nodes { amount }
     }
     interest: transfers_aggregate(where: { _and: [$where, { type: { _eq: "interest" } }] }) {
       aggregate { count }
-      nodes { amount, cost_basis }
+      nodes { amount }
     }
   }
 `;
