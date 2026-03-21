@@ -1,5 +1,5 @@
 import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Wallet, WalletWithAccounts, Transfer, TransfersSummary, FundingAssetBreakdown, ExchangeFundingBreakdown, InterestByAsset } from "../queries";
-import { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, TransfersResult, InterestPaymentsResult, DataFilters } from "./types";
+import { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, TransfersResult, DataFilters } from "./types";
 
 // Mock wallets
 const mockWallets: Wallet[] = [
@@ -408,12 +408,6 @@ export const mockApi: ApiClient = {
     await delay(200);
     const assets = [...new Set(mockTransfers.map((t) => t.asset))];
     return assets.sort();
-  },
-
-  // Interest payments stub (no interest data in mock environment)
-  async getInterestPayments(_limit: number, _offset: number, _filters?: DataFilters): Promise<InterestPaymentsResult> {
-    await delay(100);
-    return { payments: [], totalCount: 0 };
   },
 
   // Wallet methods

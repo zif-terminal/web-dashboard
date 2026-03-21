@@ -22,7 +22,6 @@ import {
   GET_FUNDING_AGGREGATES_DYNAMIC,
   GET_TRANSFERS_DYNAMIC,
   GET_FUNDING_PNL_BY_ASSET,
-  GET_INTEREST_PAYMENTS_DYNAMIC,
   GET_OPEN_POSITIONS,
   GET_POSITIONS_DYNAMIC,
   GET_POSITIONS_AGGREGATES_DYNAMIC,
@@ -40,14 +39,13 @@ import {
   Transfer,
   TransfersSummary,
   FundingAssetBreakdown,
-  InterestPayment,
   Position,
   PositionsAggregates,
   GET_TRANSFERS_SUMMARY,
   GET_INTEREST_BY_ASSET,
   InterestByAsset,
 } from "../queries";
-import { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, TransfersResult, InterestPaymentsResult, PositionsResult, DataFilters } from "./types";
+import { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, TransfersResult, PositionsResult, DataFilters } from "./types";
 import { ApiError } from "./errors";
 
 function isAuthError(error: unknown): boolean {
@@ -221,33 +219,6 @@ function buildTransfersWhereClause(filters?: DataFilters, transferTypes?: string
 
   if (transferTypes && transferTypes.length > 0) {
     conditions.push({ type: { _in: transferTypes } });
-  }
-
-  if (conditions.length === 0) return {};
-  if (conditions.length === 1) return conditions[0];
-  return { _and: conditions };
-}
-
-// Build where clause for interest payments based on filters
-function buildInterestWhereClause(filters?: DataFilters): Record<string, unknown> {
-  const conditions: Record<string, unknown>[] = [];
-
-  if (filters?.accountId) {
-    conditions.push({ exchange_account_id: { _eq: filters.accountId } });
-  }
-
-  if (filters?.since !== undefined && filters?.until !== undefined) {
-    conditions.push({ timestamp: { _gte: String(filters.since), _lte: String(filters.until) } });
-  } else if (filters?.since !== undefined) {
-    conditions.push({ timestamp: { _gte: String(filters.since) } });
-  }
-
-  if (filters?.baseAssets && filters.baseAssets.length > 0) {
-    conditions.push({ asset: { _in: filters.baseAssets } });
-  }
-
-  if (filters?.tags && filters.tags.length > 0) {
-    conditions.push(buildTagConditions(filters.tags));
   }
 
   if (conditions.length === 0) return {};
@@ -616,27 +587,6 @@ export const graphqlApi: ApiClient = {
       const client = getGraphQLClient();
       const data = await client.request<{ transfers: { asset: string }[] }>(GET_DISTINCT_TRANSFER_ASSETS);
       return data.transfers.map((t) => t.asset);
-    });
-  },
-
-  // Interest payments (Transfers page)
-  async getInterestPayments(limit: number, offset: number, filters?: DataFilters): Promise<InterestPaymentsResult> {
-    return withErrorHandling(async () => {
-      const client = getGraphQLClient();
-      const where = buildInterestWhereClause(filters);
-
-      const normalizeWhere = (w: Record<string, unknown>) =>
-        Object.keys(w).length > 0 ? w : {};
-
-      const data = await client.request<{
-        interest_payments: InterestPayment[];
-        interest_payments_aggregate: { aggregate: { count: number } };
-      }>(GET_INTEREST_PAYMENTS_DYNAMIC, { limit, offset, where: normalizeWhere(where) });
-
-      return {
-        payments: data.interest_payments,
-        totalCount: data.interest_payments_aggregate.aggregate.count,
-      };
     });
   },
 
