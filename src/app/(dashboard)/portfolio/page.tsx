@@ -186,24 +186,11 @@ export default function PortfolioPage() {
 
   // Portfolio summary metrics
   const summaryMetrics = useMemo(() => {
-    // Total realized PnL from DB values (populated by PnL service).
-    // Only sums positions that have a non-null realized_pnl.
-    let totalRealizedPnL: number | null = null;
-    for (const p of closedPositions) {
-      if (p.realized_pnl !== null) {
-        const pnl = parseFloat(p.realized_pnl);
-        if (!isNaN(pnl)) {
-          totalRealizedPnL = (totalRealizedPnL ?? 0) + pnl;
-        }
-      }
-    }
-
     return {
       openCount: openPositions.length,
       closedCount: closedAggregates?.count ?? 0,
-      totalRealizedPnL,
     };
-  }, [openPositions, closedAggregates, closedPositions]);
+  }, [openPositions, closedAggregates]);
 
   const toggleExpand = (posId: string) => {
     setExpandedPositionId((prev) => (prev === posId ? null : posId));
@@ -265,21 +252,7 @@ export default function PortfolioPage() {
       </div>
 
       {/* Portfolio Summary */}
-      <StatsGrid columns={3}>
-        <StatCard
-          title="Total PnL"
-          value={
-            summaryMetrics.totalRealizedPnL !== null ? (
-              <span className={summaryMetrics.totalRealizedPnL >= 0 ? "text-green-600" : "text-red-600"}>
-                ${formatUSD(summaryMetrics.totalRealizedPnL)}
-              </span>
-            ) : (
-              "\u2014"
-            )
-          }
-          description={summaryMetrics.totalRealizedPnL !== null ? "Current page" : "Pending"}
-          isLoading={isLoadingClosed}
-        />
+      <StatsGrid columns={2}>
         <StatCard
           title="Open Positions"
           value={summaryMetrics.openCount}
@@ -519,7 +492,6 @@ export default function PortfolioPage() {
                     >
                       Size<SortIndicator column="quantity" />
                     </TableHead>
-                    <TableHead className="text-right">PnL</TableHead>
                     <TableHead
                       className="cursor-pointer select-none"
                       onClick={() => handleSort("start_time")}
@@ -543,8 +515,6 @@ export default function PortfolioPage() {
                     const fundingEvents = events.filter((e) => e.event_type === "funding");
                     const entryEvents = tradeEvents.filter((e) => e.direction === "entry");
                     const exitEvents = tradeEvents.filter((e) => e.direction === "exit");
-                    const realizedPnL = pos.realized_pnl !== null ? parseFloat(pos.realized_pnl) : null;
-
                     return (
                       <Fragment key={pos.id}>
                         <TableRow
@@ -603,15 +573,6 @@ export default function PortfolioPage() {
                           <TableCell className="py-3 text-right font-mono">
                             {formatNumber(pos.quantity)}
                           </TableCell>
-                          <TableCell className="py-3 text-right font-mono">
-                            {pos.pnl && pos.pnl.length > 0 ? (
-                              <span className={parseFloat(pos.pnl[0].value) >= 0 ? "text-green-600" : "text-red-600"}>
-                                ${formatUSD(pos.pnl[0].value)}
-                              </span>
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
                           <TableCell className="py-3 text-sm text-muted-foreground">
                             {formatTimestamp(pos.start_time)}
                           </TableCell>
@@ -635,7 +596,7 @@ export default function PortfolioPage() {
                         {/* Expanded events detail */}
                         {isExpanded && events.length > 0 && (
                           <TableRow className="bg-muted/20 hover:bg-muted/20">
-                            <TableCell colSpan={7} className="p-0">
+                            <TableCell colSpan={6} className="p-0">
                               <div className="px-6 py-4">
                                 {/* Tabs */}
                                 <div className="flex gap-1 mb-3 border-b border-border">
