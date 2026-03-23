@@ -646,7 +646,7 @@ export default function PortfolioPage() {
                                                 <span>qty: {formatNumber(evt.quantity)}</span>
                                                 {price && (
                                                   <span className="text-muted-foreground">
-                                                    @ {formatPrice(price, pos.quote_asset)}
+                                                    @ {formatPrice(price, evt.trade?.quote_asset ?? "")}
                                                   </span>
                                                 )}
                                                 <span className="text-xs text-muted-foreground/50 ml-auto">
@@ -678,7 +678,7 @@ export default function PortfolioPage() {
                                                 <span>qty: {formatNumber(evt.quantity)}</span>
                                                 {price && (
                                                   <span className="text-muted-foreground">
-                                                    @ {formatPrice(price, pos.quote_asset)}
+                                                    @ {formatPrice(price, evt.trade?.quote_asset ?? "")}
                                                   </span>
                                                 )}
                                                 <span className="text-xs text-muted-foreground/50 ml-auto">
