@@ -1128,18 +1128,9 @@ export interface Position {
   quote_asset: string;
   start_time: number; // Unix milliseconds (BIGINT)
   end_time: number | null; // Unix milliseconds (BIGINT), null if open
-  realized_pnl: string | null; // Computed by PnL service, NULL until populated
-  pnl_denomination: string | null; // Currency of realized_pnl (e.g. "USDC")
-  order_id: string | null; // Order ID of the closing trade
   updated_at: string;
   exchange_account?: ExchangeAccount;
   position_events?: PositionEvent[];
-  pnl?: PositionPnl[];
-}
-
-export interface PositionPnl {
-  denomination: string;
-  value: string;
 }
 
 // Position event (links source events to positions)
@@ -1183,9 +1174,6 @@ const POSITION_FIELDS = `
   quote_asset
   start_time
   end_time
-  realized_pnl
-  pnl_denomination
-  order_id
   updated_at
   exchange_account {
     id
@@ -1217,10 +1205,6 @@ const POSITION_FIELDS = `
       amount
       timestamp
     }
-  }
-  pnl {
-    denomination
-    value
   }
 `;
 
@@ -1405,63 +1389,4 @@ export const GET_FUNDING_PNL_BY_ASSET = gql`
   }
 `;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// OPS.3: Interest payments (derived from spot balance snapshot reconciliation)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** One interest payment row from the interest_payments table. */
-export interface InterestPayment {
-  id: string;
-  exchange_account_id: string;
-  asset: string;
-  /** Signed decimal string: positive = earned (lending), negative = charged (borrowing). */
-  amount: string;
-  oracle_price: string | null;
-  usd_value: string | null;
-  /** Unix milliseconds — midpoint of reconciliation interval. */
-  timestamp: number;
-  snapshot_from: number;
-  snapshot_to: number;
-  /** True for USDC: perp fees/funding also affect the balance, so interest is approximate. */
-  is_approximate: boolean;
-  exchange_account?: ExchangeAccount;
-}
-
-// ─── Interest payment queries ─────────────────────────────────────────────────
-
-export const GET_INTEREST_PAYMENTS_DYNAMIC = gql`
-  query GetInterestPaymentsDynamic($limit: Int!, $offset: Int!, $where: interest_payments_bool_exp!) {
-    interest_payments(limit: $limit, offset: $offset, order_by: { timestamp: desc }, where: $where) {
-      id
-      exchange_account_id
-      asset
-      amount
-      oracle_price
-      usd_value
-      timestamp
-      snapshot_from
-      snapshot_to
-      is_approximate
-      exchange_account {
-        id
-        account_identifier
-        account_type
-        label
-        exchange {
-          id
-          name
-          display_name
-        }
-        wallet {
-          label
-        }
-      }
-    }
-    interest_payments_aggregate(where: $where) {
-      aggregate {
-        count
-      }
-    }
-  }
-`;
 

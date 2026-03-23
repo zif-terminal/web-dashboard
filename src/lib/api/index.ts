@@ -7,4 +7,4 @@ const USE_MOCK_API = process.env.NEXT_PUBLIC_USE_MOCK_API === "true";
 export const api: ApiClient = USE_MOCK_API ? mockApi : graphqlApi;
 
 // Re-export types for convenience
-export type { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, TransfersResult, InterestPaymentsResult, PositionsResult, DataFilters, SortConfig, SortDirection } from "./types";
+export type { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, TransfersResult, PositionsResult, DataFilters, SortConfig, SortDirection } from "./types";
