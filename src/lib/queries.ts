@@ -1125,7 +1125,6 @@ export interface Position {
   side: "long" | "short";
   status: "open" | "closed";
   quantity: string;
-  quote_asset: string;
   start_time: number; // Unix milliseconds (BIGINT)
   end_time: number | null; // Unix milliseconds (BIGINT), null if open
   updated_at: string;
@@ -1143,6 +1142,7 @@ export interface PositionEvent {
   created_at: string;
   trade?: {
     price: string;
+    quote_asset: string;
     timestamp: number;
   } | null;
   transfer?: {
@@ -1171,7 +1171,6 @@ const POSITION_FIELDS = `
   side
   status
   quantity
-  quote_asset
   start_time
   end_time
   updated_at
@@ -1199,6 +1198,7 @@ const POSITION_FIELDS = `
     created_at
     trade {
       price
+      quote_asset
       timestamp
     }
     transfer {
