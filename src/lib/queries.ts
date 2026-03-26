@@ -111,7 +111,7 @@ export const CREATE_WALLET = gql`
   mutation CreateWallet($address: String!, $chain: String!) {
     insert_wallets_one(
       object: { address: $address, chain: $chain }
-      on_conflict: { constraint: wallets_user_address_chain_key, update_columns: [] }
+      on_conflict: { constraint: wallets_address_chain_key, update_columns: [] }
     ) {
       id
       address
