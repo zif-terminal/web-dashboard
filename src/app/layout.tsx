@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ErrorProvider } from "@/contexts/error-context";
 import { FiltersProvider } from "@/contexts/filters-context";
+import { DenominationProvider } from "@/contexts/denomination-context";
 import { LocalModeBanner } from "@/components/local-mode-banner";
 import { ErrorBanner } from "@/components/error-banner";
 import { Toaster } from "@/components/ui/sonner";
@@ -41,10 +42,12 @@ export default function RootLayout({
         >
           <ErrorProvider>
             <FiltersProvider>
-              <LocalModeBanner />
-              <ErrorBanner />
-              {children}
-              <Toaster />
+              <DenominationProvider>
+                <LocalModeBanner />
+                <ErrorBanner />
+                {children}
+                <Toaster />
+              </DenominationProvider>
             </FiltersProvider>
           </ErrorProvider>
         </ThemeProvider>

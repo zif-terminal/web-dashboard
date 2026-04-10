@@ -5,9 +5,17 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { useGlobalTags } from "@/contexts/filters-context";
+import { useDenomination } from "@/contexts/denomination-context";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { TagFilter } from "@/components/tag-filter";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 const navigation = [
@@ -27,6 +35,7 @@ export default function DashboardLayout({
   const { logout } = useAuth();
   const { globalTags, availableTags, isLoadingTags, setGlobalTags } =
     useGlobalTags();
+  const { denomination, supportedDenominations, setDenomination } = useDenomination();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
@@ -65,6 +74,18 @@ export default function DashboardLayout({
                 onSelectionChange={setGlobalTags}
                 isLoading={isLoadingTags}
               />
+              {supportedDenominations.length > 0 && (
+                <Select value={denomination} onValueChange={setDenomination}>
+                  <SelectTrigger className="w-[100px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {supportedDenominations.map((d) => (
+                      <SelectItem key={d} value={d}>{d}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               <ThemeToggle />
               <Button variant="outline" onClick={logout}>
                 Logout
@@ -139,6 +160,18 @@ export default function DashboardLayout({
                   onSelectionChange={setGlobalTags}
                   isLoading={isLoadingTags}
                 />
+                {supportedDenominations.length > 0 && (
+                  <Select value={denomination} onValueChange={setDenomination}>
+                    <SelectTrigger className="w-[100px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {supportedDenominations.map((d) => (
+                        <SelectItem key={d} value={d}>{d}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
               <div className="px-3 pt-2">
                 <Button

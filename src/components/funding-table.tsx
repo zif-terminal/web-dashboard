@@ -1,6 +1,7 @@
 "use client";
 
-import { FundingPayment } from "@/lib/queries";
+import { FundingPayment, EventValue } from "@/lib/queries";
+import { useDenomination } from "@/contexts/denomination-context";
 import {
   Table,
   TableBody,
@@ -26,6 +27,15 @@ interface FundingTableProps {
   isNewItem?: (id: string) => boolean;
 }
 
+function getEventValue(eventValues: EventValue[] | undefined, denomination: string): string | null {
+  if (!eventValues || eventValues.length === 0) return null;
+  const match = eventValues.find((ev) => ev.denomination === denomination);
+  if (!match) return null;
+  const num = parseFloat(match.quantity);
+  if (isNaN(num)) return null;
+  return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 export function FundingTable({
   fundingPayments,
   totalCount,
@@ -36,6 +46,7 @@ export function FundingTable({
   isLoading = false,
   isNewItem,
 }: FundingTableProps) {
+  const { denomination } = useDenomination();
   const totalPages = Math.ceil(totalCount / pageSize);
   const startItem = page * pageSize + 1;
   const endItem = Math.min((page + 1) * pageSize, totalCount);
@@ -118,7 +129,15 @@ export function FundingTable({
                     isPositive ? "text-green-600" : "text-red-600"
                   )}
                 >
-                  {formatSignedNumber(payment.amount)}
+                  <div>
+                    {formatSignedNumber(payment.amount)}
+                    {(() => {
+                      const val = getEventValue(payment.event_values, denomination);
+                      return val ? (
+                        <div className="text-muted-foreground text-xs font-normal">{val} {denomination}</div>
+                      ) : null;
+                    })()}
+                  </div>
                 </TableCell>
               </TableRow>
             );

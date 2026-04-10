@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
 import { api, DataFilters, SortConfig } from "@/lib/api";
-import { Position, ExchangeAccount, PositionsAggregates, InterestByAsset } from "@/lib/queries";
+import { Position, ExchangeAccount, PositionsAggregates, InterestByAsset, PositionPnL } from "@/lib/queries";
 import { PageHeader } from "@/components/page-header";
 import { SyncButton } from "@/components/sync-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,7 +26,7 @@ import { Button } from "@/components/ui/button";
 import { ExchangeBadge } from "@/components/exchange-badge";
 import { useGlobalTags } from "@/contexts/filters-context";
 import { cn } from "@/lib/utils";
-import { formatNumber, formatTimestamp, getDisplayName } from "@/lib/format";
+import { formatNumber, formatSignedNumber, formatTimestamp, getDisplayName } from "@/lib/format";
 import { DataFreshnessBadge } from "@/components/data-freshness-badge";
 
 const CLOSED_PAGE_SIZE = 50;
@@ -45,6 +45,14 @@ function formatPrice(value: string, quoteAsset: string): string {
   const isUSD = ["USD", "USDC", "USDT"].includes(quoteAsset);
   if (isUSD) return `$${formatUSD(value)}`;
   return `${formatUSD(value)} ${quoteAsset}`;
+}
+
+function getUsdcPnl(pnl?: PositionPnL[]): number | null {
+  if (!pnl) return null;
+  const usdc = pnl.find((p) => p.denomination === "USDC");
+  if (!usdc) return null;
+  const val = parseFloat(usdc.realized_pnl);
+  return isNaN(val) ? null : val;
 }
 
 type SortColumn = "end_time" | "start_time" | "quantity" | "market";
@@ -192,6 +200,39 @@ export default function PortfolioPage() {
     };
   }, [openPositions, closedAggregates]);
 
+  // PnL summary computed from closed positions on the current page
+  // Note: This sums PnL from currently loaded closed positions only
+  const pnlSummary = useMemo(() => {
+    let total = 0;
+    let perp = 0;
+    let spot = 0;
+    for (const pos of closedPositions) {
+      const pnl = getUsdcPnl(pos.position_pnl);
+      if (pnl !== null) {
+        total += pnl;
+        if (pos.market_type === "perp") perp += pnl;
+        else spot += pnl;
+      }
+    }
+    return { total, perp, spot };
+  }, [closedPositions]);
+
+  // PnL by market breakdown
+  const pnlByMarket = useMemo(() => {
+    const byMarket = new Map<string, { market_type: string; pnl: number; count: number }>();
+    for (const pos of closedPositions) {
+      const pnl = getUsdcPnl(pos.position_pnl);
+      if (pnl === null) continue;
+      const entry = byMarket.get(pos.market) || { market_type: pos.market_type, pnl: 0, count: 0 };
+      entry.pnl += pnl;
+      entry.count += 1;
+      byMarket.set(pos.market, entry);
+    }
+    return Array.from(byMarket.entries())
+      .map(([market, { market_type, pnl, count }]) => ({ market, market_type, pnl, count }))
+      .sort((a, b) => b.pnl - a.pnl);
+  }, [closedPositions]);
+
   const toggleExpand = (posId: string) => {
     setExpandedPositionId((prev) => (prev === posId ? null : posId));
   };
@@ -252,7 +293,7 @@ export default function PortfolioPage() {
       </div>
 
       {/* Portfolio Summary */}
-      <StatsGrid columns={2}>
+      <StatsGrid columns={4}>
         <StatCard
           title="Open Positions"
           value={summaryMetrics.openCount}
@@ -262,6 +303,18 @@ export default function PortfolioPage() {
           title="Closed Positions"
           value={summaryMetrics.closedCount}
           isLoading={isLoadingClosed}
+        />
+        <StatCard
+          title="Realized PnL"
+          value={`$${formatSignedNumber(pnlSummary.total.toString())}`}
+          isLoading={isLoadingClosed}
+          valueClassName={pnlSummary.total >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}
+        />
+        <StatCard
+          title="Perp PnL"
+          value={`$${formatSignedNumber(pnlSummary.perp.toString())}`}
+          isLoading={isLoadingClosed}
+          valueClassName={pnlSummary.perp >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}
         />
       </StatsGrid>
 
@@ -504,6 +557,7 @@ export default function PortfolioPage() {
                     >
                       Closed<SortIndicator column="end_time" />
                     </TableHead>
+                    <TableHead className="text-right">PnL</TableHead>
                     <TableHead className="text-right">Events</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -579,6 +633,17 @@ export default function PortfolioPage() {
                           <TableCell className="py-3 text-sm text-muted-foreground">
                             {pos.end_time ? formatTimestamp(pos.end_time) : "-"}
                           </TableCell>
+                          <TableCell className="py-3 text-right font-mono">
+                            {(() => {
+                              const pnl = getUsdcPnl(pos.position_pnl);
+                              if (pnl === null) return <span className="text-muted-foreground">-</span>;
+                              return (
+                                <span className={pnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
+                                  ${formatSignedNumber(pnl.toString())}
+                                </span>
+                              );
+                            })()}
+                          </TableCell>
                           <TableCell className="py-3 text-right">
                             <span className="text-xs text-muted-foreground">
                               {events.length > 0 ? (
@@ -596,7 +661,7 @@ export default function PortfolioPage() {
                         {/* Expanded events detail */}
                         {isExpanded && events.length > 0 && (
                           <TableRow className="bg-muted/20 hover:bg-muted/20">
-                            <TableCell colSpan={6} className="p-0">
+                            <TableCell colSpan={7} className="p-0">
                               <div className="px-6 py-4">
                                 {/* Tabs */}
                                 <div className="flex gap-1 mb-3 border-b border-border">
@@ -769,6 +834,54 @@ export default function PortfolioPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* PnL by Market */}
+      {pnlByMarket.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base md:text-lg">PnL by Market</CardTitle>
+          </CardHeader>
+          <CardContent className="px-2 md:px-6">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Market</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead className="text-right">Positions</TableHead>
+                  <TableHead className="text-right">Realized PnL</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pnlByMarket.map((row) => (
+                  <TableRow key={row.market}>
+                    <TableCell className="py-3 font-medium">{row.market}</TableCell>
+                    <TableCell className="py-3">
+                      <span
+                        className={cn(
+                          "text-[10px] font-medium px-1.5 py-0.5 rounded uppercase",
+                          row.market_type === "spot"
+                            ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                            : "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400"
+                        )}
+                      >
+                        {row.market_type}
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-3 text-right text-muted-foreground">
+                      {row.count}
+                    </TableCell>
+                    <TableCell className="py-3 text-right font-mono">
+                      <span className={row.pnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
+                        ${formatSignedNumber(row.pnl.toString())}
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

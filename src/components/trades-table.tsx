@@ -1,7 +1,8 @@
 "use client";
 
-import { Trade } from "@/lib/queries";
+import { Trade, EventValue } from "@/lib/queries";
 import { SortConfig, SortDirection } from "@/lib/api";
+import { useDenomination } from "@/contexts/denomination-context";
 import {
   Table,
   TableBody,
@@ -48,6 +49,15 @@ function formatNumber(value: string, decimals: number = 4): string {
   });
 }
 
+function getEventValue(eventValues: EventValue[] | undefined, denomination: string): string | null {
+  if (!eventValues || eventValues.length === 0) return null;
+  const match = eventValues.find((ev) => ev.denomination === denomination);
+  if (!match) return null;
+  const num = parseFloat(match.quantity);
+  if (isNaN(num)) return null;
+  return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 function SortIndicator({ column, sort }: { column: SortableColumn; sort?: SortConfig | null }) {
   if (!sort || sort.column !== column) {
     return <span className="text-muted-foreground/30 ml-1">{"\u2191\u2193"}</span>;
@@ -67,6 +77,7 @@ export function TradesTable({
   sort,
   onSortChange,
 }: TradesTableProps) {
+  const { denomination } = useDenomination();
   const totalPages = Math.ceil(totalCount / pageSize);
   const startItem = page * pageSize + 1;
   const endItem = Math.min((page + 1) * pageSize, totalCount);
@@ -193,7 +204,15 @@ export function TradesTable({
                 {formatNumber(trade.price)}
               </TableCell>
               <TableCell className="py-3 text-right font-mono">
-                {formatNumber(trade.quantity)}
+                <div>
+                  {formatNumber(trade.quantity)}
+                  {(() => {
+                    const val = getEventValue(trade.event_values, denomination);
+                    return val ? (
+                      <div className="text-muted-foreground text-xs">{val} {denomination}</div>
+                    ) : null;
+                  })()}
+                </div>
               </TableCell>
               <TableCell className="py-3 text-right font-mono">
                 <span className={cn(

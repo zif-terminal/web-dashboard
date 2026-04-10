@@ -1,6 +1,7 @@
 "use client";
 
-import { Transfer } from "@/lib/queries";
+import { Transfer, EventValue } from "@/lib/queries";
+import { useDenomination } from "@/contexts/denomination-context";
 import {
   Table,
   TableBody,
@@ -42,6 +43,15 @@ function formatNumber(value: string, decimals: number = 6): string {
   });
 }
 
+function getEventValue(eventValues: EventValue[] | undefined, denomination: string): string | null {
+  if (!eventValues || eventValues.length === 0) return null;
+  const match = eventValues.find((ev) => ev.denomination === denomination);
+  if (!match) return null;
+  const num = parseFloat(match.quantity);
+  if (isNaN(num)) return null;
+  return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 function TransfersTableSkeleton({ rows = 5 }: { rows?: number }) {
   return (
     <Table>
@@ -51,7 +61,6 @@ function TransfersTableSkeleton({ rows = 5 }: { rows?: number }) {
           <TableHead>Type</TableHead>
           <TableHead>Asset</TableHead>
           <TableHead className="text-right">Amount</TableHead>
-          <TableHead className="text-right">Amount $</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -60,7 +69,6 @@ function TransfersTableSkeleton({ rows = 5 }: { rows?: number }) {
             <TableCell className="py-3"><Skeleton className="h-4 w-32" /><Skeleton className="h-3 w-24 mt-1" /></TableCell>
             <TableCell className="py-3"><Skeleton className="h-4 w-20" /></TableCell>
             <TableCell className="py-3"><Skeleton className="h-4 w-16" /></TableCell>
-            <TableCell className="py-3 text-right"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
             <TableCell className="py-3 text-right"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
           </TableRow>
         ))}
@@ -110,6 +118,7 @@ export function TransfersTable({
   isLoading = false,
   isNewItem,
 }: TransfersTableProps) {
+  const { denomination } = useDenomination();
   const totalPages = Math.ceil(totalCount / pageSize);
   const startItem = page * pageSize + 1;
   const endItem = Math.min((page + 1) * pageSize, totalCount);
@@ -138,7 +147,6 @@ export function TransfersTable({
             <TableHead>Type</TableHead>
             <TableHead>Asset</TableHead>
             <TableHead className="text-right">Amount</TableHead>
-            <TableHead className="text-right">Amount $</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -179,10 +187,15 @@ export function TransfersTable({
                   <span className="font-medium">{transfer.asset}</span>
                 </TableCell>
                 <TableCell className="py-3 text-right font-mono">
-                  <span className={cn(positive ? "text-green-600" : "text-red-600")}>{amtText}</span>
-                </TableCell>
-                <TableCell className="py-3 text-right font-mono">
-                  <span className="text-muted-foreground">-</span>
+                  <div>
+                    <span className={cn(positive ? "text-green-600" : "text-red-600")}>{amtText}</span>
+                    {(() => {
+                      const val = getEventValue(transfer.event_values, denomination);
+                      return val ? (
+                        <div className="text-muted-foreground text-xs">{val} {denomination}</div>
+                      ) : null;
+                    })()}
+                  </div>
                 </TableCell>
               </TableRow>
             );
