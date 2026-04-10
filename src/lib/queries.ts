@@ -271,6 +271,21 @@ export const UPDATE_ACCOUNT_LABEL = gql`
   }
 `;
 
+// Event value types
+export interface EventValue {
+  denomination: string;
+  quantity: string;
+}
+
+// Supported denominations query
+export const GET_SUPPORTED_DENOMINATIONS = gql`
+  query GetSupportedDenominations {
+    supported_denominations {
+      asset
+    }
+  }
+`;
+
 // Trade types
 export interface Trade {
   id: string;
@@ -286,6 +301,7 @@ export interface Trade {
   exchange_account_id: string;
   market_type: "perp" | "spot" | "swap";
   exchange_account?: ExchangeAccount;
+  event_values?: EventValue[];
 }
 
 // Trade queries
@@ -653,6 +669,7 @@ export interface FundingPayment {
     payment_id: string; // (was payment_id)
   };
   exchange_account?: ExchangeAccount;
+  event_values?: EventValue[];
 }
 
 // Funding payment queries — now query the transfers table with type="funding"
@@ -1028,6 +1045,10 @@ export const GET_TRADES_DYNAMIC = gql`
           label
         }
       }
+      event_values {
+        denomination
+        quantity
+      }
     }
     trades_aggregate(where: $where) {
       aggregate {
@@ -1074,6 +1095,10 @@ export const GET_FUNDING_PAYMENTS_DYNAMIC = gql`
           label
         }
       }
+      event_values {
+        denomination
+        quantity
+      }
     }
     transfers_aggregate(where: $where) {
       aggregate {
@@ -1116,6 +1141,12 @@ export const GET_FUNDING_AGGREGATES_DYNAMIC = gql`
   }
 `;
 
+// Position PnL (realized PnL per position per denomination)
+export interface PositionPnL {
+  denomination: string;
+  realized_pnl: string;
+}
+
 // Position types (matches new unified positions table)
 export interface Position {
   id: string;
@@ -1130,6 +1161,7 @@ export interface Position {
   updated_at: string;
   exchange_account?: ExchangeAccount;
   position_events?: PositionEvent[];
+  position_pnl?: PositionPnL[];
 }
 
 // Position event (links source events to positions)
@@ -1206,6 +1238,10 @@ const POSITION_FIELDS = `
       timestamp
     }
   }
+  position_pnl {
+    denomination
+    realized_pnl
+  }
 `;
 
 export const GET_OPEN_POSITIONS = gql`
@@ -1268,6 +1304,7 @@ export interface Transfer {
   metadata?: Record<string, unknown>; // JSONB — e.g. { market: "SOL", payment_id: "..." } for funding
   created_at?: string;
   exchange_account?: ExchangeAccount;
+  event_values?: EventValue[];
 }
 
 // Transfer queries
@@ -1293,6 +1330,10 @@ export const GET_TRANSFERS_DYNAMIC = gql`
         wallet {
           label
         }
+      }
+      event_values {
+        denomination
+        quantity
       }
     }
     transfers_aggregate(where: $where) {

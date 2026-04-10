@@ -105,4 +105,5 @@ export interface ApiClient {
   getOpenPositions(filters?: DataFilters): Promise<Position[]>;
   getPositions(limit: number, offset: number, filters?: DataFilters): Promise<PositionsResult>;
   getPositionsAggregates(filters?: DataFilters): Promise<PositionsAggregates>;
+  getSupportedDenominations(): Promise<string[]>;
 }

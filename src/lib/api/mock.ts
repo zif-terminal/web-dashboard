@@ -567,4 +567,9 @@ export const mockApi: ApiClient = {
     const empty = { count: 0 };
     return { count: 0, perp: empty, spot: empty };
   },
+
+  async getSupportedDenominations(): Promise<string[]> {
+    await delay(200);
+    return ["USDC"];
+  },
 };

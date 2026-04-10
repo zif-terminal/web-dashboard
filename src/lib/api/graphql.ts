@@ -16,6 +16,7 @@ import {
   GET_DISTINCT_TRADE_ASSETS,
   GET_DISTINCT_FUNDING_ASSETS,
   GET_DISTINCT_TRANSFER_ASSETS,
+  GET_SUPPORTED_DENOMINATIONS,
   GET_TRADES_DYNAMIC,
   GET_TRADES_AGGREGATES_DYNAMIC,
   GET_FUNDING_PAYMENTS_DYNAMIC,
@@ -823,6 +824,14 @@ export const graphqlApi: ApiClient = {
           count: data.spot.aggregate.count,
         },
       };
+    });
+  },
+
+  async getSupportedDenominations(): Promise<string[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{ supported_denominations: { asset: string }[] }>(GET_SUPPORTED_DENOMINATIONS);
+      return data.supported_denominations.map((d) => d.asset);
     });
   },
 };
