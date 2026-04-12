@@ -1,4 +1,4 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Wallet, WalletWithAccounts, Transfer, TransfersSummary, FundingAssetBreakdown, ExchangeFundingBreakdown, InterestByAsset, Position, PositionsAggregates } from "../queries";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Wallet, WalletWithAccounts, Transfer, TransfersSummary, FundingAssetBreakdown, ExchangeFundingBreakdown, InterestByAsset, Position, PositionsAggregates, PnLAggregates } from "../queries";
 
 export interface CreateAccountInput {
   exchange_id: string;
@@ -105,5 +105,6 @@ export interface ApiClient {
   getOpenPositions(filters?: DataFilters): Promise<Position[]>;
   getPositions(limit: number, offset: number, filters?: DataFilters): Promise<PositionsResult>;
   getPositionsAggregates(filters?: DataFilters): Promise<PositionsAggregates>;
+  getPnLAggregates(filters?: DataFilters): Promise<PnLAggregates>;
   getSupportedDenominations(): Promise<string[]>;
 }

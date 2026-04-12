@@ -27,6 +27,9 @@ import {
   GET_POSITIONS_DYNAMIC,
   GET_POSITIONS_AGGREGATES_DYNAMIC,
   GET_DISTINCT_POSITION_MARKETS,
+  GET_PNL_AGGREGATES,
+  GET_PNL_BY_MARKET,
+  PnLAggregates,
   Exchange,
   ExchangeAccount,
   ExchangeAccountType,
@@ -823,6 +826,84 @@ export const graphqlApi: ApiClient = {
         spot: {
           count: data.spot.aggregate.count,
         },
+      };
+    });
+  },
+
+  async getPnLAggregates(filters?: DataFilters): Promise<PnLAggregates> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const posWhere = buildPositionsWhereClause(filters, "closed");
+
+      // Build position_pnl where clause: filter through position relationship + USDC denomination
+      const basePnlWhere: Record<string, unknown> = {
+        denomination: { _eq: "USDC" },
+        position: posWhere,
+      };
+
+      // Build market-type-specific where clauses by adding market_type to the position filter
+      const addMarketType = (where: Record<string, unknown>, marketType: string): Record<string, unknown> => {
+        const existing = Array.isArray(where._and) ? where._and
+          : Object.keys(where).length > 0 ? [where]
+          : [];
+        return { _and: [...existing, { market_type: { _eq: marketType } }] };
+      };
+
+      const perpPnlWhere: Record<string, unknown> = {
+        denomination: { _eq: "USDC" },
+        position: addMarketType(posWhere, "perp"),
+      };
+
+      const spotPnlWhere: Record<string, unknown> = {
+        denomination: { _eq: "USDC" },
+        position: addMarketType(posWhere, "spot"),
+      };
+
+      type PnlAggResult = {
+        aggregate: {
+          sum: { realized_pnl: string | null };
+          count: number;
+        };
+      };
+
+      const data = await client.request<{
+        total: PnlAggResult;
+        perp: PnlAggResult;
+        spot: PnlAggResult;
+      }>(GET_PNL_AGGREGATES, {
+        where: basePnlWhere,
+        perpWhere: perpPnlWhere,
+        spotWhere: spotPnlWhere,
+      });
+
+      const parseAgg = (agg: PnlAggResult) => ({
+        pnl: parseFloat(agg.aggregate.sum.realized_pnl || "0"),
+        count: agg.aggregate.count,
+      });
+
+      // Fetch by-market breakdown (lightweight: just pnl + market info)
+      const byMarketData = await client.request<{
+        position_pnl: { realized_pnl: string; position: { market: string; market_type: string } }[];
+      }>(GET_PNL_BY_MARKET, { where: basePnlWhere });
+
+      const marketMap = new Map<string, { market_type: string; pnl: number; count: number }>();
+      for (const row of byMarketData.position_pnl) {
+        const m = row.position.market;
+        const entry = marketMap.get(m) || { market_type: row.position.market_type, pnl: 0, count: 0 };
+        entry.pnl += parseFloat(row.realized_pnl);
+        entry.count += 1;
+        marketMap.set(m, entry);
+      }
+      const byMarket = Array.from(marketMap.entries())
+        .map(([market, { market_type, pnl, count }]) => ({ market, market_type, pnl, count }))
+        .filter(({ market }) => market !== "USDC") // USDC spot PnL is always 0
+        .sort((a, b) => Math.abs(b.pnl) - Math.abs(a.pnl));
+
+      return {
+        total: parseAgg(data.total),
+        perp: parseAgg(data.perp),
+        spot: parseAgg(data.spot),
+        byMarket,
       };
     });
   },

@@ -1285,6 +1285,39 @@ export const GET_POSITIONS_AGGREGATES_DYNAMIC = gql`
   }
 `;
 
+export interface PnLAggregates {
+  total: { pnl: number; count: number };
+  perp: { pnl: number; count: number };
+  spot: { pnl: number; count: number };
+  byMarket: { market: string; market_type: string; pnl: number; count: number }[];
+}
+
+export const GET_PNL_AGGREGATES = gql`
+  query GetPnLAggregates($where: position_pnl_bool_exp!, $perpWhere: position_pnl_bool_exp!, $spotWhere: position_pnl_bool_exp!) {
+    total: position_pnl_aggregate(where: $where) {
+      aggregate { sum { realized_pnl } count }
+    }
+    perp: position_pnl_aggregate(where: $perpWhere) {
+      aggregate { sum { realized_pnl } count }
+    }
+    spot: position_pnl_aggregate(where: $spotWhere) {
+      aggregate { sum { realized_pnl } count }
+    }
+  }
+`;
+
+export const GET_PNL_BY_MARKET = gql`
+  query GetPnLByMarket($where: position_pnl_bool_exp!) {
+    position_pnl(where: $where) {
+      realized_pnl
+      position {
+        market
+        market_type
+      }
+    }
+  }
+`;
+
 export const GET_DISTINCT_POSITION_MARKETS = gql`
   query GetDistinctPositionMarkets {
     positions(distinct_on: market, order_by: { market: asc }) {

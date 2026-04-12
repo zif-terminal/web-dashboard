@@ -568,6 +568,11 @@ export const mockApi: ApiClient = {
     return { count: 0, perp: empty, spot: empty };
   },
 
+  async getPnLAggregates(): Promise<import("../queries").PnLAggregates> {
+    const zero = { pnl: 0, count: 0 };
+    return { total: zero, perp: zero, spot: zero, byMarket: [] };
+  },
+
   async getSupportedDenominations(): Promise<string[]> {
     await delay(200);
     return ["USDC"];
