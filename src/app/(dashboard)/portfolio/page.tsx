@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
-import { api, DataFilters, SortConfig } from "@/lib/api";
-import { Position, ExchangeAccount, PositionsAggregates, InterestByAsset, PositionPnL } from "@/lib/queries";
+import { useState, useEffect, useCallback, Fragment } from "react";
+import { api, DataFilters } from "@/lib/api";
+import { Position, ExchangeAccount, PositionsAggregates, InterestByAsset, PnLAggregates, PositionPnL } from "@/lib/queries";
 import { PageHeader } from "@/components/page-header";
 import { SyncButton } from "@/components/sync-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { ExchangeBadge } from "@/components/exchange-badge";
+import { DateRangeFilter, DateRangeValue, getTimestampsFromDateRange } from "@/components/date-range-filter";
 import { useGlobalTags } from "@/contexts/filters-context";
 import { cn } from "@/lib/utils";
 import { formatNumber, formatSignedNumber, formatTimestamp, getDisplayName } from "@/lib/format";
@@ -63,6 +64,8 @@ export default function PortfolioPage() {
   const [selectedAccountId, setSelectedAccountId] = useState("all");
   const [selectedMarket, setSelectedMarket] = useState("all");
   const [distinctMarkets, setDistinctMarkets] = useState<string[]>([]);
+  const [dateRange, setDateRange] = useState<DateRangeValue>({ preset: "all" });
+  const [timeField, setTimeField] = useState<"start_time" | "end_time">("end_time");
 
   // Sort state for closed positions
   const [sortColumn, setSortColumn] = useState<SortColumn>("end_time");
@@ -78,6 +81,10 @@ export default function PortfolioPage() {
   const [closedPage, setClosedPage] = useState(0);
   const [isLoadingClosed, setIsLoadingClosed] = useState(true);
   const [closedAggregates, setClosedAggregates] = useState<PositionsAggregates | null>(null);
+
+  // PnL aggregates (server-side)
+  const [pnlAggregates, setPnlAggregates] = useState<PnLAggregates | null>(null);
+  const [isLoadingPnl, setIsLoadingPnl] = useState(true);
 
   // Interest by asset state
   const [interestByAsset, setInterestByAsset] = useState<InterestByAsset[]>([]);
@@ -98,8 +105,12 @@ export default function PortfolioPage() {
     if (globalTags.length > 0) {
       filters.tags = globalTags;
     }
+    const { since, until } = getTimestampsFromDateRange(dateRange);
+    if (since !== undefined) filters.since = since;
+    if (until !== undefined) filters.until = until;
+    filters.timeField = timeField;
     return filters;
-  }, [selectedAccountId, selectedMarket, globalTags]);
+  }, [selectedAccountId, selectedMarket, globalTags, dateRange, timeField]);
 
   // Load accounts and distinct markets
   useEffect(() => {
@@ -140,6 +151,19 @@ export default function PortfolioPage() {
     }
   }, [buildFilters, closedPage, sortColumn, sortDirection]);
 
+  // Load PnL aggregates (server-side sum)
+  const fetchPnlAggregates = useCallback(async () => {
+    setIsLoadingPnl(true);
+    try {
+      const data = await api.getPnLAggregates(buildFilters());
+      setPnlAggregates(data);
+    } catch (error) {
+      console.error("Failed to fetch PnL aggregates:", error);
+    } finally {
+      setIsLoadingPnl(false);
+    }
+  }, [buildFilters]);
+
   // Load interest by asset
   const fetchInterest = useCallback(async () => {
     setIsLoadingInterest(true);
@@ -156,15 +180,17 @@ export default function PortfolioPage() {
   useEffect(() => {
     fetchOpenPositions();
     fetchClosedPositions();
+    fetchPnlAggregates();
     fetchInterest();
-  }, [fetchOpenPositions, fetchClosedPositions, fetchInterest]);
+  }, [fetchOpenPositions, fetchClosedPositions, fetchPnlAggregates, fetchInterest]);
 
   const refresh = useCallback(() => {
     fetchOpenPositions();
     fetchClosedPositions();
+    fetchPnlAggregates();
     fetchInterest();
     setLastRefreshTime(new Date());
-  }, [fetchOpenPositions, fetchClosedPositions, fetchInterest]);
+  }, [fetchOpenPositions, fetchClosedPositions, fetchPnlAggregates, fetchInterest]);
 
   const handleAccountChange = (value: string) => {
     setSelectedAccountId(value);
@@ -173,6 +199,11 @@ export default function PortfolioPage() {
 
   const handleMarketChange = (value: string) => {
     setSelectedMarket(value);
+    setClosedPage(0);
+  };
+
+  const handleDateRangeChange = (value: DateRangeValue) => {
+    setDateRange(value);
     setClosedPage(0);
   };
 
@@ -192,46 +223,8 @@ export default function PortfolioPage() {
 
   const closedTotalPages = Math.ceil(closedTotalCount / CLOSED_PAGE_SIZE);
 
-  // Portfolio summary metrics
-  const summaryMetrics = useMemo(() => {
-    return {
-      openCount: openPositions.length,
-      closedCount: closedAggregates?.count ?? 0,
-    };
-  }, [openPositions, closedAggregates]);
-
-  // PnL summary computed from closed positions on the current page
-  // Note: This sums PnL from currently loaded closed positions only
-  const pnlSummary = useMemo(() => {
-    let total = 0;
-    let perp = 0;
-    let spot = 0;
-    for (const pos of closedPositions) {
-      const pnl = getUsdcPnl(pos.position_pnl);
-      if (pnl !== null) {
-        total += pnl;
-        if (pos.market_type === "perp") perp += pnl;
-        else spot += pnl;
-      }
-    }
-    return { total, perp, spot };
-  }, [closedPositions]);
-
-  // PnL by market breakdown
-  const pnlByMarket = useMemo(() => {
-    const byMarket = new Map<string, { market_type: string; pnl: number; count: number }>();
-    for (const pos of closedPositions) {
-      const pnl = getUsdcPnl(pos.position_pnl);
-      if (pnl === null) continue;
-      const entry = byMarket.get(pos.market) || { market_type: pos.market_type, pnl: 0, count: 0 };
-      entry.pnl += pnl;
-      entry.count += 1;
-      byMarket.set(pos.market, entry);
-    }
-    return Array.from(byMarket.entries())
-      .map(([market, { market_type, pnl, count }]) => ({ market, market_type, pnl, count }))
-      .sort((a, b) => b.pnl - a.pnl);
-  }, [closedPositions]);
+  // PnL by market — from server-side aggregation (all filtered positions, not just current page)
+  const pnlByMarket = pnlAggregates?.byMarket ?? [];
 
   const toggleExpand = (posId: string) => {
     setExpandedPositionId((prev) => (prev === posId ? null : posId));
@@ -246,7 +239,7 @@ export default function PortfolioPage() {
     <div className="space-y-6">
       <PageHeader
         title="Portfolio"
-        description="Current positions and closed position history"
+        description="Positions, PnL, and trading analytics"
         action={
           <div className="flex items-center gap-3">
             <DataFreshnessBadge accounts={accounts} />
@@ -260,10 +253,16 @@ export default function PortfolioPage() {
       />
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <DateRangeFilter
+          value={dateRange}
+          onChange={handleDateRangeChange}
+          timeField={timeField}
+          onTimeFieldChange={setTimeField}
+        />
         <Select value={selectedAccountId} onValueChange={handleAccountChange}>
-          <SelectTrigger className="w-full sm:w-[280px]">
-            <SelectValue placeholder="Filter by account" />
+          <SelectTrigger className="w-full sm:w-[240px]">
+            <SelectValue placeholder="All Accounts" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Accounts</SelectItem>
@@ -276,10 +275,9 @@ export default function PortfolioPage() {
             ))}
           </SelectContent>
         </Select>
-
         <Select value={selectedMarket} onValueChange={handleMarketChange}>
-          <SelectTrigger className="w-full sm:w-[200px]">
-            <SelectValue placeholder="Filter by market" />
+          <SelectTrigger className="w-full sm:w-[160px]">
+            <SelectValue placeholder="All Markets" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Markets</SelectItem>
@@ -292,220 +290,197 @@ export default function PortfolioPage() {
         </Select>
       </div>
 
-      {/* Portfolio Summary */}
+      {/* PnL Summary — server-side aggregated, respects all filters */}
       <StatsGrid columns={4}>
         <StatCard
-          title="Open Positions"
-          value={summaryMetrics.openCount}
-          isLoading={isLoadingOpen}
-        />
-        <StatCard
-          title="Closed Positions"
-          value={summaryMetrics.closedCount}
-          isLoading={isLoadingClosed}
-        />
-        <StatCard
           title="Realized PnL"
-          value={`$${formatSignedNumber(pnlSummary.total.toString())}`}
-          isLoading={isLoadingClosed}
-          valueClassName={pnlSummary.total >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}
+          value={pnlAggregates ? `$${formatSignedNumber(pnlAggregates.total.pnl.toFixed(2))}` : "-"}
+          isLoading={isLoadingPnl}
+          valueClassName={pnlAggregates && pnlAggregates.total.pnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}
         />
         <StatCard
           title="Perp PnL"
-          value={`$${formatSignedNumber(pnlSummary.perp.toString())}`}
+          value={pnlAggregates ? `$${formatSignedNumber(pnlAggregates.perp.pnl.toFixed(2))}` : "-"}
+          isLoading={isLoadingPnl}
+          valueClassName={pnlAggregates && pnlAggregates.perp.pnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}
+        />
+        <StatCard
+          title="Spot PnL"
+          value={pnlAggregates ? `$${formatSignedNumber(pnlAggregates.spot.pnl.toFixed(2))}` : "-"}
+          isLoading={isLoadingPnl}
+          valueClassName={pnlAggregates && pnlAggregates.spot.pnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}
+        />
+        <StatCard
+          title="Closed Positions"
+          value={closedAggregates?.count ?? 0}
           isLoading={isLoadingClosed}
-          valueClassName={pnlSummary.perp >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}
         />
       </StatsGrid>
 
-      {/* Interest Earned / Paid */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base md:text-lg">Interest Earned / Paid</CardTitle>
-        </CardHeader>
-        <CardContent className="px-2 md:px-6">
-          {isLoadingInterest && interestByAsset.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4 text-center">Loading...</p>
-          ) : interestByAsset.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4 text-center">No interest data</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Asset</TableHead>
-                  <TableHead className="text-right">Earned</TableHead>
-                  <TableHead className="text-right">Paid</TableHead>
-                  <TableHead className="text-right">Net</TableHead>
-                  <TableHead className="text-right">Payments</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {interestByAsset.map((row) => (
-                  <TableRow key={row.asset}>
-                    <TableCell className="py-3 font-medium">{row.asset}</TableCell>
-                    <TableCell className="py-3 text-right font-mono text-green-600">
-                      +{formatNumber(row.earned.toString())}
-                    </TableCell>
-                    <TableCell className="py-3 text-right font-mono text-red-600">
-                      -{formatNumber(row.paid.toString())}
-                    </TableCell>
-                    <TableCell className="py-3 text-right font-mono">
-                      <span className={row.net >= 0 ? "text-green-600" : "text-red-600"}>
-                        {row.net >= 0 ? "+" : ""}{formatNumber(row.net.toString())}
+      {/* PnL by Market + Open Positions — side by side */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* PnL by Market */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">PnL by Market</CardTitle>
+          </CardHeader>
+          <CardContent className="px-2 md:px-6">
+            {isLoadingPnl ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">Loading...</p>
+            ) : pnlByMarket.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">No PnL data</p>
+            ) : (
+              <div className="space-y-1.5">
+                {pnlByMarket.map(({ market, market_type, pnl, count }) => (
+                  <div key={market} className="flex items-center justify-between px-3 py-2 rounded hover:bg-muted/50">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sm">{market}</span>
+                      <span className={cn(
+                        "text-[10px] font-medium px-1.5 py-0.5 rounded uppercase",
+                        market_type === "spot"
+                          ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                          : "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400"
+                      )}>
+                        {market_type}
                       </span>
-                    </TableCell>
-                    <TableCell className="py-3 text-right text-muted-foreground">
-                      {row.count}
-                    </TableCell>
-                  </TableRow>
+                      <span className="text-xs text-muted-foreground">{count} pos</span>
+                    </div>
+                    <span className={cn(
+                      "font-mono text-sm font-medium",
+                      pnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                    )}>
+                      ${formatSignedNumber(pnl.toFixed(2))}
+                    </span>
+                  </div>
                 ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-      {/* Open Positions Section */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base md:text-lg">Open Positions</CardTitle>
-        </CardHeader>
-        <CardContent className="px-2 md:px-6">
-          {isLoadingOpen && openPositions.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4 text-center">Loading...</p>
-          ) : openPositions.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4 text-center">No open positions</p>
-          ) : (
-            <div className="space-y-6">
-              {/* Perp Positions */}
-              {perpPositions.length > 0 && (
-                <div>
-                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Perpetuals</h3>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Market</TableHead>
-                        <TableHead>Side</TableHead>
-                        <TableHead className="text-right">Size</TableHead>
-                        <TableHead>Opened</TableHead>
-                        <TableHead className="text-right">Events</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {perpPositions.map((pos) => (
-                        <TableRow key={pos.id}>
-                          <TableCell className="py-3">
-                            <div className="flex items-center gap-2">
-                              <div
-                                className={cn(
-                                  "w-1 self-stretch rounded-full flex-shrink-0",
-                                  pos.side === "long" ? "bg-green-500" : "bg-red-500"
-                                )}
-                              />
-                              <div>
-                                <span className="font-medium">{pos.market}</span>
-                                {pos.exchange_account && (
-                                  <div className="flex items-center gap-1.5 mt-0.5">
-                                    <ExchangeBadge
-                                      exchangeName={pos.exchange_account.exchange?.display_name || "Unknown"}
-                                      className="text-[10px] px-1.5 py-0"
-                                    />
-                                    <span className="text-xs text-muted-foreground">
-                                      {getDisplayName(
-                                        pos.exchange_account.label,
-                                        pos.exchange_account.account_identifier || "",
-                                        8, 4,
-                                        pos.exchange_account.wallet?.label
-                                      )}
-                                    </span>
-                                  </div>
-                                )}
+        {/* Open Positions + Interest stacked */}
+        <div className="space-y-6">
+          {/* Open Positions */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">
+                Open Positions
+                {openPositions.length > 0 && (
+                  <span className="text-muted-foreground font-normal ml-2 text-sm">({openPositions.length})</span>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-2 md:px-6">
+              {isLoadingOpen && openPositions.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">Loading...</p>
+              ) : openPositions.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">No open positions</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Market</TableHead>
+                      <TableHead>Side</TableHead>
+                      <TableHead className="text-right">Size</TableHead>
+                      <TableHead>Opened</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {[...perpPositions, ...spotPositions].map((pos) => (
+                      <TableRow key={pos.id}>
+                        <TableCell className="py-2">
+                          <div className="flex items-center gap-2">
+                            <div className={cn(
+                              "w-1 self-stretch rounded-full flex-shrink-0",
+                              pos.side === "long" ? "bg-green-500" : "bg-red-500"
+                            )} />
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-medium text-sm">{pos.market}</span>
+                                <span className={cn(
+                                  "text-[10px] font-medium px-1 py-0 rounded uppercase",
+                                  pos.market_type === "spot"
+                                    ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                                    : "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400"
+                                )}>
+                                  {pos.market_type}
+                                </span>
                               </div>
+                              {pos.exchange_account && (
+                                <div className="flex items-center gap-1 mt-0.5">
+                                  <ExchangeBadge
+                                    exchangeName={pos.exchange_account.exchange?.display_name || "Unknown"}
+                                    className="text-[10px] px-1.5 py-0"
+                                  />
+                                </div>
+                              )}
                             </div>
-                          </TableCell>
-                          <TableCell className="py-3">
-                            <span className={cn(
-                              "font-medium uppercase",
-                              pos.side === "long" ? "text-green-600" : "text-red-600"
-                            )}>
-                              {pos.side}
-                            </span>
-                          </TableCell>
-                          <TableCell className="py-3 text-right font-mono">
-                            {formatNumber(pos.quantity)}
-                          </TableCell>
-                          <TableCell className="py-3 text-sm">
-                            {formatTimestamp(pos.start_time)}
-                          </TableCell>
-                          <TableCell className="py-3 text-right text-xs text-muted-foreground">
-                            {pos.position_events?.length || 0}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-
-              {/* Spot Positions */}
-              {spotPositions.length > 0 && (
-                <div>
-                  <h3 className="text-sm font-medium text-muted-foreground mb-2">Spot Balances</h3>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Asset</TableHead>
-                        <TableHead>Side</TableHead>
-                        <TableHead className="text-right">Balance</TableHead>
+                          </div>
+                        </TableCell>
+                        <TableCell className="py-2">
+                          <span className={cn(
+                            "font-medium uppercase text-sm",
+                            pos.side === "long" ? "text-green-600" : "text-red-600"
+                          )}>
+                            {pos.side}
+                          </span>
+                        </TableCell>
+                        <TableCell className="py-2 text-right font-mono text-sm">
+                          {formatNumber(pos.quantity)}
+                        </TableCell>
+                        <TableCell className="py-2 text-sm text-muted-foreground">
+                          {formatTimestamp(pos.start_time)}
+                        </TableCell>
                       </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {spotPositions.map((pos) => (
-                        <TableRow key={pos.id}>
-                          <TableCell className="py-3">
-                            <div className="flex items-center gap-2">
-                              <div
-                                className={cn(
-                                  "w-1 self-stretch rounded-full flex-shrink-0",
-                                  pos.side === "long" ? "bg-green-500" : "bg-red-500"
-                                )}
-                              />
-                              <div>
-                                <span className="font-medium">{pos.market}</span>
-                                {pos.exchange_account && (
-                                  <div className="flex items-center gap-1.5 mt-0.5">
-                                    <ExchangeBadge
-                                      exchangeName={pos.exchange_account.exchange?.display_name || "Unknown"}
-                                      className="text-[10px] px-1.5 py-0"
-                                    />
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell className="py-3">
-                            <span className={cn(
-                              "font-medium uppercase",
-                              pos.side === "long" ? "text-green-600" : "text-red-600"
-                            )}>
-                              {pos.side}
-                            </span>
-                          </TableCell>
-                          <TableCell className="py-3 text-right font-mono">
-                            {formatNumber(pos.quantity)}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
+                    ))}
+                  </TableBody>
+                </Table>
               )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
 
-      {/* Closed Positions Section */}
+          {/* Interest */}
+          {interestByAsset.length > 0 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Interest</CardTitle>
+              </CardHeader>
+              <CardContent className="px-2 md:px-6">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Asset</TableHead>
+                      <TableHead className="text-right">Earned</TableHead>
+                      <TableHead className="text-right">Paid</TableHead>
+                      <TableHead className="text-right">Net</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {interestByAsset.map((row) => (
+                      <TableRow key={row.asset}>
+                        <TableCell className="py-2 font-medium text-sm">{row.asset}</TableCell>
+                        <TableCell className="py-2 text-right font-mono text-sm text-green-600">
+                          +{formatNumber(row.earned.toString())}
+                        </TableCell>
+                        <TableCell className="py-2 text-right font-mono text-sm text-red-600">
+                          -{formatNumber(row.paid.toString())}
+                        </TableCell>
+                        <TableCell className="py-2 text-right font-mono text-sm">
+                          <span className={row.net >= 0 ? "text-green-600" : "text-red-600"}>
+                            {row.net >= 0 ? "+" : ""}{formatNumber(row.net.toString())}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
+
+      {/* Closed Positions — full width, at the bottom */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between flex-wrap gap-2">
@@ -513,7 +488,7 @@ export default function PortfolioPage() {
             <div className="flex items-center gap-4 text-sm">
               {closedAggregates && closedAggregates.count > 0 && (
                 <span className="text-muted-foreground">
-                  {closedAggregates.count} positions
+                  {closedAggregates.count} total
                   {" | "}
                   Perp: {closedAggregates.perp.count}
                   {closedAggregates.spot.count > 0 && ` | Spot: ${closedAggregates.spot.count}`}
@@ -756,16 +731,15 @@ export default function PortfolioPage() {
                                         </div>
                                       </div>
                                     )}
-                                    {tradeEvents.length === 0 && (
-                                      <p className="text-xs text-muted-foreground">No events</p>
-                                    )}
                                   </div>
                                 )}
 
                                 {/* Funding tab */}
                                 {expandedTab === "funding" && (
                                   <div>
-                                    {fundingEvents.length > 0 ? (
+                                    {fundingEvents.length === 0 ? (
+                                      <p className="text-sm text-muted-foreground py-2">No funding payments</p>
+                                    ) : (
                                       <div className="space-y-1">
                                         {fundingEvents.map((evt) => (
                                           <div key={evt.id} className="flex items-center gap-4 text-sm font-mono px-3 py-1.5 rounded bg-background/50">
@@ -775,17 +749,13 @@ export default function PortfolioPage() {
                                             )}>
                                               {evt.direction === "received" ? "RECV" : "PAID"}
                                             </span>
-                                            <span className={evt.direction === "received" ? "text-green-600" : "text-red-600"}>
-                                              {evt.direction === "received" ? "+" : "-"}${formatUSD(evt.quantity)}
-                                            </span>
+                                            <span>{formatNumber(evt.quantity)}</span>
                                             <span className="text-xs text-muted-foreground/50 ml-auto">
                                               {evt.event_id.slice(0, 8)}...
                                             </span>
                                           </div>
                                         ))}
                                       </div>
-                                    ) : (
-                                      <p className="text-xs text-muted-foreground">No funding events</p>
                                     )}
                                   </div>
                                 )}
@@ -801,29 +771,26 @@ export default function PortfolioPage() {
 
               {/* Pagination */}
               {closedTotalPages > 1 && (
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-xs sm:text-sm text-muted-foreground">
-                    {closedPage * CLOSED_PAGE_SIZE + 1}–
+                <div className="flex items-center justify-between pt-2">
+                  <p className="text-sm text-muted-foreground">
+                    Showing {closedPage * CLOSED_PAGE_SIZE + 1}-
                     {Math.min((closedPage + 1) * CLOSED_PAGE_SIZE, closedTotalCount)} of{" "}
                     {closedTotalCount}
                   </p>
-                  <div className="flex items-center gap-2">
+                  <div className="flex gap-2">
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setClosedPage((p) => p - 1)}
                       disabled={closedPage === 0}
+                      onClick={() => setClosedPage((p) => Math.max(0, p - 1))}
                     >
                       Previous
                     </Button>
-                    <span className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap">
-                      {closedPage + 1} / {closedTotalPages}
-                    </span>
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setClosedPage((p) => p + 1)}
                       disabled={closedPage >= closedTotalPages - 1}
+                      onClick={() => setClosedPage((p) => p + 1)}
                     >
                       Next
                     </Button>
@@ -834,54 +801,6 @@ export default function PortfolioPage() {
           )}
         </CardContent>
       </Card>
-
-      {/* PnL by Market */}
-      {pnlByMarket.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base md:text-lg">PnL by Market</CardTitle>
-          </CardHeader>
-          <CardContent className="px-2 md:px-6">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Market</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead className="text-right">Positions</TableHead>
-                  <TableHead className="text-right">Realized PnL</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pnlByMarket.map((row) => (
-                  <TableRow key={row.market}>
-                    <TableCell className="py-3 font-medium">{row.market}</TableCell>
-                    <TableCell className="py-3">
-                      <span
-                        className={cn(
-                          "text-[10px] font-medium px-1.5 py-0.5 rounded uppercase",
-                          row.market_type === "spot"
-                            ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-                            : "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400"
-                        )}
-                      >
-                        {row.market_type}
-                      </span>
-                    </TableCell>
-                    <TableCell className="py-3 text-right text-muted-foreground">
-                      {row.count}
-                    </TableCell>
-                    <TableCell className="py-3 text-right font-mono">
-                      <span className={row.pnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
-                        ${formatSignedNumber(row.pnl.toString())}
-                      </span>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }
