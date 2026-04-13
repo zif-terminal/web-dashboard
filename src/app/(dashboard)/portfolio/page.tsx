@@ -290,8 +290,8 @@ export default function PortfolioPage() {
         </Select>
       </div>
 
-      {/* PnL Summary — server-side aggregated, respects all filters */}
-      <StatsGrid columns={4}>
+      {/* Summary — server-side aggregated, respects all filters */}
+      <StatsGrid columns={5}>
         <StatCard
           title="Realized PnL"
           value={pnlAggregates ? `$${formatSignedNumber(pnlAggregates.total.pnl.toFixed(2))}` : "-"}
@@ -310,6 +310,17 @@ export default function PortfolioPage() {
           isLoading={isLoadingPnl}
           valueClassName={pnlAggregates && pnlAggregates.spot.pnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}
         />
+        {(() => {
+          const totalInterestValue = interestByAsset.reduce((sum, row) => sum + row.netValue, 0);
+          return (
+            <StatCard
+              title="Interest (USDC)"
+              value={`$${formatSignedNumber(totalInterestValue.toFixed(2))}`}
+              isLoading={isLoadingInterest}
+              valueClassName={totalInterestValue >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}
+            />
+          );
+        })()}
         <StatCard
           title="Closed Positions"
           value={closedAggregates?.count ?? 0}
@@ -453,6 +464,7 @@ export default function PortfolioPage() {
                       <TableHead className="text-right">Earned</TableHead>
                       <TableHead className="text-right">Paid</TableHead>
                       <TableHead className="text-right">Net</TableHead>
+                      <TableHead className="text-right">Value (USDC)</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -469,6 +481,15 @@ export default function PortfolioPage() {
                           <span className={row.net >= 0 ? "text-green-600" : "text-red-600"}>
                             {row.net >= 0 ? "+" : ""}{formatNumber(row.net.toString())}
                           </span>
+                        </TableCell>
+                        <TableCell className="py-2 text-right font-mono text-sm">
+                          {row.netValue !== 0 ? (
+                            <span className={row.netValue >= 0 ? "text-green-600" : "text-red-600"}>
+                              ${formatSignedNumber(row.netValue.toFixed(2))}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
