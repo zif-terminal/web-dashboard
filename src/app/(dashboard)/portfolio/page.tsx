@@ -464,6 +464,7 @@ export default function PortfolioPage() {
                       <TableHead className="text-right">Earned</TableHead>
                       <TableHead className="text-right">Paid</TableHead>
                       <TableHead className="text-right">Net</TableHead>
+                      <TableHead className="text-right">Value (USDC)</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -495,6 +496,15 @@ export default function PortfolioPage() {
                               <div className="text-muted-foreground text-xs">${formatUSD(Math.abs(row.netValue))}</div>
                             )}
                           </div>
+                        </TableCell>
+                        <TableCell className="py-2 text-right font-mono text-sm">
+                          {row.netValue !== 0 ? (
+                            <span className={row.netValue >= 0 ? "text-green-600" : "text-red-600"}>
+                              ${formatSignedNumber(row.netValue.toFixed(2))}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
