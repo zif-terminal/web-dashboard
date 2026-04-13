@@ -464,32 +464,37 @@ export default function PortfolioPage() {
                       <TableHead className="text-right">Earned</TableHead>
                       <TableHead className="text-right">Paid</TableHead>
                       <TableHead className="text-right">Net</TableHead>
-                      <TableHead className="text-right">Value (USDC)</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {interestByAsset.map((row) => (
                       <TableRow key={row.asset}>
                         <TableCell className="py-2 font-medium text-sm">{row.asset}</TableCell>
-                        <TableCell className="py-2 text-right font-mono text-sm text-green-600">
-                          +{formatNumber(row.earned.toString())}
-                        </TableCell>
-                        <TableCell className="py-2 text-right font-mono text-sm text-red-600">
-                          -{formatNumber(row.paid.toString())}
+                        <TableCell className="py-2 text-right font-mono text-sm">
+                          <div>
+                            <span className="text-green-600">+{formatNumber(row.earned.toString())}</span>
+                            {row.earnedValue > 0 && (
+                              <div className="text-muted-foreground text-xs">${formatUSD(row.earnedValue)}</div>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="py-2 text-right font-mono text-sm">
-                          <span className={row.net >= 0 ? "text-green-600" : "text-red-600"}>
-                            {row.net >= 0 ? "+" : ""}{formatNumber(row.net.toString())}
-                          </span>
+                          <div>
+                            <span className="text-red-600">-{formatNumber(row.paid.toString())}</span>
+                            {row.paidValue > 0 && (
+                              <div className="text-muted-foreground text-xs">${formatUSD(row.paidValue)}</div>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="py-2 text-right font-mono text-sm">
-                          {row.netValue !== 0 ? (
-                            <span className={row.netValue >= 0 ? "text-green-600" : "text-red-600"}>
-                              ${formatSignedNumber(row.netValue.toFixed(2))}
+                          <div>
+                            <span className={row.net >= 0 ? "text-green-600" : "text-red-600"}>
+                              {row.net >= 0 ? "+" : ""}{formatNumber(row.net.toString())}
                             </span>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
+                            {row.netValue !== 0 && (
+                              <div className="text-muted-foreground text-xs">${formatUSD(Math.abs(row.netValue))}</div>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
