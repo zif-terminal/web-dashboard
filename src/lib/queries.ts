@@ -1417,8 +1417,12 @@ export interface TransfersSummary {
 export const GET_INTEREST_BY_ASSET = gql`
   query GetInterestByAsset($where: transfers_bool_exp!) {
     transfers(where: { _and: [$where, { type: { _eq: "interest" } }] }, order_by: { timestamp: desc }) {
+      id
       asset
       amount
+      event_values(where: { denomination: { _eq: "USDC" } }) {
+        quantity
+      }
     }
   }
 `;
@@ -1429,6 +1433,9 @@ export interface InterestByAsset {
   paid: number;
   net: number;
   count: number;
+  earnedValue: number;
+  paidValue: number;
+  netValue: number;
 }
 
 // Per-exchange funding breakdown (used on funding page, A6.2)

@@ -290,8 +290,8 @@ export default function PortfolioPage() {
         </Select>
       </div>
 
-      {/* PnL Summary — server-side aggregated, respects all filters */}
-      <StatsGrid columns={4}>
+      {/* Summary — server-side aggregated, respects all filters */}
+      <StatsGrid columns={5}>
         <StatCard
           title="Realized PnL"
           value={pnlAggregates ? `$${formatSignedNumber(pnlAggregates.total.pnl.toFixed(2))}` : "-"}
@@ -310,6 +310,17 @@ export default function PortfolioPage() {
           isLoading={isLoadingPnl}
           valueClassName={pnlAggregates && pnlAggregates.spot.pnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}
         />
+        {(() => {
+          const totalInterestValue = interestByAsset.reduce((sum, row) => sum + row.netValue, 0);
+          return (
+            <StatCard
+              title="Interest (USDC)"
+              value={`$${formatSignedNumber(totalInterestValue.toFixed(2))}`}
+              isLoading={isLoadingInterest}
+              valueClassName={totalInterestValue >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}
+            />
+          );
+        })()}
         <StatCard
           title="Closed Positions"
           value={closedAggregates?.count ?? 0}
@@ -459,16 +470,31 @@ export default function PortfolioPage() {
                     {interestByAsset.map((row) => (
                       <TableRow key={row.asset}>
                         <TableCell className="py-2 font-medium text-sm">{row.asset}</TableCell>
-                        <TableCell className="py-2 text-right font-mono text-sm text-green-600">
-                          +{formatNumber(row.earned.toString())}
-                        </TableCell>
-                        <TableCell className="py-2 text-right font-mono text-sm text-red-600">
-                          -{formatNumber(row.paid.toString())}
+                        <TableCell className="py-2 text-right font-mono text-sm">
+                          <div>
+                            <span className="text-green-600">+{formatNumber(row.earned.toString())}</span>
+                            {row.earnedValue > 0 && (
+                              <div className="text-muted-foreground text-xs">${formatUSD(row.earnedValue)}</div>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="py-2 text-right font-mono text-sm">
-                          <span className={row.net >= 0 ? "text-green-600" : "text-red-600"}>
-                            {row.net >= 0 ? "+" : ""}{formatNumber(row.net.toString())}
-                          </span>
+                          <div>
+                            <span className="text-red-600">-{formatNumber(row.paid.toString())}</span>
+                            {row.paidValue > 0 && (
+                              <div className="text-muted-foreground text-xs">${formatUSD(row.paidValue)}</div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="py-2 text-right font-mono text-sm">
+                          <div>
+                            <span className={row.net >= 0 ? "text-green-600" : "text-red-600"}>
+                              {row.net >= 0 ? "+" : ""}{formatNumber(row.net.toString())}
+                            </span>
+                            {row.netValue !== 0 && (
+                              <div className="text-muted-foreground text-xs">${formatUSD(Math.abs(row.netValue))}</div>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}

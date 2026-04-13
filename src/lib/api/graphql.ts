@@ -557,32 +557,38 @@ export const graphqlApi: ApiClient = {
       const where = buildTransfersWhereClause(filters);
 
       const data = await client.request<{
-        transfers: { asset: string; amount: string }[];
+        transfers: { id: string; asset: string; amount: string; event_values: { quantity: string }[] }[];
       }>(GET_INTEREST_BY_ASSET, { where: Object.keys(where).length > 0 ? where : {} });
 
       // Aggregate client-side by asset
-      const byAsset = new Map<string, { earned: number; paid: number; count: number }>();
+      const byAsset = new Map<string, { earned: number; paid: number; count: number; earnedValue: number; paidValue: number }>();
       for (const t of data.transfers) {
         const amt = parseFloat(t.amount) || 0;
-        const entry = byAsset.get(t.asset) || { earned: 0, paid: 0, count: 0 };
+        const usdcValue = t.event_values.length > 0 ? Math.abs(parseFloat(t.event_values[0].quantity) || 0) : 0;
+        const entry = byAsset.get(t.asset) || { earned: 0, paid: 0, count: 0, earnedValue: 0, paidValue: 0 };
         if (amt >= 0) {
           entry.earned += amt;
+          entry.earnedValue += usdcValue;
         } else {
           entry.paid += Math.abs(amt);
+          entry.paidValue += usdcValue;
         }
         entry.count += 1;
         byAsset.set(t.asset, entry);
       }
 
       return Array.from(byAsset.entries())
-        .map(([asset, { earned, paid, count }]) => ({
+        .map(([asset, { earned, paid, count, earnedValue, paidValue }]) => ({
           asset,
           earned,
           paid,
           net: earned - paid,
           count,
+          earnedValue,
+          paidValue,
+          netValue: earnedValue - paidValue,
         }))
-        .sort((a, b) => Math.abs(b.net) - Math.abs(a.net));
+        .sort((a, b) => Math.abs(b.netValue) - Math.abs(a.netValue));
     });
   },
 
