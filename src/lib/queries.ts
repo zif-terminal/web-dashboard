@@ -1265,6 +1265,54 @@ export const GET_POSITIONS_DYNAMIC = gql`
   }
 `;
 
+// Lightweight query for chart data — no events, no exchange details (~100x smaller)
+export interface PositionPnLPoint {
+  end_time: number;
+  market: string;
+  market_type: string;
+  realized_pnl: number;
+}
+
+// Lightweight time-series points for funding/fees charts
+export interface TimeSeriesPoint {
+  timestamp: number;
+  amount: number;
+}
+
+export const GET_POSITIONS_PNL_CHART = gql`
+  query GetPositionsPnLChart($where: positions_bool_exp!) {
+    positions(where: $where, order_by: { end_time: asc }) {
+      end_time
+      market
+      market_type
+      position_pnl {
+        denomination
+        realized_pnl
+      }
+    }
+  }
+`;
+
+// Lightweight funding chart data (timestamp + amount only)
+export const GET_FUNDING_CHART = gql`
+  query GetFundingChart($where: transfers_bool_exp!) {
+    transfers(where: $where, order_by: { timestamp: asc }) {
+      timestamp
+      amount
+    }
+  }
+`;
+
+// Lightweight fees chart data (timestamp + fee only)
+export const GET_FEES_CHART = gql`
+  query GetFeesChart($where: trades_bool_exp!) {
+    trades(where: $where, order_by: { timestamp: asc }) {
+      timestamp
+      fee
+    }
+  }
+`;
+
 export const GET_POSITIONS_AGGREGATES_DYNAMIC = gql`
   query GetPositionsAggregatesDynamic($where: positions_bool_exp!, $perpWhere: positions_bool_exp!, $spotWhere: positions_bool_exp!) {
     all: positions_aggregate(where: $where) {

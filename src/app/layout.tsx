@@ -4,6 +4,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { ErrorProvider } from "@/contexts/error-context";
 import { FiltersProvider } from "@/contexts/filters-context";
 import { DenominationProvider } from "@/contexts/denomination-context";
+import { AccountFilterProvider } from "@/contexts/account-filter-context";
 import { LocalModeBanner } from "@/components/local-mode-banner";
 import { ErrorBanner } from "@/components/error-banner";
 import { Toaster } from "@/components/ui/sonner";
@@ -43,10 +44,12 @@ export default function RootLayout({
           <ErrorProvider>
             <FiltersProvider>
               <DenominationProvider>
-                <LocalModeBanner />
-                <ErrorBanner />
-                {children}
-                <Toaster />
+                <AccountFilterProvider>
+                  <LocalModeBanner />
+                  <ErrorBanner />
+                  {children}
+                  <Toaster />
+                </AccountFilterProvider>
               </DenominationProvider>
             </FiltersProvider>
           </ErrorProvider>

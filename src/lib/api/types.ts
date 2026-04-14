@@ -1,4 +1,4 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Wallet, WalletWithAccounts, Transfer, TransfersSummary, FundingAssetBreakdown, ExchangeFundingBreakdown, InterestByAsset, Position, PositionsAggregates, PnLAggregates } from "../queries";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Wallet, WalletWithAccounts, Transfer, TransfersSummary, FundingAssetBreakdown, ExchangeFundingBreakdown, InterestByAsset, Position, PositionsAggregates, PnLAggregates, PositionPnLPoint, TimeSeriesPoint } from "../queries";
 
 export interface CreateAccountInput {
   exchange_id: string;
@@ -57,6 +57,7 @@ export interface SortConfig {
 
 export interface DataFilters {
   accountId?: string;
+  accountIds?: string[];
   since?: number;
   until?: number;
   baseAssets?: string[];
@@ -67,6 +68,7 @@ export interface DataFilters {
   timeField?: "start_time" | "end_time";
   sort?: SortConfig;
   markets?: string[];
+  transferTypes?: string[];
 }
 
 export interface ApiClient {
@@ -106,5 +108,8 @@ export interface ApiClient {
   getPositions(limit: number, offset: number, filters?: DataFilters): Promise<PositionsResult>;
   getPositionsAggregates(filters?: DataFilters): Promise<PositionsAggregates>;
   getPnLAggregates(filters?: DataFilters): Promise<PnLAggregates>;
+  getPositionsPnLChart(filters?: DataFilters, denomination?: string): Promise<PositionPnLPoint[]>;
+  getFundingChartData(filters?: DataFilters): Promise<TimeSeriesPoint[]>;
+  getFeesChartData(filters?: DataFilters): Promise<TimeSeriesPoint[]>;
   getSupportedDenominations(): Promise<string[]>;
 }
