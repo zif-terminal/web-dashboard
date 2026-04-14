@@ -48,6 +48,11 @@ import {
   GET_TRANSFERS_SUMMARY,
   GET_INTEREST_BY_ASSET,
   InterestByAsset,
+  GET_POSITIONS_PNL_CHART,
+  GET_FUNDING_CHART,
+  GET_FEES_CHART,
+  PositionPnLPoint,
+  TimeSeriesPoint,
 } from "../queries";
 import { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, TransfersResult, PositionsResult, DataFilters } from "./types";
 import { ApiError } from "./errors";
@@ -113,13 +118,19 @@ function buildTagConditions(tags: string[]): Record<string, unknown> {
   return { _or: tagConditions };
 }
 
+function pushAccountCondition(conditions: Record<string, unknown>[], filters?: DataFilters) {
+  if (filters?.accountIds && filters.accountIds.length > 0) {
+    conditions.push({ exchange_account_id: { _in: filters.accountIds } });
+  } else if (filters?.accountId) {
+    conditions.push({ exchange_account_id: { _eq: filters.accountId } });
+  }
+}
+
 // Build where clause for trades based on filters
 function buildTradesWhereClause(filters?: DataFilters): Record<string, unknown> {
   const conditions: Record<string, unknown>[] = [];
 
-  if (filters?.accountId) {
-    conditions.push({ exchange_account_id: { _eq: filters.accountId } });
-  }
+  pushAccountCondition(conditions, filters);
 
   if (filters?.since !== undefined && filters?.until !== undefined) {
     conditions.push({ timestamp: { _gte: String(filters.since), _lte: String(filters.until) } });
@@ -161,9 +172,7 @@ function buildFundingWhereClause(filters?: DataFilters): Record<string, unknown>
   // Always filter to funding type
   conditions.push({ type: { _eq: "funding" } });
 
-  if (filters?.accountId) {
-    conditions.push({ exchange_account_id: { _eq: filters.accountId } });
-  }
+  pushAccountCondition(conditions, filters);
 
   if (filters?.since !== undefined && filters?.until !== undefined) {
     conditions.push({ timestamp: { _gte: String(filters.since), _lte: String(filters.until) } });
@@ -199,9 +208,7 @@ function buildFundingWhereClause(filters?: DataFilters): Record<string, unknown>
 function buildTransfersWhereClause(filters?: DataFilters, transferTypes?: string[]): Record<string, unknown> {
   const conditions: Record<string, unknown>[] = [];
 
-  if (filters?.accountId) {
-    conditions.push({ exchange_account_id: { _eq: filters.accountId } });
-  }
+  pushAccountCondition(conditions, filters);
 
   if (filters?.since !== undefined && filters?.until !== undefined) {
     conditions.push({ timestamp: { _gte: String(filters.since), _lte: String(filters.until) } });
@@ -221,8 +228,9 @@ function buildTransfersWhereClause(filters?: DataFilters, transferTypes?: string
     conditions.push({ exchange_account: { exchange_id: { _in: filters.exchangeIds } } });
   }
 
-  if (transferTypes && transferTypes.length > 0) {
-    conditions.push({ type: { _in: transferTypes } });
+  const types = transferTypes || filters?.transferTypes;
+  if (types && types.length > 0) {
+    conditions.push({ type: { _in: types } });
   }
 
   if (conditions.length === 0) return {};
@@ -238,9 +246,7 @@ function buildPositionsWhereClause(filters?: DataFilters, status?: "open" | "clo
     conditions.push({ status: { _eq: status } });
   }
 
-  if (filters?.accountId) {
-    conditions.push({ exchange_account_id: { _eq: filters.accountId } });
-  }
+  pushAccountCondition(conditions, filters);
 
   const timeField = filters?.timeField || "start_time";
   if (filters?.since !== undefined && filters?.until !== undefined) {
@@ -911,6 +917,66 @@ export const graphqlApi: ApiClient = {
         spot: parseAgg(data.spot),
         byMarket,
       };
+    });
+  },
+
+  async getPositionsPnLChart(filters?: DataFilters, denomination = "USDC"): Promise<PositionPnLPoint[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const where = buildPositionsWhereClause(filters, "closed");
+
+      const data = await client.request<{
+        positions: {
+          end_time: number;
+          market: string;
+          market_type: string;
+          position_pnl: { denomination: string; realized_pnl: string }[];
+        }[];
+      }>(GET_POSITIONS_PNL_CHART, { where });
+
+      return data.positions
+        .map((p) => {
+          const pnlEntry = p.position_pnl?.find((pp) => pp.denomination === denomination);
+          return {
+            end_time: p.end_time,
+            market: p.market,
+            market_type: p.market_type,
+            realized_pnl: pnlEntry ? parseFloat(pnlEntry.realized_pnl) : 0,
+          };
+        })
+        .filter((p) => !isNaN(p.realized_pnl));
+    });
+  },
+
+  async getFundingChartData(filters?: DataFilters): Promise<TimeSeriesPoint[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const where = buildFundingWhereClause(filters);
+
+      const data = await client.request<{
+        transfers: { timestamp: number; amount: string }[];
+      }>(GET_FUNDING_CHART, { where });
+
+      return data.transfers.map((t) => ({
+        timestamp: t.timestamp,
+        amount: parseFloat(t.amount),
+      }));
+    });
+  },
+
+  async getFeesChartData(filters?: DataFilters): Promise<TimeSeriesPoint[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const where = buildTradesWhereClause(filters);
+
+      const data = await client.request<{
+        trades: { timestamp: string; fee: string }[];
+      }>(GET_FEES_CHART, { where });
+
+      return data.trades.map((t) => ({
+        timestamp: parseInt(t.timestamp),
+        amount: parseFloat(t.fee),
+      }));
     });
   },
 

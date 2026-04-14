@@ -573,6 +573,18 @@ export const mockApi: ApiClient = {
     return { total: zero, perp: zero, spot: zero, byMarket: [] };
   },
 
+  async getPositionsPnLChart(): Promise<import("../queries").PositionPnLPoint[]> {
+    return [];
+  },
+
+  async getFundingChartData(): Promise<import("../queries").TimeSeriesPoint[]> {
+    return [];
+  },
+
+  async getFeesChartData(): Promise<import("../queries").TimeSeriesPoint[]> {
+    return [];
+  },
+
   async getSupportedDenominations(): Promise<string[]> {
     await delay(200);
     return ["USDC"];

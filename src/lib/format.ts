@@ -95,6 +95,33 @@ export function getSyncFreshnessLabel(freshness: SyncFreshness): string {
   }
 }
 
+/** Format a currency value with $ sign (no +/- prefix). */
+export function formatCurrency(value: string | number, decimals = 2): string {
+  const num = typeof value === "string" ? parseFloat(value) : value;
+  if (isNaN(num)) return "$0.00";
+  return `$${Math.abs(num).toLocaleString("en-US", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  })}`;
+}
+
+/** Format a duration in ms to human-readable. */
+export function formatDuration(ms: number): string {
+  const hours = ms / (1000 * 60 * 60);
+  if (hours < 1) return `${Math.round(ms / (1000 * 60))}m`;
+  if (hours < 24) return `${Math.round(hours)}h`;
+  const days = hours / 24;
+  if (days < 30) return `${Math.round(days)}d`;
+  return `${Math.round(days / 30)}mo`;
+}
+
+/** Color class based on value sign. */
+export function pnlColor(value: number): string {
+  if (value > 0) return "text-green-600 dark:text-green-400";
+  if (value < 0) return "text-red-600 dark:text-red-400";
+  return "text-muted-foreground";
+}
+
 export function truncateAddress(address: string, startChars = 6, endChars = 4): string {
   if (address.length <= startChars + endChars + 3) return address;
   return `${address.slice(0, startChars)}...${address.slice(-endChars)}`;
