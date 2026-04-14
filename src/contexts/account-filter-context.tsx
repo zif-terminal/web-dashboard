@@ -17,7 +17,13 @@ const AccountFilterContext = createContext<AccountFilterState | undefined>(undef
 
 export function AccountFilterProvider({ children }: { children: ReactNode }) {
   const [accounts, setAccounts] = useState<ExchangeAccount[]>([]);
-  const [selectedAccountIds, setSelectedAccountIdsState] = useState<string[]>([]);
+  const [selectedAccountIds, setSelectedAccountIdsState] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const stored = localStorage.getItem("zif_selected_accounts");
+      return stored ? JSON.parse(stored) : [];
+    } catch { return []; }
+  });
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(false);
   const [hasFetched, setHasFetched] = useState(false);
   const pathname = usePathname();
@@ -44,6 +50,7 @@ export function AccountFilterProvider({ children }: { children: ReactNode }) {
 
   const setSelectedAccountIds = useCallback((ids: string[]) => {
     setSelectedAccountIdsState(ids);
+    try { localStorage.setItem("zif_selected_accounts", JSON.stringify(ids)); } catch {}
   }, []);
 
   const refreshAccounts = useCallback(() => {

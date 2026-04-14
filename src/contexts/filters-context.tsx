@@ -16,7 +16,13 @@ interface FiltersState {
 const FiltersContext = createContext<FiltersState | undefined>(undefined);
 
 export function FiltersProvider({ children }: { children: ReactNode }) {
-  const [globalTags, setGlobalTagsState] = useState<string[]>([]);
+  const [globalTags, setGlobalTagsState] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const stored = localStorage.getItem("zif_selected_tags");
+      return stored ? JSON.parse(stored) : [];
+    } catch { return []; }
+  });
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [isLoadingTags, setIsLoadingTags] = useState(false);
   const [hasFetched, setHasFetched] = useState(false);
@@ -53,6 +59,7 @@ export function FiltersProvider({ children }: { children: ReactNode }) {
 
   const setGlobalTags = useCallback((tags: string[]) => {
     setGlobalTagsState(tags);
+    try { localStorage.setItem("zif_selected_tags", JSON.stringify(tags)); } catch {}
   }, []);
 
   const refreshTags = useCallback(() => {

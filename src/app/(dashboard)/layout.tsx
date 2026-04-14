@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useGlobalTags } from "@/contexts/filters-context";
 import { useDenomination } from "@/contexts/denomination-context";
 import { useAccountFilter } from "@/contexts/account-filter-context";
+import { ExchangeAccount } from "@/lib/queries";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { TagFilter } from "@/components/tag-filter";
@@ -33,6 +34,13 @@ const navigation = [
   { name: "Accounts", href: "/accounts" },
 ];
 
+function accountDisplayName(acct: ExchangeAccount): string {
+  const exchange = acct.exchange?.display_name || "Unknown";
+  if (acct.label) return `${acct.label} (${exchange})`;
+  if (acct.wallet?.label) return `${acct.wallet.label} - ${acct.account_identifier.slice(0, 6)}... (${exchange})`;
+  return `${acct.account_identifier.slice(0, 8)}... (${exchange})`;
+}
+
 function AccountSelector() {
   const { accounts, selectedAccountIds, setSelectedAccountIds } = useAccountFilter();
 
@@ -43,9 +51,7 @@ function AccountSelector() {
         ? (() => {
             const acct = accounts.find((a) => a.id === selectedAccountIds[0]);
             if (!acct) return "1 account";
-            return acct.label || acct.wallet?.label
-              ? `${acct.wallet?.label || ""} ${acct.exchange?.display_name || ""}`.trim()
-              : `${acct.exchange?.display_name || ""} ${acct.account_identifier.slice(0, 8)}...`;
+            return accountDisplayName(acct);
           })()
         : `${selectedAccountIds.length} accounts`;
 
@@ -64,7 +70,7 @@ function AccountSelector() {
           {label}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[240px]">
+      <DropdownMenuContent align="end" className="w-[260px]">
         <DropdownMenuCheckboxItem
           checked={selectedAccountIds.length === 0}
           onCheckedChange={() => setSelectedAccountIds([])}
@@ -78,10 +84,7 @@ function AccountSelector() {
             onCheckedChange={() => toggleAccount(acct.id)}
           >
             <span className="truncate">
-              {acct.label ||
-                (acct.wallet?.label
-                  ? `${acct.wallet.label} - ${acct.exchange?.display_name || ""}`
-                  : `${acct.exchange?.display_name || ""} - ${acct.account_identifier.slice(0, 10)}...`)}
+              {accountDisplayName(acct)}
             </span>
           </DropdownMenuCheckboxItem>
         ))}
