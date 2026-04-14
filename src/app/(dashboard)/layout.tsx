@@ -7,6 +7,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { useGlobalTags } from "@/contexts/filters-context";
 import { useDenomination } from "@/contexts/denomination-context";
 import { useAccountFilter } from "@/contexts/account-filter-context";
+import { useDateRange } from "@/contexts/date-range-context";
+import { DateRangeFilter } from "@/components/date-range-filter";
 import { ExchangeAccount } from "@/lib/queries";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -103,6 +105,7 @@ export default function DashboardLayout({
   const { globalTags, availableTags, isLoadingTags, setGlobalTags } =
     useGlobalTags();
   const { denomination, supportedDenominations, setDenomination } = useDenomination();
+  const { dateRange, setDateRange } = useDateRange();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
@@ -135,13 +138,6 @@ export default function DashboardLayout({
 
             {/* Desktop actions */}
             <div className="hidden items-center gap-2 md:flex">
-              <AccountSelector />
-              <TagFilter
-                availableTags={availableTags}
-                selectedTags={globalTags}
-                onSelectionChange={setGlobalTags}
-                isLoading={isLoadingTags}
-              />
               {supportedDenominations.length > 0 && (
                 <Select value={denomination} onValueChange={setDenomination}>
                   <SelectTrigger className="w-[100px]">
@@ -202,13 +198,6 @@ export default function DashboardLayout({
                 </Link>
               ))}
               <div className="flex items-center gap-2 px-3 pt-2">
-                <AccountSelector />
-                <TagFilter
-                  availableTags={availableTags}
-                  selectedTags={globalTags}
-                  onSelectionChange={setGlobalTags}
-                  isLoading={isLoadingTags}
-                />
                 {supportedDenominations.length > 0 && (
                   <Select value={denomination} onValueChange={setDenomination}>
                     <SelectTrigger className="w-[100px]">
@@ -230,6 +219,21 @@ export default function DashboardLayout({
             </div>
           </div>
         )}
+        {/* Global filters bar */}
+        <div className="border-t bg-muted/30">
+          <div className="container mx-auto px-4 py-2 flex flex-wrap items-center gap-2 justify-between">
+            <DateRangeFilter value={dateRange} onChange={setDateRange} />
+            <div className="flex items-center gap-2">
+              <AccountSelector />
+              <TagFilter
+                availableTags={availableTags}
+                selectedTags={globalTags}
+                onSelectionChange={setGlobalTags}
+                isLoading={isLoadingTags}
+              />
+            </div>
+          </div>
+        </div>
       </header>
       <main className="container mx-auto px-4 py-4 md:py-8">{children}</main>
     </div>

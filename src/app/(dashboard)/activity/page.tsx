@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { api } from "@/lib/api";
 import { useGlobalFilters } from "@/hooks/use-global-filters";
 import { useDenomination } from "@/contexts/denomination-context";
-import { getTimestampsFromDateRange, DateRangeFilter, DateRangeValue } from "@/components/date-range-filter";
 import { StatCard, StatsGrid } from "@/components/stat-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -73,7 +72,6 @@ export default function ActivityPage() {
   const { buildFilters } = useGlobalFilters();
   const { denomination } = useDenomination();
 
-  const [dateRange, setDateRange] = useState<DateRangeValue>({ preset: "30d" });
   const [typeFilter, setTypeFilter] = useState<EventType | "all">("all");
   const [trades, setTrades] = useState<Trade[]>([]);
   const [transfers, setTransfers] = useState<Transfer[]>([]);
@@ -84,8 +82,7 @@ export default function ActivityPage() {
   const [hasMoreTransfers, setHasMoreTransfers] = useState(true);
 
   const fetchData = useCallback(async () => {
-    const timestamps = getTimestampsFromDateRange(dateRange);
-    const filters = buildFilters(timestamps);
+    const filters = buildFilters();
 
     setIsLoading(true);
     setTradePage(0);
@@ -117,15 +114,14 @@ export default function ActivityPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [buildFilters, dateRange, typeFilter]);
+  }, [buildFilters, typeFilter]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
   const loadMore = async () => {
-    const timestamps = getTimestampsFromDateRange(dateRange);
-    const filters = buildFilters(timestamps);
+    const filters = buildFilters();
     const showTrades = typeFilter === "all" || typeFilter === "trade";
     const showTransfers = typeFilter === "all" || typeFilter !== "trade";
     const transferTypes = typeFilter === "all" ? undefined :
@@ -206,10 +202,7 @@ export default function ActivityPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-bold">Activity</h1>
-        <DateRangeFilter value={dateRange} onChange={setDateRange} />
-      </div>
+      <h1 className="text-2xl font-bold">Activity</h1>
 
       {/* Summary */}
       <StatsGrid columns={4}>
