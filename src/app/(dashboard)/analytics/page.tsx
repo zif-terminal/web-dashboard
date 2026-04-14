@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { api } from "@/lib/api";
 import { useGlobalFilters } from "@/hooks/use-global-filters";
 import { useDenomination } from "@/contexts/denomination-context";
-import { getTimestampsFromDateRange, DateRangeFilter, DateRangeValue } from "@/components/date-range-filter";
 import { StatCard, StatsGrid } from "@/components/stat-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +24,6 @@ export default function AnalyticsPage() {
   const { buildFilters } = useGlobalFilters();
   const { denomination } = useDenomination();
 
-  const [dateRange, setDateRange] = useState<DateRangeValue>({ preset: "all" });
   const [pnl, setPnl] = useState<PnLAggregates | null>(null);
   const [funding, setFunding] = useState<FundingAggregates | null>(null);
   const [trades, setTrades] = useState<TradesAggregates | null>(null);
@@ -34,16 +32,15 @@ export default function AnalyticsPage() {
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
-    const timestamps = getTimestampsFromDateRange(dateRange);
-    const filters = buildFilters({ ...timestamps, timeField: "end_time" });
+    const filters = buildFilters({ timeField: "end_time" });
 
     setIsLoading(true);
     try {
       const [pnlData, fundingData, tradesData, interestData, chartPoints] = await Promise.all([
         api.getPnLAggregates(filters),
-        api.getFundingAggregates(buildFilters(timestamps)),
-        api.getTradesAggregates(buildFilters(timestamps)),
-        api.getInterestByAsset(buildFilters(timestamps)),
+        api.getFundingAggregates(buildFilters()),
+        api.getTradesAggregates(buildFilters()),
+        api.getInterestByAsset(buildFilters()),
         api.getPositionsPnLChart(filters, denomination),
       ]);
 
@@ -73,7 +70,7 @@ export default function AnalyticsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [buildFilters, dateRange, denomination]);
+  }, [buildFilters, denomination]);
 
   useEffect(() => {
     fetchData();
@@ -101,10 +98,7 @@ export default function AnalyticsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-bold">Analytics</h1>
-        <DateRangeFilter value={dateRange} onChange={setDateRange} />
-      </div>
+      <h1 className="text-2xl font-bold">Analytics</h1>
 
       {/* Trading Performance */}
       <div>

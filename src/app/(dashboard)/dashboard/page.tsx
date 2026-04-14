@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
 import { useGlobalFilters } from "@/hooks/use-global-filters";
 import { useDenomination } from "@/contexts/denomination-context";
-import { getTimestampsFromDateRange, DateRangeFilter, DateRangeValue } from "@/components/date-range-filter";
 import { PnLChart, ChartMode, ChartSource } from "@/components/pnl-chart";
 import { StatCard, StatsGrid } from "@/components/stat-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,7 +33,6 @@ export default function DashboardPage() {
   const { buildFilters } = useGlobalFilters();
   const { denomination } = useDenomination();
 
-  const [dateRange, setDateRange] = useState<DateRangeValue>({ preset: "all" });
   const [chartMode, setChartMode] = useState<ChartMode>("cumulative");
   const [chartSource, setChartSource] = useState<ChartSource>("all");
   const [pnl, setPnl] = useState<PnLAggregates | null>(null);
@@ -47,9 +45,8 @@ export default function DashboardPage() {
   const [isLoadingChart, setIsLoadingChart] = useState(true);
 
   const fetchData = useCallback(async () => {
-    const timestamps = getTimestampsFromDateRange(dateRange);
-    const filters = buildFilters({ ...timestamps, timeField: "end_time" });
-    const baseFilters = buildFilters(timestamps);
+    const filters = buildFilters({ timeField: "end_time" });
+    const baseFilters = buildFilters();
 
     setIsLoadingPnl(true);
     setIsLoadingOpen(true);
@@ -75,7 +72,7 @@ export default function DashboardPage() {
       setIsLoadingOpen(false);
       setIsLoadingChart(false);
     }
-  }, [buildFilters, dateRange, denomination]);
+  }, [buildFilters, denomination]);
 
   useEffect(() => {
     fetchData();
@@ -95,11 +92,8 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header with date range */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-bold">Dashboard</h1>
-        <DateRangeFilter value={dateRange} onChange={setDateRange} />
-      </div>
+      {/* Header */}
+      <h1 className="text-2xl font-bold">Dashboard</h1>
 
       {/* PnL Summary */}
       <StatsGrid columns={4}>

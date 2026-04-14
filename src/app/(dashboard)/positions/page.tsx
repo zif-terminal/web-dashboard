@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, Fragment } from "react";
 import { api } from "@/lib/api";
 import { useGlobalFilters } from "@/hooks/use-global-filters";
-import { getTimestampsFromDateRange, DateRangeFilter, DateRangeValue } from "@/components/date-range-filter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,8 +50,6 @@ export default function PositionsPage() {
   const { buildFilters } = useGlobalFilters();
 
   const [tab, setTab] = useState<Tab>("open");
-  const [dateRange, setDateRange] = useState<DateRangeValue>({ preset: "all" });
-  const [timeField, setTimeField] = useState<"start_time" | "end_time">("end_time");
   const [sortColumn, setSortColumn] = useState<SortColumn>("end_time");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
 
@@ -83,11 +80,10 @@ export default function PositionsPage() {
   const fetchClosed = useCallback(async () => {
     setIsLoadingClosed(true);
     try {
-      const timestamps = getTimestampsFromDateRange(dateRange);
-      const filters = buildFilters({ ...timestamps, timeField, sort: { column: sortColumn, direction: sortDirection } });
+      const filters = buildFilters({ timeField: "end_time", sort: { column: sortColumn, direction: sortDirection } });
       const [data, aggs] = await Promise.all([
         api.getPositions(CLOSED_PAGE_SIZE, closedPage * CLOSED_PAGE_SIZE, filters),
-        api.getPositionsAggregates(buildFilters({ ...timestamps, timeField })),
+        api.getPositionsAggregates(buildFilters({ timeField: "end_time" })),
       ]);
       setClosedPositions(data.positions);
       setClosedTotalCount(data.totalCount);
@@ -97,7 +93,7 @@ export default function PositionsPage() {
     } finally {
       setIsLoadingClosed(false);
     }
-  }, [buildFilters, dateRange, timeField, sortColumn, sortDirection, closedPage]);
+  }, [buildFilters, sortColumn, sortDirection, closedPage]);
 
   useEffect(() => {
     fetchOpen();
@@ -132,17 +128,7 @@ export default function PositionsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-bold">Positions</h1>
-        {tab === "closed" && (
-          <DateRangeFilter
-            value={dateRange}
-            onChange={(v) => { setDateRange(v); setClosedPage(0); }}
-            timeField={timeField}
-            onTimeFieldChange={setTimeField}
-          />
-        )}
-      </div>
+      <h1 className="text-2xl font-bold">Positions</h1>
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-border">

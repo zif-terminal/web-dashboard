@@ -5,6 +5,7 @@ import { ErrorProvider } from "@/contexts/error-context";
 import { FiltersProvider } from "@/contexts/filters-context";
 import { DenominationProvider } from "@/contexts/denomination-context";
 import { AccountFilterProvider } from "@/contexts/account-filter-context";
+import { DateRangeProvider } from "@/contexts/date-range-context";
 import { LocalModeBanner } from "@/components/local-mode-banner";
 import { ErrorBanner } from "@/components/error-banner";
 import { Toaster } from "@/components/ui/sonner";
@@ -45,10 +46,12 @@ export default function RootLayout({
             <FiltersProvider>
               <DenominationProvider>
                 <AccountFilterProvider>
+                  <DateRangeProvider>
                   <LocalModeBanner />
                   <ErrorBanner />
                   {children}
                   <Toaster />
+                  </DateRangeProvider>
                 </AccountFilterProvider>
               </DenominationProvider>
             </FiltersProvider>
