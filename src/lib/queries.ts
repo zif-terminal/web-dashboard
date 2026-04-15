@@ -13,6 +13,14 @@ export interface ExchangeAccountType {
   code: string;
 }
 
+export interface ProcessorCheckpoint {
+  updated_at: string;
+}
+
+export interface AggregateCount {
+  aggregate: { count: number };
+}
+
 export interface ExchangeAccount {
   id: string;
   exchange_id: string;
@@ -21,12 +29,17 @@ export interface ExchangeAccount {
   account_type_metadata: Record<string, unknown>;
   wallet_id?: string;
   status?: string; // "active", "needs_token", "disabled"
+  sync_enabled: boolean;
+  processing_enabled: boolean;
   detected_at?: string;
   last_synced_at?: string;
   tags: string[];
   label?: string;
   exchange?: Exchange;
   wallet?: Wallet;
+  processor_checkpoint?: ProcessorCheckpoint | null;
+  trades_aggregate?: AggregateCount;
+  positions_aggregate?: AggregateCount;
 }
 
 // Wallet types
@@ -71,6 +84,8 @@ export const GET_ACCOUNTS = gql`
       account_type_metadata
       wallet_id
       status
+      sync_enabled
+      processing_enabled
       detected_at
       last_synced_at
       tags
@@ -86,6 +101,19 @@ export const GET_ACCOUNTS = gql`
         address
         chain
         label
+      }
+      processor_checkpoint {
+        updated_at
+      }
+      trades_aggregate {
+        aggregate {
+          count
+        }
+      }
+      positions_aggregate {
+        aggregate {
+          count
+        }
       }
     }
   }
@@ -184,6 +212,8 @@ export const GET_ACCOUNTS_BY_WALLET = gql`
       account_type_metadata
       wallet_id
       status
+      sync_enabled
+      processing_enabled
       detected_at
       last_synced_at
       tags
@@ -214,6 +244,8 @@ export const GET_ACCOUNT_BY_ID = gql`
       account_type_metadata
       wallet_id
       status
+      sync_enabled
+      processing_enabled
       detected_at
       last_synced_at
       tags
@@ -229,6 +261,19 @@ export const GET_ACCOUNT_BY_ID = gql`
         address
         chain
         label
+      }
+      processor_checkpoint {
+        updated_at
+      }
+      trades_aggregate {
+        aggregate {
+          count
+        }
+      }
+      positions_aggregate {
+        aggregate {
+          count
+        }
       }
     }
   }
@@ -271,6 +316,19 @@ export const UPDATE_ACCOUNT_LABEL = gql`
   }
 `;
 
+export const UPDATE_ACCOUNT_TOGGLES = gql`
+  mutation UpdateAccountToggles($id: uuid!, $sync: Boolean, $processing: Boolean) {
+    update_exchange_accounts_by_pk(
+      pk_columns: { id: $id }
+      _set: { sync_enabled: $sync, processing_enabled: $processing }
+    ) {
+      id
+      sync_enabled
+      processing_enabled
+    }
+  }
+`;
+
 // Event value types
 export interface EventValue {
   denomination: string;
@@ -296,6 +354,8 @@ export interface Trade {
   quantity: string;
   timestamp: string;
   fee: string;
+  fee_asset: string;
+  tx_signature: string;
   order_id: string;
   trade_id: string;
   exchange_account_id: string;
@@ -322,6 +382,8 @@ export const GET_TRADES = gql`
       quantity
       timestamp
       fee
+      fee_asset
+      tx_signature
       order_id
       trade_id
       exchange_account_id
@@ -356,6 +418,8 @@ export const GET_TRADES_WITH_FILTER = gql`
       quantity
       timestamp
       fee
+      fee_asset
+      tx_signature
       order_id
       trade_id
       exchange_account_id
@@ -390,6 +454,8 @@ export const GET_TRADES_WITH_RANGE_FILTER = gql`
       quantity
       timestamp
       fee
+      fee_asset
+      tx_signature
       order_id
       trade_id
       exchange_account_id
@@ -424,6 +490,8 @@ export const GET_TRADES_BY_ACCOUNT = gql`
       quantity
       timestamp
       fee
+      fee_asset
+      tx_signature
       order_id
       trade_id
       exchange_account_id
@@ -458,6 +526,8 @@ export const GET_TRADES_BY_ACCOUNT_WITH_FILTER = gql`
       quantity
       timestamp
       fee
+      fee_asset
+      tx_signature
       order_id
       trade_id
       exchange_account_id
@@ -492,6 +562,8 @@ export const GET_TRADES_BY_ACCOUNT_WITH_RANGE_FILTER = gql`
       quantity
       timestamp
       fee
+      fee_asset
+      tx_signature
       order_id
       trade_id
       exchange_account_id
@@ -1027,6 +1099,8 @@ export const GET_TRADES_DYNAMIC = gql`
       quantity
       timestamp
       fee
+      fee_asset
+      tx_signature
       order_id
       trade_id
       exchange_account_id
@@ -1219,6 +1293,8 @@ const POSITION_FIELDS = `
     }
     wallet {
       label
+      address
+      chain
     }
   }
   position_events(order_by: { created_at: asc }) {
@@ -1366,6 +1442,84 @@ export const GET_PNL_BY_MARKET = gql`
   }
 `;
 
+export interface AccountPnLSummary {
+  accountId: string;
+  accountLabel: string;
+  exchangeName: string;
+  realizedPnl: number;
+  totalFees: number;
+  netPnl: number;
+}
+
+export interface AccountPnLDetail {
+  accountId: string;
+  accountLabel: string;
+  exchangeName: string;
+  totalPnl: number;
+  perpPnl: number;
+  spotPnl: number;
+  fees: number;
+  funding: number;
+  interest: number;
+  // Net flow is computed strictly from USDC event_values. `incomplete` is true
+  // when any contributing transfer had no event_value — UI should show a marker.
+  netFlow: { value: number; incomplete: boolean };
+  account?: ExchangeAccount;
+}
+
+export const GET_PNL_BY_ACCOUNT = gql`
+  query GetPnLByAccount($where: position_pnl_bool_exp!) {
+    position_pnl(where: $where) {
+      realized_pnl
+      position {
+        exchange_account_id
+      }
+    }
+  }
+`;
+
+export const GET_FEES_BY_ACCOUNT = gql`
+  query GetFeesByAccount($where: trades_bool_exp!) {
+    trades(where: $where) {
+      exchange_account_id
+      fee
+    }
+  }
+`;
+
+export const GET_PNL_DETAIL_BY_ACCOUNT = gql`
+  query GetPnLDetailByAccount($where: position_pnl_bool_exp!) {
+    position_pnl(where: $where) {
+      realized_pnl
+      trade_pnl
+      fee_pnl
+      funding_pnl
+      interest_pnl
+      position {
+        exchange_account_id
+        market_type
+      }
+    }
+  }
+`;
+
+export const GET_NET_FLOW_BY_ACCOUNT = gql`
+  query GetNetFlowByAccount($depositWhere: transfers_bool_exp!, $withdrawWhere: transfers_bool_exp!) {
+    deposits: transfers(where: $depositWhere) {
+      exchange_account_id
+      event_values(where: { denomination: { _eq: "USDC" } }) {
+        quantity
+      }
+    }
+    withdrawals: transfers(where: $withdrawWhere) {
+      exchange_account_id
+      event_values(where: { denomination: { _eq: "USDC" } }) {
+        quantity
+      }
+    }
+  }
+`;
+
 export const GET_DISTINCT_POSITION_MARKETS = gql`
   query GetDistinctPositionMarkets {
     positions(distinct_on: market, order_by: { market: asc }) {
@@ -1398,6 +1552,7 @@ export const GET_TRANSFERS_DYNAMIC = gql`
       asset
       amount
       timestamp
+      metadata
       exchange_account {
         id
         account_identifier
@@ -1433,59 +1588,6 @@ export const GET_DISTINCT_TRANSFER_ASSETS = gql`
   }
 `;
 
-// Lightweight transfer summary — fetch type, amount for client-side USD aggregation
-export const GET_TRANSFERS_SUMMARY = gql`
-  query GetTransfersSummary($where: transfers_bool_exp!) {
-    deposits: transfers_aggregate(where: { _and: [$where, { type: { _eq: "deposit" } }] }) {
-      aggregate { count }
-      nodes { amount }
-    }
-    withdrawals: transfers_aggregate(where: { _and: [$where, { type: { _eq: "withdraw" } }] }) {
-      aggregate { count }
-      nodes { amount }
-    }
-    interest: transfers_aggregate(where: { _and: [$where, { type: { _eq: "interest" } }] }) {
-      aggregate { count }
-      nodes { amount }
-    }
-  }
-`;
-
-export interface TransfersSummary {
-  totalDepositsUSD: number;
-  totalWithdrawalsUSD: number;
-  totalInterestUSD: number;
-  netFlowUSD: number;
-  depositCount: number;
-  withdrawalCount: number;
-  interestCount: number;
-}
-
-// Interest per asset (for portfolio page)
-export const GET_INTEREST_BY_ASSET = gql`
-  query GetInterestByAsset($where: transfers_bool_exp!) {
-    transfers(where: { _and: [$where, { type: { _eq: "interest" } }] }, order_by: { timestamp: desc }) {
-      id
-      asset
-      amount
-      event_values(where: { denomination: { _eq: "USDC" } }) {
-        quantity
-      }
-    }
-  }
-`;
-
-export interface InterestByAsset {
-  asset: string;
-  earned: number;
-  paid: number;
-  net: number;
-  count: number;
-  earnedValue: number;
-  paidValue: number;
-  netValue: number;
-}
-
 // Per-exchange funding breakdown (used on funding page, A6.2)
 export interface ExchangeFundingBreakdown {
   exchangeId: string;
@@ -1518,4 +1620,31 @@ export const GET_FUNDING_PNL_BY_ASSET = gql`
   }
 `;
 
+// Event date range — used to compute which year buttons to show
+export interface EventDateRange {
+  earliest: number | null; // Unix ms
+  latest: number | null;   // Unix ms
+}
 
+export const GET_EVENT_DATE_RANGE = gql`
+  query GetEventDateRange($where: positions_bool_exp!, $tradesWhere: trades_bool_exp!, $transfersWhere: transfers_bool_exp!) {
+    positions_aggregate(where: $where) {
+      aggregate {
+        min { start_time }
+        max { end_time }
+      }
+    }
+    trades_aggregate(where: $tradesWhere) {
+      aggregate {
+        min { timestamp }
+        max { timestamp }
+      }
+    }
+    transfers_aggregate(where: $transfersWhere) {
+      aggregate {
+        min { timestamp }
+        max { timestamp }
+      }
+    }
+  }
+`;

@@ -37,6 +37,9 @@ interface UnifiedEvent {
   marketType?: string;
   quoteAsset?: string;
   market?: string;
+  fee?: string;
+  feeAsset?: string;
+  txSignature?: string;
 }
 
 const EVENT_TYPES: { value: EventType | "all"; label: string }[] = [
@@ -171,6 +174,9 @@ export default function ActivityPage() {
         account: t.exchange_account?.label || t.exchange_account?.account_identifier?.slice(0, 8),
         exchange: t.exchange_account?.exchange?.display_name,
         marketType: t.market_type,
+        fee: t.fee,
+        feeAsset: t.fee_asset,
+        txSignature: t.tx_signature,
       });
     }
 
@@ -180,12 +186,12 @@ export default function ActivityPage() {
         id: t.id,
         type,
         timestamp: t.timestamp,
-        asset: type === "funding" ? ((t.metadata as Record<string, string>)?.market || t.asset) : t.asset,
+        asset: t.asset,
         amount: t.amount,
         valueUSDC: getEventValue(t.event_values, denomination),
         account: t.exchange_account?.label || t.exchange_account?.account_identifier?.slice(0, 8),
         exchange: t.exchange_account?.exchange?.display_name,
-        market: type === "funding" ? (t.metadata as Record<string, string>)?.market : undefined,
+        market: type === "funding" ? (t.metadata as { market?: string })?.market : undefined,
       });
     }
 
@@ -252,10 +258,12 @@ export default function ActivityPage() {
                     <TableRow>
                       <TableHead className="text-xs w-[140px]">Time</TableHead>
                       <TableHead className="text-xs w-[90px]">Type</TableHead>
-                      <TableHead className="text-xs">Asset</TableHead>
+                      <TableHead className="text-xs">Market</TableHead>
+                      <TableHead className="text-xs">Quote</TableHead>
                       <TableHead className="text-xs">Side</TableHead>
                       <TableHead className="text-xs text-right">Amount</TableHead>
                       <TableHead className="text-xs text-right">Value</TableHead>
+                      <TableHead className="text-xs text-right">Fee</TableHead>
                       <TableHead className="text-xs">Account</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -274,17 +282,26 @@ export default function ActivityPage() {
                             </Badge>
                           </TableCell>
                           <TableCell className="py-2">
-                            <div className="flex items-center gap-1.5">
+                            {ev.type === "trade" ? (
+                              <span className="text-sm font-medium">
+                                {ev.marketType === "perp" ? `${ev.asset}-PERP` : ev.asset}
+                              </span>
+                            ) : ev.market ? (
+                              <span className="text-sm font-medium">{ev.market}</span>
+                            ) : (
+                              <span className="text-muted-foreground">{"\u2014"}</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="py-2">
+                            {ev.type === "trade" ? (
+                              ev.quoteAsset ? (
+                                <span className="text-sm font-medium">{ev.quoteAsset}</span>
+                              ) : (
+                                <span className="text-muted-foreground">{"\u2014"}</span>
+                              )
+                            ) : (
                               <span className="text-sm font-medium">{ev.asset}</span>
-                              {ev.quoteAsset && (
-                                <span className="text-xs text-muted-foreground">/{ev.quoteAsset}</span>
-                              )}
-                              {ev.marketType && (
-                                <Badge variant="outline" className="text-[10px] px-1 py-0">
-                                  {ev.marketType.toUpperCase()}
-                                </Badge>
-                              )}
-                            </div>
+                            )}
                           </TableCell>
                           <TableCell className="py-2">
                             {ev.side ? (
@@ -299,9 +316,11 @@ export default function ActivityPage() {
                             ) : (
                               <span className={cn(
                                 "text-xs",
-                                isPositive ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                                ev.type === "deposit" || ev.type === "interest" && isPositive
+                                  ? "text-green-600 dark:text-green-400"
+                                  : "text-red-600 dark:text-red-400"
                               )}>
-                                {isPositive ? "IN" : "OUT"}
+                                {ev.type === "withdraw" ? "OUT" : ev.type === "deposit" ? "IN" : isPositive ? "IN" : "OUT"}
                               </span>
                             )}
                           </TableCell>
@@ -312,6 +331,19 @@ export default function ActivityPage() {
                           </TableCell>
                           <TableCell className="py-2 text-right text-xs text-muted-foreground">
                             {ev.valueUSDC ? formatCurrency(ev.valueUSDC) : "-"}
+                          </TableCell>
+                          <TableCell className="py-2 text-right text-xs font-mono">
+                            {ev.fee && parseFloat(ev.fee) !== 0 ? (
+                              <span className={cn(
+                                parseFloat(ev.fee) < 0
+                                  ? "text-green-600 dark:text-green-400"
+                                  : "text-muted-foreground"
+                              )}>
+                                {formatNumber(ev.fee, 4)} {ev.feeAsset || ""}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">{"\u2014"}</span>
+                            )}
                           </TableCell>
                           <TableCell className="py-2">
                             {ev.exchange && (

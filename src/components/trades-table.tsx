@@ -215,11 +215,17 @@ export function TradesTable({
                 </div>
               </TableCell>
               <TableCell className="py-3 text-right font-mono">
-                <span className={cn(
-                  parseFloat(trade.fee) >= 0 ? "text-red-600" : "text-green-600"
-                )}>
-                  {formatNumber(trade.fee, 6)}
-                </span>
+                {parseFloat(trade.fee) !== 0 ? (
+                  <span className={cn(
+                    parseFloat(trade.fee) < 0
+                      ? "text-green-600 dark:text-green-400"
+                      : "text-muted-foreground"
+                  )}>
+                    {formatNumber(trade.fee, 6)} {trade.fee_asset || ""}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">{"\u2014"}</span>
+                )}
               </TableCell>
             </TableRow>
           ))}

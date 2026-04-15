@@ -1,4 +1,4 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Wallet, WalletWithAccounts, Transfer, TransfersSummary, FundingAssetBreakdown, ExchangeFundingBreakdown, InterestByAsset, Position, PositionsAggregates, PnLAggregates, PositionPnLPoint, TimeSeriesPoint } from "../queries";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Wallet, WalletWithAccounts, Transfer, FundingAssetBreakdown, ExchangeFundingBreakdown, Position, PositionsAggregates, PnLAggregates, AccountPnLSummary, AccountPnLDetail, PositionPnLPoint, TimeSeriesPoint, EventDateRange } from "../queries";
 
 export interface CreateAccountInput {
   exchange_id: string;
@@ -86,8 +86,6 @@ export interface ApiClient {
   getFundingAggregatesByExchange(filters?: DataFilters): Promise<ExchangeFundingBreakdown[]>;
   // Transfer methods
   getTransfers(limit: number, offset: number, filters?: DataFilters): Promise<TransfersResult>;
-  getTransfersSummary(filters?: DataFilters): Promise<TransfersSummary>;
-  getInterestByAsset(filters?: DataFilters): Promise<InterestByAsset[]>;
   getDistinctTransferAssets(): Promise<string[]>;
   // Wallet methods
   getWallets(): Promise<Wallet[]>;
@@ -101,6 +99,10 @@ export interface ApiClient {
   verifyWalletSignature(address: string, chain: string, signature: string, nonce: string): Promise<WalletVerifyResponse>;
   verifyWalletAPIKey(address: string, chain: string, apiKey: string): Promise<WalletVerifyResponse>;
   updateAccountLabel(id: string, label: string | null): Promise<{ id: string; label: string | null }>;
+  updateAccountToggles(
+    id: string,
+    toggles: { sync?: boolean; processing?: boolean },
+  ): Promise<{ id: string; sync_enabled: boolean; processing_enabled: boolean }>;
   // A6.3: Per-asset funding breakdown
   getFundingByAssetBreakdown(filters?: DataFilters): Promise<FundingAssetBreakdown[]>;
   // Portfolio / Positions
@@ -108,8 +110,11 @@ export interface ApiClient {
   getPositions(limit: number, offset: number, filters?: DataFilters): Promise<PositionsResult>;
   getPositionsAggregates(filters?: DataFilters): Promise<PositionsAggregates>;
   getPnLAggregates(filters?: DataFilters): Promise<PnLAggregates>;
+  getPnLByAccount(filters?: DataFilters): Promise<AccountPnLSummary[]>;
+  getPnLDetailByAccount(filters?: DataFilters): Promise<AccountPnLDetail[]>;
   getPositionsPnLChart(filters?: DataFilters, denomination?: string): Promise<PositionPnLPoint[]>;
   getFundingChartData(filters?: DataFilters): Promise<TimeSeriesPoint[]>;
   getFeesChartData(filters?: DataFilters): Promise<TimeSeriesPoint[]>;
   getSupportedDenominations(): Promise<string[]>;
+  getEventDateRange(filters?: DataFilters): Promise<EventDateRange>;
 }

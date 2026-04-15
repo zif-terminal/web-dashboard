@@ -23,6 +23,7 @@ import { AccountsTableSkeleton } from "@/components/table-skeleton";
 import { TagInput } from "@/components/tag-input";
 import { ExchangeBadge } from "@/components/exchange-badge";
 import { LabelInput } from "@/components/label-input";
+import { PipelineStatusCell } from "@/components/pipeline-status";
 import {
   Tooltip,
   TooltipContent,
@@ -97,7 +98,7 @@ function getStatusBadge(status: string | undefined) {
   if (status === "needs_token") {
     return (
       <Badge variant="destructive" className="text-xs">
-        Needs Token
+        Setup Required
       </Badge>
     );
   }
@@ -243,6 +244,7 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
               <TableHead>Tags</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Last Synced</TableHead>
+              <TableHead>Pipeline</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -282,6 +284,9 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
                 </TableCell>
                 <TableCell>
                   <SyncStatusCell lastSyncedAt={account.last_synced_at} />
+                </TableCell>
+                <TableCell>
+                  <PipelineStatusCell account={account} />
                 </TableCell>
               </TableRow>
             ))}
@@ -328,6 +333,7 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
                   <TableHead>Tags</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Last Synced</TableHead>
+                  <TableHead>Pipeline</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -368,6 +374,9 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
                     </TableCell>
                     <TableCell>
                       <SyncStatusCell lastSyncedAt={account.last_synced_at} />
+                    </TableCell>
+                    <TableCell>
+                      <PipelineStatusCell account={account} />
                     </TableCell>
                   </TableRow>
                 ))}

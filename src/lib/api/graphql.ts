@@ -8,6 +8,7 @@ import {
   DELETE_ACCOUNT,
   UPDATE_ACCOUNT_TAGS,
   UPDATE_ACCOUNT_LABEL,
+  UPDATE_ACCOUNT_TOGGLES,
   GET_WALLETS,
   GET_WALLETS_WITH_COUNTS,
   CREATE_WALLET,
@@ -23,12 +24,20 @@ import {
   GET_FUNDING_AGGREGATES_DYNAMIC,
   GET_TRANSFERS_DYNAMIC,
   GET_FUNDING_PNL_BY_ASSET,
+  GET_EVENT_DATE_RANGE,
+  EventDateRange,
   GET_OPEN_POSITIONS,
   GET_POSITIONS_DYNAMIC,
   GET_POSITIONS_AGGREGATES_DYNAMIC,
   GET_DISTINCT_POSITION_MARKETS,
   GET_PNL_AGGREGATES,
   GET_PNL_BY_MARKET,
+  GET_PNL_BY_ACCOUNT,
+  GET_PNL_DETAIL_BY_ACCOUNT,
+  GET_NET_FLOW_BY_ACCOUNT,
+  GET_FEES_BY_ACCOUNT,
+  AccountPnLSummary,
+  AccountPnLDetail,
   PnLAggregates,
   Exchange,
   ExchangeAccount,
@@ -41,13 +50,9 @@ import {
   Wallet,
   WalletWithAccounts,
   Transfer,
-  TransfersSummary,
   FundingAssetBreakdown,
   Position,
   PositionsAggregates,
-  GET_TRANSFERS_SUMMARY,
-  GET_INTEREST_BY_ASSET,
-  InterestByAsset,
   GET_POSITIONS_PNL_CHART,
   GET_FUNDING_CHART,
   GET_FEES_CHART,
@@ -519,85 +524,6 @@ export const graphqlApi: ApiClient = {
     });
   },
 
-  async getTransfersSummary(filters?: DataFilters): Promise<TransfersSummary> {
-    return withErrorHandling(async () => {
-      const client = getGraphQLClient();
-      const where = buildTransfersWhereClause(filters);
-
-      interface AggNode { amount: string }
-      interface AggBucket { aggregate: { count: number }; nodes: AggNode[] }
-
-      const data = await client.request<{
-        deposits: AggBucket;
-        withdrawals: AggBucket;
-        interest: AggBucket;
-      }>(GET_TRANSFERS_SUMMARY, { where: Object.keys(where).length > 0 ? where : {} });
-
-      function sumUSD(nodes: AggNode[]): number {
-        let total = 0;
-        for (const n of nodes) {
-          total += Math.abs(parseFloat(n.amount) || 0);
-        }
-        return total;
-      }
-
-      const totalDepositsUSD = sumUSD(data.deposits.nodes);
-      const totalWithdrawalsUSD = sumUSD(data.withdrawals.nodes);
-      const totalInterestUSD = sumUSD(data.interest.nodes);
-
-      return {
-        totalDepositsUSD,
-        totalWithdrawalsUSD,
-        totalInterestUSD,
-        netFlowUSD: totalDepositsUSD - totalWithdrawalsUSD + totalInterestUSD,
-        depositCount: data.deposits.aggregate.count,
-        withdrawalCount: data.withdrawals.aggregate.count,
-        interestCount: data.interest.aggregate.count,
-      };
-    });
-  },
-
-  async getInterestByAsset(filters?: DataFilters): Promise<InterestByAsset[]> {
-    return withErrorHandling(async () => {
-      const client = getGraphQLClient();
-      const where = buildTransfersWhereClause(filters);
-
-      const data = await client.request<{
-        transfers: { id: string; asset: string; amount: string; event_values: { quantity: string }[] }[];
-      }>(GET_INTEREST_BY_ASSET, { where: Object.keys(where).length > 0 ? where : {} });
-
-      // Aggregate client-side by asset
-      const byAsset = new Map<string, { earned: number; paid: number; count: number; earnedValue: number; paidValue: number }>();
-      for (const t of data.transfers) {
-        const amt = parseFloat(t.amount) || 0;
-        const usdcValue = t.event_values.length > 0 ? Math.abs(parseFloat(t.event_values[0].quantity) || 0) : 0;
-        const entry = byAsset.get(t.asset) || { earned: 0, paid: 0, count: 0, earnedValue: 0, paidValue: 0 };
-        if (amt >= 0) {
-          entry.earned += amt;
-          entry.earnedValue += usdcValue;
-        } else {
-          entry.paid += Math.abs(amt);
-          entry.paidValue += usdcValue;
-        }
-        entry.count += 1;
-        byAsset.set(t.asset, entry);
-      }
-
-      return Array.from(byAsset.entries())
-        .map(([asset, { earned, paid, count, earnedValue, paidValue }]) => ({
-          asset,
-          earned,
-          paid,
-          net: earned - paid,
-          count,
-          earnedValue,
-          paidValue,
-          netValue: earnedValue - paidValue,
-        }))
-        .sort((a, b) => Math.abs(b.netValue) - Math.abs(a.netValue));
-    });
-  },
-
   async getDistinctTransferAssets(): Promise<string[]> {
     return withErrorHandling(async () => {
       const client = getGraphQLClient();
@@ -720,6 +646,27 @@ export const graphqlApi: ApiClient = {
       const data = await client.request<{
         update_exchange_accounts_by_pk: { id: string; label: string | null };
       }>(UPDATE_ACCOUNT_LABEL, { id, label });
+      return data.update_exchange_accounts_by_pk;
+    });
+  },
+
+  async updateAccountToggles(
+    id: string,
+    toggles: { sync?: boolean; processing?: boolean },
+  ): Promise<{ id: string; sync_enabled: boolean; processing_enabled: boolean }> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        update_exchange_accounts_by_pk: {
+          id: string;
+          sync_enabled: boolean;
+          processing_enabled: boolean;
+        };
+      }>(UPDATE_ACCOUNT_TOGGLES, {
+        id,
+        sync: toggles.sync ?? null,
+        processing: toggles.processing ?? null,
+      });
       return data.update_exchange_accounts_by_pk;
     });
   },
@@ -920,6 +867,199 @@ export const graphqlApi: ApiClient = {
     });
   },
 
+  async getPnLByAccount(filters?: DataFilters): Promise<AccountPnLSummary[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const posWhere = buildPositionsWhereClause(filters, "closed");
+      const tradesWhere = buildTradesWhereClause(filters);
+
+      const basePnlWhere: Record<string, unknown> = {
+        denomination: { _eq: "USDC" },
+        position: posWhere,
+      };
+
+      // Fetch PnL per position with account id
+      const [pnlData, feesData, accounts] = await Promise.all([
+        client.request<{
+          position_pnl: { realized_pnl: string; position: { exchange_account_id: string } }[];
+        }>(GET_PNL_BY_ACCOUNT, { where: basePnlWhere }),
+        client.request<{
+          trades: { exchange_account_id: string; fee: string }[];
+        }>(GET_FEES_BY_ACCOUNT, { where: tradesWhere }),
+        client.request<{ exchange_accounts: ExchangeAccount[] }>(GET_ACCOUNTS),
+      ]);
+
+      // Build account lookup
+      const accountMap = new Map<string, ExchangeAccount>();
+      for (const acc of accounts.exchange_accounts) {
+        accountMap.set(acc.id, acc);
+      }
+
+      // Aggregate PnL by account
+      const summaryMap = new Map<string, { pnl: number; fees: number }>();
+      for (const row of pnlData.position_pnl) {
+        const accId = row.position.exchange_account_id;
+        const entry = summaryMap.get(accId) || { pnl: 0, fees: 0 };
+        entry.pnl += parseFloat(row.realized_pnl);
+        summaryMap.set(accId, entry);
+      }
+
+      // Aggregate fees by account
+      for (const row of feesData.trades) {
+        const accId = row.exchange_account_id;
+        const entry = summaryMap.get(accId) || { pnl: 0, fees: 0 };
+        entry.fees += parseFloat(row.fee);
+        summaryMap.set(accId, entry);
+      }
+
+      return Array.from(summaryMap.entries())
+        .map(([accountId, { pnl, fees }]) => {
+          const acc = accountMap.get(accountId);
+          const accountLabel = acc?.label || acc?.account_identifier || accountId;
+          const exchangeName = acc?.exchange?.display_name || acc?.exchange?.name || "Unknown";
+          return {
+            accountId,
+            accountLabel,
+            exchangeName,
+            realizedPnl: pnl,
+            totalFees: fees,
+            netPnl: pnl - fees,
+          };
+        })
+        .sort((a, b) => Math.abs(b.netPnl) - Math.abs(a.netPnl));
+    });
+  },
+
+  async getPnLDetailByAccount(filters?: DataFilters): Promise<AccountPnLDetail[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const posWhere = buildPositionsWhereClause(filters, "closed");
+      const transfersWhere = buildTransfersWhereClause(filters);
+
+      const basePnlWhere: Record<string, unknown> = {
+        denomination: { _eq: "USDC" },
+        position: posWhere,
+      };
+
+      const [pnlData, flowData, accounts] = await Promise.all([
+        client.request<{
+          position_pnl: {
+            realized_pnl: string;
+            trade_pnl: string | null;
+            fee_pnl: string | null;
+            funding_pnl: string | null;
+            interest_pnl: string | null;
+            position: { exchange_account_id: string; market_type: string };
+          }[];
+        }>(GET_PNL_DETAIL_BY_ACCOUNT, { where: basePnlWhere }),
+        client.request<{
+          deposits: { exchange_account_id: string; event_values: { quantity: string }[] }[];
+          withdrawals: { exchange_account_id: string; event_values: { quantity: string }[] }[];
+        }>(GET_NET_FLOW_BY_ACCOUNT, {
+          depositWhere: Object.keys(transfersWhere).length > 0
+            ? { _and: [transfersWhere, { type: { _eq: "deposit" } }] }
+            : { type: { _eq: "deposit" } },
+          withdrawWhere: Object.keys(transfersWhere).length > 0
+            ? { _and: [transfersWhere, { type: { _eq: "withdraw" } }] }
+            : { type: { _eq: "withdraw" } },
+        }),
+        client.request<{ exchange_accounts: ExchangeAccount[] }>(GET_ACCOUNTS),
+      ]);
+
+      const accountMap = new Map<string, ExchangeAccount>();
+      for (const acc of accounts.exchange_accounts) {
+        accountMap.set(acc.id, acc);
+      }
+
+      interface AccDetail {
+        totalPnl: number;
+        perpPnl: number;
+        spotPnl: number;
+        fees: number;
+        funding: number;
+        interest: number;
+        deposits: number;
+        withdrawals: number;
+        netFlowIncomplete: boolean;
+      }
+      const summaryMap = new Map<string, AccDetail>();
+      const getEntry = (accId: string): AccDetail => {
+        let entry = summaryMap.get(accId);
+        if (!entry) {
+          entry = {
+            totalPnl: 0, perpPnl: 0, spotPnl: 0, fees: 0, funding: 0, interest: 0,
+            deposits: 0, withdrawals: 0, netFlowIncomplete: false,
+          };
+          summaryMap.set(accId, entry);
+        }
+        return entry;
+      };
+
+      for (const row of pnlData.position_pnl) {
+        const accId = row.position.exchange_account_id;
+        const entry = getEntry(accId);
+        // totalPnl stays authoritative (sum of all components from position_pnl).
+        // Breakdown columns are disjoint: spot/perp show only the trade component,
+        // while fees/funding/interest are tracked separately.
+        entry.totalPnl += parseFloat(row.realized_pnl) || 0;
+        const tradeOnly = parseFloat(row.trade_pnl || "0") || 0;
+        if (row.position.market_type === "perp") {
+          entry.perpPnl += tradeOnly;
+        } else {
+          entry.spotPnl += tradeOnly;
+        }
+        entry.fees += parseFloat(row.fee_pnl || "0") || 0;
+        entry.funding += parseFloat(row.funding_pnl || "0") || 0;
+        entry.interest += parseFloat(row.interest_pnl || "0") || 0;
+      }
+
+      // Net flow is computed strictly from USDC event_values. If a row is missing one,
+      // the account is flagged as incomplete. NO fallback to raw amount.
+      function flowValue(row: { event_values: { quantity: string }[] }): number | null {
+        const usdcValue = row.event_values?.[0]?.quantity;
+        if (usdcValue == null) return null;
+        return Math.abs(parseFloat(usdcValue) || 0);
+      }
+
+      for (const row of flowData.deposits) {
+        const entry = getEntry(row.exchange_account_id);
+        const v = flowValue(row);
+        if (v == null) entry.netFlowIncomplete = true;
+        else entry.deposits += v;
+      }
+      for (const row of flowData.withdrawals) {
+        const entry = getEntry(row.exchange_account_id);
+        const v = flowValue(row);
+        if (v == null) entry.netFlowIncomplete = true;
+        else entry.withdrawals += v;
+      }
+
+      // Include all accounts, even those with no PnL data
+      for (const acc of accounts.exchange_accounts) {
+        getEntry(acc.id);
+      }
+
+      return Array.from(summaryMap.entries())
+        .map(([accountId, d]) => {
+          const acc = accountMap.get(accountId);
+          return {
+            accountId,
+            accountLabel: acc?.label || acc?.account_identifier || accountId,
+            exchangeName: acc?.exchange?.display_name || acc?.exchange?.name || "Unknown",
+            totalPnl: d.totalPnl,
+            perpPnl: d.perpPnl,
+            spotPnl: d.spotPnl,
+            fees: d.fees,
+            funding: d.funding,
+            interest: d.interest,
+            netFlow: { value: d.withdrawals - d.deposits, incomplete: d.netFlowIncomplete },
+            account: acc,
+          };
+        })
+        .sort((a, b) => Math.abs(b.totalPnl) - Math.abs(a.totalPnl));
+    });
+  },
+
   async getPositionsPnLChart(filters?: DataFilters, denomination = "USDC"): Promise<PositionPnLPoint[]> {
     return withErrorHandling(async () => {
       const client = getGraphQLClient();
@@ -985,6 +1125,55 @@ export const graphqlApi: ApiClient = {
       const client = getGraphQLClient();
       const data = await client.request<{ supported_denominations: { asset: string }[] }>(GET_SUPPORTED_DENOMINATIONS);
       return data.supported_denominations.map((d) => d.asset);
+    });
+  },
+
+  async getEventDateRange(filters?: DataFilters): Promise<EventDateRange> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+
+      // Build where clauses scoped to accounts only (no time filter)
+      const accountOnly: DataFilters | undefined = filters
+        ? { accountIds: filters.accountIds, accountId: filters.accountId, tags: filters.tags, exchangeIds: filters.exchangeIds }
+        : undefined;
+
+      const positionsWhere = buildPositionsWhereClause(accountOnly);
+      const tradesWhere = buildTradesWhereClause(accountOnly);
+      const transfersWhere = buildTransfersWhereClause(accountOnly);
+
+      const data = await client.request<{
+        positions_aggregate: { aggregate: { min: { start_time: string | null }; max: { end_time: string | null } } };
+        trades_aggregate: { aggregate: { min: { timestamp: string | null }; max: { timestamp: string | null } } };
+        transfers_aggregate: { aggregate: { min: { timestamp: string | null }; max: { timestamp: string | null } } };
+      }>(GET_EVENT_DATE_RANGE, {
+        where: positionsWhere,
+        tradesWhere,
+        transfersWhere,
+      });
+
+      const candidates: number[] = [];
+      const posMin = data.positions_aggregate.aggregate.min.start_time;
+      const posMax = data.positions_aggregate.aggregate.max.end_time;
+      const tradeMin = data.trades_aggregate.aggregate.min.timestamp;
+      const tradeMax = data.trades_aggregate.aggregate.max.timestamp;
+      const transferMin = data.transfers_aggregate.aggregate.min.timestamp;
+      const transferMax = data.transfers_aggregate.aggregate.max.timestamp;
+
+      const mins: (string | null)[] = [posMin, tradeMin, transferMin];
+      const maxes: (string | null)[] = [posMax, tradeMax, transferMax];
+
+      for (const v of mins) {
+        if (v !== null) candidates.push(Number(v));
+      }
+      const earliest = candidates.length > 0 ? Math.min(...candidates) : null;
+
+      const maxCandidates: number[] = [];
+      for (const v of maxes) {
+        if (v !== null) maxCandidates.push(Number(v));
+      }
+      const latest = maxCandidates.length > 0 ? Math.max(...maxCandidates) : null;
+
+      return { earliest, latest };
     });
   },
 };

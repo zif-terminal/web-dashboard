@@ -127,6 +127,16 @@ export function truncateAddress(address: string, startChars = 6, endChars = 4): 
   return `${address.slice(0, startChars)}...${address.slice(-endChars)}`;
 }
 
+/** Format a wallet label with chain + truncated address as fallback. E.g. "Solana · 6arBD...7J1H" */
+export function formatWalletLabel(wallet: { label?: string | null; address?: string; chain?: string } | null | undefined): string {
+  if (wallet?.label && wallet.label.trim().length > 0) return wallet.label.trim();
+  const chain = wallet?.chain
+    ? wallet.chain.charAt(0).toUpperCase() + wallet.chain.slice(1)
+    : "Unknown";
+  const address = truncateAddress(wallet?.address || "");
+  return `${chain} \u00b7 ${address}`;
+}
+
 export function getDisplayName(label: string | null | undefined, address: string, startChars = 6, endChars = 4, walletLabel?: string | null): string {
   if (label && label.trim().length > 0) {
     return label.trim();

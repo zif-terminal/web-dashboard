@@ -1,4 +1,4 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Wallet, WalletWithAccounts, Transfer, TransfersSummary, FundingAssetBreakdown, ExchangeFundingBreakdown, InterestByAsset } from "../queries";
+import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Wallet, WalletWithAccounts, Transfer, FundingAssetBreakdown, ExchangeFundingBreakdown } from "../queries";
 import { ApiClient, CreateAccountInput, CreateWalletInput, TradesResult, FundingPaymentsResult, TransfersResult, DataFilters } from "./types";
 
 // Mock wallets
@@ -32,6 +32,8 @@ const mockAccounts: ExchangeAccount[] = [
     account_identifier: "HN4xHDBPK7oSGGRafaJWS6jT8M7xyEk7Kos24xp27Kpq",
     account_type: "main",
     account_type_metadata: {},
+    sync_enabled: true,
+    processing_enabled: true,
     exchange: mockExchanges[0],
     tags: ["main", "trading"],
     label: "Drift Main",
@@ -42,6 +44,8 @@ const mockAccounts: ExchangeAccount[] = [
     account_identifier: "7RCz8wb6WXxUhAigok9ttgrVgDFFFbibcirECzWSBauM",
     account_type: "sub_account",
     account_type_metadata: {},
+    sync_enabled: true,
+    processing_enabled: true,
     exchange: mockExchanges[0],
     tags: ["defi"],
     label: undefined,
@@ -59,6 +63,8 @@ const mockTrades: Trade[] = [
     quantity: "2.5",
     timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
     fee: "0.00125",
+    fee_asset: "USDC",
+    tx_signature: "",
     order_id: "ord-abc123def456",
     trade_id: "trd-001",
     exchange_account_id: "mock-acc-001",
@@ -74,6 +80,8 @@ const mockTrades: Trade[] = [
     quantity: "0.15",
     timestamp: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
     fee: "0.000075",
+    fee_asset: "USDC",
+    tx_signature: "",
     order_id: "ord-xyz789ghi012",
     trade_id: "trd-002",
     exchange_account_id: "mock-acc-001",
@@ -89,6 +97,8 @@ const mockTrades: Trade[] = [
     quantity: "1000",
     timestamp: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
     fee: "0.525",
+    fee_asset: "USDC",
+    tx_signature: "",
     order_id: "ord-stu901vwx234",
     trade_id: "trd-004",
     exchange_account_id: "mock-acc-002",
@@ -291,6 +301,8 @@ export const mockApi: ApiClient = {
       account_identifier: input.account_identifier,
       account_type: input.account_type,
       account_type_metadata: input.account_type_metadata,
+      sync_enabled: false,
+      processing_enabled: false,
       exchange,
       tags: [],
     };
@@ -394,16 +406,6 @@ export const mockApi: ApiClient = {
     };
   },
 
-  async getTransfersSummary(_filters?: DataFilters): Promise<TransfersSummary> {
-    await delay(200);
-    return { totalDepositsUSD: 0, totalWithdrawalsUSD: 0, totalInterestUSD: 0, netFlowUSD: 0, depositCount: 0, withdrawalCount: 0, interestCount: 0 };
-  },
-
-  async getInterestByAsset(_filters?: DataFilters): Promise<InterestByAsset[]> {
-    await delay(200);
-    return [];
-  },
-
   async getDistinctTransferAssets(): Promise<string[]> {
     await delay(200);
     const assets = [...new Set(mockTransfers.map((t) => t.asset))];
@@ -493,6 +495,28 @@ export const mockApi: ApiClient = {
     return { id, label };
   },
 
+  async updateAccountToggles(
+    id: string,
+    toggles: { sync?: boolean; processing?: boolean },
+  ): Promise<{ id: string; sync_enabled: boolean; processing_enabled: boolean }> {
+    await delay(200);
+    const account = mockAccounts.find((a) => a.id === id);
+    if (!account) {
+      throw new Error("Account not found");
+    }
+    if (toggles.sync !== undefined) {
+      account.sync_enabled = toggles.sync;
+    }
+    if (toggles.processing !== undefined) {
+      account.processing_enabled = toggles.processing;
+    }
+    return {
+      id,
+      sync_enabled: account.sync_enabled,
+      processing_enabled: account.processing_enabled,
+    };
+  },
+
   // A2.1: Mock wallet ownership verification
   async requestWalletChallenge(address: string, chain: string): Promise<import("./types").WalletChallengeResponse> {
     await delay(200);
@@ -573,6 +597,14 @@ export const mockApi: ApiClient = {
     return { total: zero, perp: zero, spot: zero, byMarket: [] };
   },
 
+  async getPnLByAccount(): Promise<import("../queries").AccountPnLSummary[]> {
+    return [];
+  },
+
+  async getPnLDetailByAccount(): Promise<import("../queries").AccountPnLDetail[]> {
+    return [];
+  },
+
   async getPositionsPnLChart(): Promise<import("../queries").PositionPnLPoint[]> {
     return [];
   },
@@ -588,5 +620,10 @@ export const mockApi: ApiClient = {
   async getSupportedDenominations(): Promise<string[]> {
     await delay(200);
     return ["USDC"];
+  },
+
+  async getEventDateRange(): Promise<import("../queries").EventDateRange> {
+    await delay(200);
+    return { earliest: Date.UTC(2024, 2, 15), latest: Date.now() };
   },
 };

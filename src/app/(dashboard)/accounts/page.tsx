@@ -5,6 +5,7 @@ import { AccountsTable } from "@/components/accounts-table";
 import { WalletSearch } from "@/components/wallet-search";
 import { WalletsSection } from "@/components/wallets-section";
 import { SyncButton } from "@/components/sync-button";
+import { DataUploadDialog } from "@/components/data-upload-dialog";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
 export default function AccountsPage() {
@@ -53,6 +54,7 @@ export default function AccountsPage() {
             isLoading={isLoading}
           />
         </div>
+        <DataUploadDialog />
       </div>
 
       {/* Wallet Search */}
