@@ -17,17 +17,6 @@ export function formatSignedNumber(value: string, decimals: number = 2): string 
   });
 }
 
-export function formatPercentage(value: string, decimals: number = 4): string {
-  const num = parseFloat(value);
-  if (isNaN(num)) return value;
-  const percentage = num * 100;
-  const sign = percentage >= 0 ? "+" : "";
-  return sign + percentage.toLocaleString(undefined, {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  }) + "%";
-}
-
 /** Parse a timestamp that may be an ISO string, a unix-ms number, or a unix-ms string. */
 export function parseTimestamp(timestamp: string | number): Date {
   const ts = typeof timestamp === "string" && /^\d+$/.test(timestamp) ? Number(timestamp) : timestamp;
@@ -105,36 +94,27 @@ export function formatCurrency(value: string | number, decimals = 2): string {
   })}`;
 }
 
-/** Format a duration in ms to human-readable. */
-export function formatDuration(ms: number): string {
-  const hours = ms / (1000 * 60 * 60);
-  if (hours < 1) return `${Math.round(ms / (1000 * 60))}m`;
-  if (hours < 24) return `${Math.round(hours)}h`;
-  const days = hours / 24;
-  if (days < 30) return `${Math.round(days)}d`;
-  return `${Math.round(days / 30)}mo`;
-}
-
-/** Color class based on value sign. */
+/** Color class based on value sign. Positive = earned (green), negative = loss (red). */
 export function pnlColor(value: number): string {
   if (value > 0) return "text-green-600 dark:text-green-400";
   if (value < 0) return "text-red-600 dark:text-red-400";
   return "text-muted-foreground";
 }
 
+/**
+ * Color class for fee values. Fees use the OPPOSITE convention of pnlColor:
+ * positive = paid (red), negative = rebate (green). This matches the raw DB
+ * convention where fee_pnl is the magnitude of a cost.
+ */
+export function feePnlColor(value: number): string {
+  if (value > 0) return "text-red-600 dark:text-red-400";
+  if (value < 0) return "text-green-600 dark:text-green-400";
+  return "text-muted-foreground";
+}
+
 export function truncateAddress(address: string, startChars = 6, endChars = 4): string {
   if (address.length <= startChars + endChars + 3) return address;
   return `${address.slice(0, startChars)}...${address.slice(-endChars)}`;
-}
-
-/** Format a wallet label with chain + truncated address as fallback. E.g. "Solana · 6arBD...7J1H" */
-export function formatWalletLabel(wallet: { label?: string | null; address?: string; chain?: string } | null | undefined): string {
-  if (wallet?.label && wallet.label.trim().length > 0) return wallet.label.trim();
-  const chain = wallet?.chain
-    ? wallet.chain.charAt(0).toUpperCase() + wallet.chain.slice(1)
-    : "Unknown";
-  const address = truncateAddress(wallet?.address || "");
-  return `${chain} \u00b7 ${address}`;
 }
 
 export function getDisplayName(label: string | null | undefined, address: string, startChars = 6, endChars = 4, walletLabel?: string | null): string {

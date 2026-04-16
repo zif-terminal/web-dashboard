@@ -16,7 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { formatNumber, formatSignedNumber, truncateAddress, getDisplayName, pnlColor } from "@/lib/format";
+import { formatNumber, formatSignedNumber, truncateAddress, getDisplayName, pnlColor, feePnlColor } from "@/lib/format";
 import { Position, AccountPnLDetail, Wallet } from "@/lib/queries";
 import { PipelineStatusCell } from "@/components/pipeline-status";
 import { ExchangeBadge } from "@/components/exchange-badge";
@@ -219,10 +219,42 @@ export default function DashboardPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="text-xs">Account</TableHead>
-                    <TableHead className="text-xs text-right font-bold">Total PnL</TableHead>
+                    <TableHead className="text-xs text-right font-bold">
+                      <span className="inline-flex items-center justify-end gap-1">
+                        Total PnL
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs">
+                            <div className="text-xs space-y-1.5">
+                              <p>Total PnL = Perp + Spot + Funding + Interest − Fees</p>
+                              <p className="text-muted-foreground">Fees are subtracted because the Fees column shows paid amounts as positive.</p>
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                      </span>
+                    </TableHead>
                     <TableHead className="text-xs text-right">Perp PnL</TableHead>
                     <TableHead className="text-xs text-right">Spot PnL</TableHead>
-                    <TableHead className="text-xs text-right">Fees</TableHead>
+                    <TableHead className="text-xs text-right">
+                      <span className="inline-flex items-center justify-end gap-1">
+                        Fees
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs">
+                            <div className="text-xs space-y-1.5">
+                              <p>Fees use the opposite sign convention from the other PnL columns — raw DB value is shown.</p>
+                              <p><span className="text-red-500 font-medium">Positive (+)</span> — Fees paid (cost)</p>
+                              <p><span className="text-green-500 font-medium">Negative (−)</span> — Fee rebate (earned)</p>
+                              <p className="text-muted-foreground pt-1 border-t border-border">Fees are subtracted from Total PnL: Total = Perp + Spot + Funding + Interest − Fees</p>
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                      </span>
+                    </TableHead>
                     <TableHead className="text-xs text-right">Funding</TableHead>
                     <TableHead className="text-xs text-right">Interest</TableHead>
                     <TableHead className="text-xs text-right">
@@ -298,7 +330,7 @@ export default function DashboardPage() {
                           </span>
                         </TableCell>
                         <TableCell className="py-1.5 text-right">
-                          <span className={cn("text-sm font-mono", pnlColor(row.fees))}>
+                          <span className={cn("text-sm font-mono", feePnlColor(row.fees))}>
                             {formatSignedNumber(row.fees.toString())}
                           </span>
                         </TableCell>

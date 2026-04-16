@@ -17,10 +17,6 @@ export interface ProcessorCheckpoint {
   updated_at: string;
 }
 
-export interface AggregateCount {
-  aggregate: { count: number };
-}
-
 export interface ExchangeAccount {
   id: string;
   exchange_id: string;
@@ -38,8 +34,8 @@ export interface ExchangeAccount {
   exchange?: Exchange;
   wallet?: Wallet;
   processor_checkpoint?: ProcessorCheckpoint | null;
-  trades_aggregate?: AggregateCount;
-  positions_aggregate?: AggregateCount;
+  trades_aggregate?: { aggregate: { count: number } };
+  positions_aggregate?: { aggregate: { count: number } };
 }
 
 // Wallet types
@@ -199,41 +195,6 @@ export const GET_WALLETS_WITH_COUNTS = gql`
   }
 `;
 
-export const GET_ACCOUNTS_BY_WALLET = gql`
-  query GetAccountsByWallet($walletId: uuid!) {
-    exchange_accounts(
-      where: { wallet_id: { _eq: $walletId } }
-      order_by: { exchange: { name: asc } }
-    ) {
-      id
-      exchange_id
-      account_identifier
-      account_type
-      account_type_metadata
-      wallet_id
-      status
-      sync_enabled
-      processing_enabled
-      detected_at
-      last_synced_at
-      tags
-      label
-      exchange {
-        id
-        name
-        display_name
-        requires_api_key
-      }
-      wallet {
-        id
-        address
-        chain
-        label
-      }
-    }
-  }
-`;
-
 export const GET_ACCOUNT_BY_ID = gql`
   query GetAccountById($id: uuid!) {
     exchange_accounts_by_pk(id: $id) {
@@ -364,369 +325,12 @@ export interface Trade {
   event_values?: EventValue[];
 }
 
-// Trade queries
-// Note: We have two versions - one with date filter and one without
-// This is because Hasura doesn't handle null properly in _gte comparisons
-export const GET_TRADES = gql`
-  query GetTrades($limit: Int!, $offset: Int!) {
-    trades(
-      limit: $limit
-      offset: $offset
-      order_by: { timestamp: desc }
-    ) {
-      id
-      base_asset
-      quote_asset
-      side
-      price
-      quantity
-      timestamp
-      fee
-      fee_asset
-      tx_signature
-      order_id
-      trade_id
-      exchange_account_id
-      market_type
-      exchange_account {
-        id
-        account_identifier
-        account_type
-        exchange {
-          id
-          name
-          display_name
-        }
-      }
-    }
-  }
-`;
-
-export const GET_TRADES_WITH_FILTER = gql`
-  query GetTradesWithFilter($limit: Int!, $offset: Int!, $since: bigint!) {
-    trades(
-      limit: $limit
-      offset: $offset
-      order_by: { timestamp: desc }
-      where: { timestamp: { _gte: $since } }
-    ) {
-      id
-      base_asset
-      quote_asset
-      side
-      price
-      quantity
-      timestamp
-      fee
-      fee_asset
-      tx_signature
-      order_id
-      trade_id
-      exchange_account_id
-      market_type
-      exchange_account {
-        id
-        account_identifier
-        account_type
-        exchange {
-          id
-          name
-          display_name
-        }
-      }
-    }
-  }
-`;
-
-export const GET_TRADES_WITH_RANGE_FILTER = gql`
-  query GetTradesWithRangeFilter($limit: Int!, $offset: Int!, $since: bigint!, $until: bigint!) {
-    trades(
-      limit: $limit
-      offset: $offset
-      order_by: { timestamp: desc }
-      where: { timestamp: { _gte: $since, _lte: $until } }
-    ) {
-      id
-      base_asset
-      quote_asset
-      side
-      price
-      quantity
-      timestamp
-      fee
-      fee_asset
-      tx_signature
-      order_id
-      trade_id
-      exchange_account_id
-      market_type
-      exchange_account {
-        id
-        account_identifier
-        account_type
-        exchange {
-          id
-          name
-          display_name
-        }
-      }
-    }
-  }
-`;
-
-export const GET_TRADES_BY_ACCOUNT = gql`
-  query GetTradesByAccount($accountId: uuid!, $limit: Int!, $offset: Int!) {
-    trades(
-      where: { exchange_account_id: { _eq: $accountId } }
-      limit: $limit
-      offset: $offset
-      order_by: { timestamp: desc }
-    ) {
-      id
-      base_asset
-      quote_asset
-      side
-      price
-      quantity
-      timestamp
-      fee
-      fee_asset
-      tx_signature
-      order_id
-      trade_id
-      exchange_account_id
-      market_type
-      exchange_account {
-        id
-        account_identifier
-        account_type
-        exchange {
-          id
-          name
-          display_name
-        }
-      }
-    }
-  }
-`;
-
-export const GET_TRADES_BY_ACCOUNT_WITH_FILTER = gql`
-  query GetTradesByAccountWithFilter($accountId: uuid!, $limit: Int!, $offset: Int!, $since: bigint!) {
-    trades(
-      where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since } }
-      limit: $limit
-      offset: $offset
-      order_by: { timestamp: desc }
-    ) {
-      id
-      base_asset
-      quote_asset
-      side
-      price
-      quantity
-      timestamp
-      fee
-      fee_asset
-      tx_signature
-      order_id
-      trade_id
-      exchange_account_id
-      market_type
-      exchange_account {
-        id
-        account_identifier
-        account_type
-        exchange {
-          id
-          name
-          display_name
-        }
-      }
-    }
-  }
-`;
-
-export const GET_TRADES_BY_ACCOUNT_WITH_RANGE_FILTER = gql`
-  query GetTradesByAccountWithRangeFilter($accountId: uuid!, $limit: Int!, $offset: Int!, $since: bigint!, $until: bigint!) {
-    trades(
-      where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since, _lte: $until } }
-      limit: $limit
-      offset: $offset
-      order_by: { timestamp: desc }
-    ) {
-      id
-      base_asset
-      quote_asset
-      side
-      price
-      quantity
-      timestamp
-      fee
-      fee_asset
-      tx_signature
-      order_id
-      trade_id
-      exchange_account_id
-      market_type
-      exchange_account {
-        id
-        account_identifier
-        account_type
-        exchange {
-          id
-          name
-          display_name
-        }
-      }
-    }
-  }
-`;
-
-export const GET_TRADES_COUNT = gql`
-  query GetTradesCount {
-    trades_aggregate {
-      aggregate {
-        count
-      }
-    }
-  }
-`;
-
-export const GET_TRADES_COUNT_WITH_FILTER = gql`
-  query GetTradesCountWithFilter($since: bigint!) {
-    trades_aggregate(where: { timestamp: { _gte: $since } }) {
-      aggregate {
-        count
-      }
-    }
-  }
-`;
-
-export const GET_TRADES_COUNT_WITH_RANGE_FILTER = gql`
-  query GetTradesCountWithRangeFilter($since: bigint!, $until: bigint!) {
-    trades_aggregate(where: { timestamp: { _gte: $since, _lte: $until } }) {
-      aggregate {
-        count
-      }
-    }
-  }
-`;
-
-export const GET_TRADES_COUNT_BY_ACCOUNT = gql`
-  query GetTradesCountByAccount($accountId: uuid!) {
-    trades_aggregate(where: { exchange_account_id: { _eq: $accountId } }) {
-      aggregate {
-        count
-      }
-    }
-  }
-`;
-
-export const GET_TRADES_COUNT_BY_ACCOUNT_WITH_FILTER = gql`
-  query GetTradesCountByAccountWithFilter($accountId: uuid!, $since: bigint!) {
-    trades_aggregate(where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since } }) {
-      aggregate {
-        count
-      }
-    }
-  }
-`;
-
-export const GET_TRADES_COUNT_BY_ACCOUNT_WITH_RANGE_FILTER = gql`
-  query GetTradesCountByAccountWithRangeFilter($accountId: uuid!, $since: bigint!, $until: bigint!) {
-    trades_aggregate(where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since, _lte: $until } }) {
-      aggregate {
-        count
-      }
-    }
-  }
-`;
-
 // Trades aggregates interface
 export interface TradesAggregates {
   totalFees: string;
   totalVolume: string;
   count: number;
 }
-
-// Trades aggregate queries
-export const GET_TRADES_AGGREGATES = gql`
-  query GetTradesAggregates {
-    trades_aggregate {
-      aggregate {
-        count
-        sum {
-          fee
-        }
-      }
-    }
-  }
-`;
-
-export const GET_TRADES_AGGREGATES_WITH_FILTER = gql`
-  query GetTradesAggregatesWithFilter($since: bigint!) {
-    trades_aggregate(where: { timestamp: { _gte: $since } }) {
-      aggregate {
-        count
-        sum {
-          fee
-        }
-      }
-    }
-  }
-`;
-
-export const GET_TRADES_AGGREGATES_WITH_RANGE_FILTER = gql`
-  query GetTradesAggregatesWithRangeFilter($since: bigint!, $until: bigint!) {
-    trades_aggregate(where: { timestamp: { _gte: $since, _lte: $until } }) {
-      aggregate {
-        count
-        sum {
-          fee
-        }
-      }
-    }
-  }
-`;
-
-export const GET_TRADES_AGGREGATES_BY_ACCOUNT = gql`
-  query GetTradesAggregatesByAccount($accountId: uuid!) {
-    trades_aggregate(where: { exchange_account_id: { _eq: $accountId } }) {
-      aggregate {
-        count
-        sum {
-          fee
-        }
-      }
-    }
-  }
-`;
-
-export const GET_TRADES_AGGREGATES_BY_ACCOUNT_WITH_FILTER = gql`
-  query GetTradesAggregatesByAccountWithFilter($accountId: uuid!, $since: bigint!) {
-    trades_aggregate(where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since } }) {
-      aggregate {
-        count
-        sum {
-          fee
-        }
-      }
-    }
-  }
-`;
-
-export const GET_TRADES_AGGREGATES_BY_ACCOUNT_WITH_RANGE_FILTER = gql`
-  query GetTradesAggregatesByAccountWithRangeFilter($accountId: uuid!, $since: bigint!, $until: bigint!) {
-    trades_aggregate(where: { exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since, _lte: $until } }) {
-      aggregate {
-        count
-        sum {
-          fee
-        }
-      }
-    }
-  }
-`;
 
 // Funding payment types (now stored in unified transfers table with type="funding")
 export interface FundingPayment {
@@ -744,243 +348,6 @@ export interface FundingPayment {
   event_values?: EventValue[];
 }
 
-// Funding payment queries — now query the transfers table with type="funding"
-// Note: We have two versions - one with date filter and one without
-// This is because Hasura doesn't accept null for bigint _gte comparisons
-export const GET_FUNDING_PAYMENTS = gql`
-  query GetFundingPayments($limit: Int!, $offset: Int!) {
-    transfers(
-      limit: $limit
-      offset: $offset
-      order_by: { timestamp: desc }
-      where: { type: { _eq: "funding" } }
-    ) {
-      id
-      exchange_account_id
-      type
-      asset
-      amount
-      timestamp
-      metadata
-      exchange_account {
-        id
-        account_identifier
-        account_type
-        exchange {
-          id
-          name
-          display_name
-        }
-      }
-    }
-  }
-`;
-
-export const GET_FUNDING_PAYMENTS_WITH_FILTER = gql`
-  query GetFundingPaymentsWithFilter($limit: Int!, $offset: Int!, $since: bigint!) {
-    transfers(
-      limit: $limit
-      offset: $offset
-      order_by: { timestamp: desc }
-      where: { type: { _eq: "funding" }, timestamp: { _gte: $since } }
-    ) {
-      id
-      exchange_account_id
-      type
-      asset
-      amount
-      timestamp
-      metadata
-      exchange_account {
-        id
-        account_identifier
-        account_type
-        exchange {
-          id
-          name
-          display_name
-        }
-      }
-    }
-  }
-`;
-
-export const GET_FUNDING_PAYMENTS_WITH_RANGE_FILTER = gql`
-  query GetFundingPaymentsWithRangeFilter($limit: Int!, $offset: Int!, $since: bigint!, $until: bigint!) {
-    transfers(
-      limit: $limit
-      offset: $offset
-      order_by: { timestamp: desc }
-      where: { type: { _eq: "funding" }, timestamp: { _gte: $since, _lte: $until } }
-    ) {
-      id
-      exchange_account_id
-      type
-      asset
-      amount
-      timestamp
-      metadata
-      exchange_account {
-        id
-        account_identifier
-        account_type
-        exchange {
-          id
-          name
-          display_name
-        }
-      }
-    }
-  }
-`;
-
-export const GET_FUNDING_PAYMENTS_BY_ACCOUNT = gql`
-  query GetFundingPaymentsByAccount($accountId: uuid!, $limit: Int!, $offset: Int!) {
-    transfers(
-      where: { type: { _eq: "funding" }, exchange_account_id: { _eq: $accountId } }
-      limit: $limit
-      offset: $offset
-      order_by: { timestamp: desc }
-    ) {
-      id
-      exchange_account_id
-      type
-      asset
-      amount
-      timestamp
-      metadata
-      exchange_account {
-        id
-        account_identifier
-        account_type
-        exchange {
-          id
-          name
-          display_name
-        }
-      }
-    }
-  }
-`;
-
-export const GET_FUNDING_PAYMENTS_BY_ACCOUNT_WITH_FILTER = gql`
-  query GetFundingPaymentsByAccountWithFilter($accountId: uuid!, $limit: Int!, $offset: Int!, $since: bigint!) {
-    transfers(
-      where: { type: { _eq: "funding" }, exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since } }
-      limit: $limit
-      offset: $offset
-      order_by: { timestamp: desc }
-    ) {
-      id
-      exchange_account_id
-      type
-      asset
-      amount
-      timestamp
-      metadata
-      exchange_account {
-        id
-        account_identifier
-        account_type
-        exchange {
-          id
-          name
-          display_name
-        }
-      }
-    }
-  }
-`;
-
-export const GET_FUNDING_PAYMENTS_BY_ACCOUNT_WITH_RANGE_FILTER = gql`
-  query GetFundingPaymentsByAccountWithRangeFilter($accountId: uuid!, $limit: Int!, $offset: Int!, $since: bigint!, $until: bigint!) {
-    transfers(
-      where: { type: { _eq: "funding" }, exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since, _lte: $until } }
-      limit: $limit
-      offset: $offset
-      order_by: { timestamp: desc }
-    ) {
-      id
-      exchange_account_id
-      type
-      asset
-      amount
-      timestamp
-      metadata
-      exchange_account {
-        id
-        account_identifier
-        account_type
-        exchange {
-          id
-          name
-          display_name
-        }
-      }
-    }
-  }
-`;
-
-export const GET_FUNDING_PAYMENTS_COUNT = gql`
-  query GetFundingPaymentsCount {
-    transfers_aggregate(where: { type: { _eq: "funding" } }) {
-      aggregate {
-        count
-      }
-    }
-  }
-`;
-
-export const GET_FUNDING_PAYMENTS_COUNT_WITH_FILTER = gql`
-  query GetFundingPaymentsCountWithFilter($since: bigint!) {
-    transfers_aggregate(where: { type: { _eq: "funding" }, timestamp: { _gte: $since } }) {
-      aggregate {
-        count
-      }
-    }
-  }
-`;
-
-export const GET_FUNDING_PAYMENTS_COUNT_WITH_RANGE_FILTER = gql`
-  query GetFundingPaymentsCountWithRangeFilter($since: bigint!, $until: bigint!) {
-    transfers_aggregate(where: { type: { _eq: "funding" }, timestamp: { _gte: $since, _lte: $until } }) {
-      aggregate {
-        count
-      }
-    }
-  }
-`;
-
-export const GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT = gql`
-  query GetFundingPaymentsCountByAccount($accountId: uuid!) {
-    transfers_aggregate(where: { type: { _eq: "funding" }, exchange_account_id: { _eq: $accountId } }) {
-      aggregate {
-        count
-      }
-    }
-  }
-`;
-
-export const GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT_WITH_FILTER = gql`
-  query GetFundingPaymentsCountByAccountWithFilter($accountId: uuid!, $since: bigint!) {
-    transfers_aggregate(where: { type: { _eq: "funding" }, exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since } }) {
-      aggregate {
-        count
-      }
-    }
-  }
-`;
-
-export const GET_FUNDING_PAYMENTS_COUNT_BY_ACCOUNT_WITH_RANGE_FILTER = gql`
-  query GetFundingPaymentsCountByAccountWithRangeFilter($accountId: uuid!, $since: bigint!, $until: bigint!) {
-    transfers_aggregate(where: { type: { _eq: "funding" }, exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since, _lte: $until } }) {
-      aggregate {
-        count
-      }
-    }
-  }
-`;
-
 // Funding aggregates interface
 export interface FundingAggregates {
   totalAmount: string;
@@ -990,85 +357,6 @@ export interface FundingAggregates {
   receivedCount: number;
   paidCount: number;
 }
-
-// Funding aggregate queries — now query the transfers table with type="funding"
-export const GET_FUNDING_AGGREGATES = gql`
-  query GetFundingAggregates {
-    transfers_aggregate(where: { type: { _eq: "funding" } }) {
-      aggregate {
-        count
-        sum {
-          amount
-        }
-      }
-    }
-  }
-`;
-
-export const GET_FUNDING_AGGREGATES_WITH_FILTER = gql`
-  query GetFundingAggregatesWithFilter($since: bigint!) {
-    transfers_aggregate(where: { type: { _eq: "funding" }, timestamp: { _gte: $since } }) {
-      aggregate {
-        count
-        sum {
-          amount
-        }
-      }
-    }
-  }
-`;
-
-export const GET_FUNDING_AGGREGATES_WITH_RANGE_FILTER = gql`
-  query GetFundingAggregatesWithRangeFilter($since: bigint!, $until: bigint!) {
-    transfers_aggregate(where: { type: { _eq: "funding" }, timestamp: { _gte: $since, _lte: $until } }) {
-      aggregate {
-        count
-        sum {
-          amount
-        }
-      }
-    }
-  }
-`;
-
-export const GET_FUNDING_AGGREGATES_BY_ACCOUNT = gql`
-  query GetFundingAggregatesByAccount($accountId: uuid!) {
-    transfers_aggregate(where: { type: { _eq: "funding" }, exchange_account_id: { _eq: $accountId } }) {
-      aggregate {
-        count
-        sum {
-          amount
-        }
-      }
-    }
-  }
-`;
-
-export const GET_FUNDING_AGGREGATES_BY_ACCOUNT_WITH_FILTER = gql`
-  query GetFundingAggregatesByAccountWithFilter($accountId: uuid!, $since: bigint!) {
-    transfers_aggregate(where: { type: { _eq: "funding" }, exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since } }) {
-      aggregate {
-        count
-        sum {
-          amount
-        }
-      }
-    }
-  }
-`;
-
-export const GET_FUNDING_AGGREGATES_BY_ACCOUNT_WITH_RANGE_FILTER = gql`
-  query GetFundingAggregatesByAccountWithRangeFilter($accountId: uuid!, $since: bigint!, $until: bigint!) {
-    transfers_aggregate(where: { type: { _eq: "funding" }, exchange_account_id: { _eq: $accountId }, timestamp: { _gte: $since, _lte: $until } }) {
-      aggregate {
-        count
-        sum {
-          amount
-        }
-      }
-    }
-  }
-`;
 
 // Distinct base assets queries
 export const GET_DISTINCT_TRADE_ASSETS = gql`
@@ -1258,14 +546,10 @@ export interface PositionEvent {
 }
 
 // Position aggregates interface
-export interface PositionTypeAggregates {
-  count: number;
-}
-
 export interface PositionsAggregates {
   count: number;
-  perp: PositionTypeAggregates;
-  spot: PositionTypeAggregates;
+  perp: { count: number };
+  spot: { count: number };
 }
 
 // Position queries (new unified schema)
@@ -1442,15 +726,6 @@ export const GET_PNL_BY_MARKET = gql`
   }
 `;
 
-export interface AccountPnLSummary {
-  accountId: string;
-  accountLabel: string;
-  exchangeName: string;
-  realizedPnl: number;
-  totalFees: number;
-  netPnl: number;
-}
-
 export interface AccountPnLDetail {
   accountId: string;
   accountLabel: string;
@@ -1466,26 +741,6 @@ export interface AccountPnLDetail {
   netFlow: { value: number; incomplete: boolean };
   account?: ExchangeAccount;
 }
-
-export const GET_PNL_BY_ACCOUNT = gql`
-  query GetPnLByAccount($where: position_pnl_bool_exp!) {
-    position_pnl(where: $where) {
-      realized_pnl
-      position {
-        exchange_account_id
-      }
-    }
-  }
-`;
-
-export const GET_FEES_BY_ACCOUNT = gql`
-  query GetFeesByAccount($where: trades_bool_exp!) {
-    trades(where: $where) {
-      exchange_account_id
-      fee
-    }
-  }
-`;
 
 export const GET_PNL_DETAIL_BY_ACCOUNT = gql`
   query GetPnLDetailByAccount($where: position_pnl_bool_exp!) {
@@ -1584,6 +839,131 @@ export const GET_DISTINCT_TRANSFER_ASSETS = gql`
   query GetDistinctTransferAssets {
     transfers(distinct_on: asset, order_by: { asset: asc }) {
       asset
+    }
+  }
+`;
+
+// Settlement types (async PnL credits — e.g. Drift settles perp PnL to spot balance)
+export interface Settlement {
+  id: string;
+  exchange_account_id: string;
+  asset: string;
+  amount: string; // signed numeric
+  market: string;
+  timestamp: number; // Unix milliseconds (BIGINT)
+  settlement_id: string;
+  external_id: string;
+  exchange_account?: ExchangeAccount;
+  event_values?: EventValue[];
+}
+
+export const GET_SETTLEMENTS_DYNAMIC = gql`
+  query GetSettlements($where: settlements_bool_exp!, $limit: Int!, $offset: Int!, $order_by: [settlements_order_by!]!) {
+    settlements(where: $where, limit: $limit, offset: $offset, order_by: $order_by) {
+      id
+      exchange_account_id
+      asset
+      amount
+      market
+      timestamp
+      settlement_id
+      external_id
+      exchange_account {
+        id
+        account_identifier
+        account_type
+        label
+        exchange {
+          id
+          name
+          display_name
+        }
+        wallet {
+          label
+        }
+      }
+      event_values {
+        denomination
+        quantity
+      }
+    }
+    settlements_aggregate(where: $where) {
+      aggregate {
+        count
+      }
+    }
+  }
+`;
+
+// Unified event type (rows from the `events` view — UNION of trades,
+// transfers, and settlements). Columns that don't exist on every source
+// table are nullable. The `type` discriminator determines which fields are
+// meaningful for a given row.
+export interface UnifiedEvent {
+  id: string;
+  type: string; // "trade" | "deposit" | "withdraw" | "funding" | "interest" | "reward" | "if_stake" | "if_unstake" | "settlement"
+  exchange_account_id: string;
+  asset: string;
+  quote_asset: string | null;
+  side: "buy" | "sell" | null;
+  amount: string;
+  price: string | null;
+  fee: string | null;
+  fee_asset: string | null;
+  market_type: "perp" | "spot" | "swap" | null;
+  market: string | null;
+  timestamp: number;
+  metadata: Record<string, unknown> | null;
+  exchange_account?: ExchangeAccount;
+  event_values?: EventValue[];
+}
+
+export const GET_EVENTS_DYNAMIC = gql`
+  query GetEvents(
+    $where: events_bool_exp!
+    $order_by: [events_order_by!]!
+    $limit: Int!
+    $offset: Int!
+  ) {
+    events(where: $where, order_by: $order_by, limit: $limit, offset: $offset) {
+      id
+      type
+      exchange_account_id
+      asset
+      quote_asset
+      side
+      amount
+      price
+      fee
+      fee_asset
+      market_type
+      market
+      timestamp
+      metadata
+      exchange_account {
+        id
+        account_identifier
+        label
+        exchange {
+          id
+          name
+          display_name
+        }
+        wallet {
+          chain
+          address
+          label
+        }
+      }
+      event_values {
+        denomination
+        quantity
+      }
+    }
+    events_aggregate(where: $where) {
+      aggregate {
+        count
+      }
     }
   }
 `;
