@@ -404,6 +404,11 @@ export const mockApi: ApiClient = {
     };
   },
 
+  async resetAccount(id: string): Promise<{ id: string }> {
+    await delay(200);
+    return { id };
+  },
+
   // A6.3: Per-asset funding breakdown mock
   async getFundingByAssetBreakdown(filters?: DataFilters): Promise<FundingAssetBreakdown[]> {
     await delay(300);

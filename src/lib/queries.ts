@@ -35,6 +35,8 @@ export interface ExchangeAccount {
   label?: string;
   exchange?: Exchange;
   wallet?: Wallet;
+  sync_reset_requested?: boolean;
+  processor_reset_requested?: boolean;
   processor_checkpoint?: ProcessorCheckpoint | null;
   trades_aggregate?: { aggregate: { count: number } };
   positions_aggregate?: { aggregate: { count: number } };
@@ -84,6 +86,8 @@ export const GET_ACCOUNTS = gql`
       status
       sync_enabled
       processing_enabled
+      sync_reset_requested
+      processor_reset_requested
       detected_at
       last_synced_at
       last_sync_error
@@ -289,6 +293,19 @@ export const UPDATE_ACCOUNT_TOGGLES = gql`
       id
       sync_enabled
       processing_enabled
+    }
+  }
+`;
+
+export const RESET_ACCOUNT = gql`
+  mutation ResetAccount($id: uuid!) {
+    update_exchange_accounts_by_pk(
+      pk_columns: { id: $id }
+      _set: { sync_reset_requested: true, processor_reset_requested: true, sync_enabled: true, processing_enabled: true }
+    ) {
+      id
+      sync_reset_requested
+      processor_reset_requested
     }
   }
 `;

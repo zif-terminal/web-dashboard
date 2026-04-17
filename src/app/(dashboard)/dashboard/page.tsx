@@ -20,7 +20,19 @@ import { formatNumber, formatSignedNumber, truncateAddress, getDisplayName, pnlC
 import { Position, AccountPnLDetail, Wallet } from "@/lib/queries";
 import { ExchangeBadge } from "@/components/exchange-badge";
 import { ChainBadge } from "@/components/chain-badge";
-import { Info, Check, X, AlertTriangle } from "lucide-react";
+import { Info, Check, X, AlertTriangle, RotateCcw, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import {
   Tooltip,
   TooltipContent,
@@ -36,6 +48,7 @@ export default function DashboardPage() {
   const [isLoadingPositions, setIsLoadingPositions] = useState(true);
   const [isLoadingPnl, setIsLoadingPnl] = useState(true);
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set());
+  const [resettingId, setResettingId] = useState<string | null>(null);
 
   // Group open positions by exchange_account_id
   const groupedPositions = useMemo(() => {
@@ -117,6 +130,25 @@ export default function DashboardPage() {
       });
     }
   }, []);
+
+  const handleReset = useCallback(async (accountId: string) => {
+    setResettingId(accountId);
+    try {
+      await api.resetAccount(accountId);
+      // Optimistically update local state to show resetting indicator immediately
+      setAccountPnl((prev) =>
+        prev.map((row) => {
+          if (row.accountId !== accountId || !row.account) return row;
+          return { ...row, account: { ...row.account, sync_reset_requested: true, processor_reset_requested: true } };
+        }),
+      );
+      await fetchData();
+    } catch (error) {
+      console.error(`Failed to reset account ${accountId}:`, error);
+    } finally {
+      setResettingId(null);
+    }
+  }, [fetchData]);
 
   const toggleAll = useCallback(async (field: "sync" | "processing") => {
     const allEnabled = accountPnl.every((row) =>
@@ -395,6 +427,7 @@ export default function DashboardPage() {
                         </TooltipContent>
                       </Tooltip>
                     </TableHead>
+                    <TableHead className="text-xs text-center">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -406,7 +439,7 @@ export default function DashboardPage() {
                     return (
                       <Fragment key={group.label}>
                         <TableRow className="hover:bg-transparent">
-                          <TableCell colSpan={10} className="py-1.5 bg-muted/50 border-b">
+                          <TableCell colSpan={11} className="py-1.5 bg-muted/50 border-b">
                             <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                               {group.label}
                             </span>
@@ -611,6 +644,66 @@ export default function DashboardPage() {
                                     </Tooltip>
                                   );
                                 })()}
+                              </TableCell>
+                              <TableCell className="py-1.5 text-center">
+                                {row.account?.sync_reset_requested || row.account?.processor_reset_requested ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6"
+                                        disabled
+                                      >
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top">
+                                      <p className="text-xs">Reset in progress...</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                ) : (
+                                <AlertDialog>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <AlertDialogTrigger asChild>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-6 w-6"
+                                          disabled={resettingId === row.accountId}
+                                        >
+                                          {resettingId === row.accountId ? (
+                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                          ) : (
+                                            <RotateCcw className="h-3.5 w-3.5" />
+                                          )}
+                                        </Button>
+                                      </AlertDialogTrigger>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top">
+                                      <p className="text-xs">Reset account data</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                  <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>Reset Account</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                        Reset all data for {accountLabel}? This will delete all synced and processed data. The account will resync from scratch.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                      <AlertDialogAction
+                                        onClick={() => handleReset(row.accountId)}
+                                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                      >
+                                        Reset
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                                )}
                               </TableCell>
                             </TableRow>
                           );

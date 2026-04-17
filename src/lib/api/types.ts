@@ -80,6 +80,7 @@ export interface ApiClient {
     id: string,
     toggles: { sync?: boolean; processing?: boolean },
   ): Promise<{ id: string; sync_enabled: boolean; processing_enabled: boolean }>;
+  resetAccount(id: string): Promise<{ id: string }>;
   // A6.3: Per-asset funding breakdown
   getFundingByAssetBreakdown(filters?: DataFilters): Promise<FundingAssetBreakdown[]>;
   // Portfolio / Positions
