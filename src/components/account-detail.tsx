@@ -11,6 +11,9 @@ import { LoadingButton } from "@/components/ui/loading-button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SyncButton } from "@/components/sync-button";
+import { OmniCsvUpload } from "@/components/omni-csv-upload";
+import { ApiKeySetup, ApiKeyConnectedBadge } from "@/components/api-key-setup";
+import { PipelineStatusCard } from "@/components/pipeline-status";
 import {
   Card,
   CardContent,
@@ -40,6 +43,8 @@ export function AccountDetail({ accountId }: AccountDetailProps) {
   const [account, setAccount] = useState<ExchangeAccount | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isUpdatingSync, setIsUpdatingSync] = useState(false);
+  const [isUpdatingProcessing, setIsUpdatingProcessing] = useState(false);
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -56,6 +61,38 @@ export function AccountDetail({ accountId }: AccountDetailProps) {
       console.error(err);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleToggleSync = async () => {
+    if (!account) return;
+    const wasEnabled = account.sync_enabled;
+    setIsUpdatingSync(true);
+    try {
+      await api.updateAccountToggles(account.id, { sync: !wasEnabled });
+      toast.success(wasEnabled ? "Sync paused" : "Sync resumed");
+      await fetchAccount();
+    } catch (error) {
+      toast.error("Failed to update sync");
+      console.error(error);
+    } finally {
+      setIsUpdatingSync(false);
+    }
+  };
+
+  const handleToggleProcessing = async () => {
+    if (!account) return;
+    const wasEnabled = account.processing_enabled;
+    setIsUpdatingProcessing(true);
+    try {
+      await api.updateAccountToggles(account.id, { processing: !wasEnabled });
+      toast.success(wasEnabled ? "Processing paused" : "Processing resumed");
+      await fetchAccount();
+    } catch (error) {
+      toast.error("Failed to update processing");
+      console.error(error);
+    } finally {
+      setIsUpdatingProcessing(false);
     }
   };
 
@@ -140,9 +177,55 @@ export function AccountDetail({ accountId }: AccountDetailProps) {
               <p className="text-sm font-medium text-muted-foreground">
                 Account Type
               </p>
-              <Badge variant="secondary" className="mt-1">
-                {account.account_type}
-              </Badge>
+              <div className="flex items-center gap-2 mt-1">
+                <Badge variant="secondary">
+                  {account.account_type}
+                </Badge>
+                {account.exchange?.requires_api_key && account.status !== "needs_token" && (
+                  <ApiKeyConnectedBadge />
+                )}
+              </div>
+            </div>
+            <div className="md:col-span-2">
+              <p className="text-sm font-medium text-muted-foreground">
+                Pipeline Toggles
+              </p>
+              <div className="flex flex-wrap items-center gap-3 mt-1">
+                <Badge variant={account.sync_enabled ? "default" : "secondary"}>
+                  {account.sync_enabled ? "Sync On" : "Sync Off"}
+                </Badge>
+                <Badge
+                  variant={account.processing_enabled ? "default" : "secondary"}
+                >
+                  {account.processing_enabled
+                    ? "Processing On"
+                    : "Processing Off"}
+                </Badge>
+                <LoadingButton
+                  size="sm"
+                  variant={account.sync_enabled ? "outline" : "default"}
+                  loading={isUpdatingSync}
+                  onClick={handleToggleSync}
+                  disabled={account.status === "needs_token"}
+                >
+                  {account.sync_enabled ? "Pause Sync" : "Resume Sync"}
+                </LoadingButton>
+                <LoadingButton
+                  size="sm"
+                  variant={account.processing_enabled ? "outline" : "default"}
+                  loading={isUpdatingProcessing}
+                  onClick={handleToggleProcessing}
+                >
+                  {account.processing_enabled
+                    ? "Pause Processing"
+                    : "Resume Processing"}
+                </LoadingButton>
+                {account.status === "needs_token" && (
+                  <span className="text-sm text-muted-foreground">
+                    API key required — set up below to enable sync.
+                  </span>
+                )}
+              </div>
             </div>
             {account.wallet?.label && (
               <div>
@@ -163,19 +246,47 @@ export function AccountDetail({ accountId }: AccountDetailProps) {
               </p>
             </div>
             {account.account_type_metadata &&
-              Object.keys(account.account_type_metadata).length > 0 && (
-                <div className="md:col-span-2">
-                  <p className="text-sm font-medium text-muted-foreground">
-                    Metadata
-                  </p>
-                  <pre className="mt-1 p-3 bg-muted rounded-md text-sm overflow-auto">
-                    {JSON.stringify(account.account_type_metadata, null, 2)}
-                  </pre>
-                </div>
-              )}
+              (() => {
+                // Filter out sensitive fields before displaying
+                const { api_key: _, ...displayMeta } = account.account_type_metadata as Record<string, unknown>;
+                return Object.keys(displayMeta).length > 0 ? (
+                  <div className="md:col-span-2">
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Metadata
+                    </p>
+                    <pre className="mt-1 p-3 bg-muted rounded-md text-sm overflow-auto">
+                      {JSON.stringify(displayMeta, null, 2)}
+                    </pre>
+                  </div>
+                ) : null;
+              })()}
           </div>
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Pipeline Status</CardTitle>
+          <CardDescription>
+            Sync and processing status for this account
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PipelineStatusCard account={account} />
+        </CardContent>
+      </Card>
+
+      {account.status === "needs_token" && (
+        <ApiKeySetup
+          accountId={account.id}
+          exchangeName={account.exchange?.display_name || "This exchange"}
+          onSuccess={fetchAccount}
+        />
+      )}
+
+      {account.exchange?.name === "variational" && (
+        <OmniCsvUpload exchangeAccountId={accountId} />
+      )}
 
       <Card className="border-destructive">
         <CardHeader>

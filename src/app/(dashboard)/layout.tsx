@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
@@ -9,7 +9,8 @@ import { useDenomination } from "@/contexts/denomination-context";
 import { useAccountFilter } from "@/contexts/account-filter-context";
 import { useDateRange } from "@/contexts/date-range-context";
 import { DateRangeFilter } from "@/components/date-range-filter";
-import { ExchangeAccount } from "@/lib/queries";
+import { ExchangeAccount, EventDateRange } from "@/lib/queries";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { TagFilter } from "@/components/tag-filter";
@@ -32,7 +33,6 @@ const navigation = [
   { name: "Dashboard", href: "/dashboard" },
   { name: "Positions", href: "/positions" },
   { name: "Activity", href: "/activity" },
-  { name: "Analytics", href: "/analytics" },
   { name: "Accounts", href: "/accounts" },
 ];
 
@@ -41,6 +41,15 @@ function accountDisplayName(acct: ExchangeAccount): string {
   if (acct.label) return `${acct.label} (${exchange})`;
   if (acct.wallet?.label) return `${acct.wallet.label} - ${acct.account_identifier.slice(0, 6)}... (${exchange})`;
   return `${acct.account_identifier.slice(0, 8)}... (${exchange})`;
+}
+
+function computeYearOptions(range: EventDateRange | null): number[] {
+  if (!range || range.earliest === null || range.latest === null) return [];
+  const startYear = new Date(range.earliest).getFullYear();
+  const endYear = new Date(range.latest).getFullYear();
+  const years: number[] = [];
+  for (let y = startYear; y <= endYear; y++) years.push(y);
+  return years;
 }
 
 function AccountSelector() {
@@ -106,7 +115,36 @@ export default function DashboardLayout({
     useGlobalTags();
   const { denomination, supportedDenominations, setDenomination } = useDenomination();
   const { dateRange, setDateRange } = useDateRange();
+  const { selectedAccountIds } = useAccountFilter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [yearOptions, setYearOptions] = useState<number[]>([]);
+  const [isLoadingYears, setIsLoadingYears] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const filters = selectedAccountIds.length > 0 ? { accountIds: selectedAccountIds } : undefined;
+    const promise = api.getEventDateRange(filters);
+    promise
+      .then((range) => {
+        if (!cancelled) {
+          setYearOptions(computeYearOptions(range));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setYearOptions([]);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingYears(false);
+      });
+    return () => { cancelled = true; };
+  }, [selectedAccountIds]);
+
+  // Reset loading state when the fetch dependency changes
+  const [prevAccountIds, setPrevAccountIds] = useState(selectedAccountIds);
+  if (prevAccountIds !== selectedAccountIds) {
+    setPrevAccountIds(selectedAccountIds);
+    setIsLoadingYears(true);
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -222,7 +260,7 @@ export default function DashboardLayout({
         {/* Global filters bar */}
         <div className="border-t bg-muted/30">
           <div className="container mx-auto px-4 py-2 flex flex-wrap items-center gap-2 justify-between">
-            <DateRangeFilter value={dateRange} onChange={setDateRange} />
+            <DateRangeFilter value={dateRange} onChange={setDateRange} yearOptions={yearOptions} isLoadingYears={isLoadingYears} />
             <div className="flex items-center gap-2">
               <AccountSelector />
               <TagFilter

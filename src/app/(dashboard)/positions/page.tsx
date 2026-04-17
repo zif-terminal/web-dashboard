@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, Fragment } from "react";
 import { api } from "@/lib/api";
 import { useGlobalFilters } from "@/hooks/use-global-filters";
+import { useDenomination } from "@/contexts/denomination-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ import { formatNumber, formatSignedNumber, formatTimestamp, getDisplayName } fro
 import { Position, PositionPnL, PositionsAggregates } from "@/lib/queries";
 
 const CLOSED_PAGE_SIZE = 50;
+const HIDE_USDC_POSITIONS_KEY = "zif:hideUsdcPositions";
 
 function formatUSD(value: string | number, decimals = 2): string {
   const num = typeof value === "number" ? value : parseFloat(value);
@@ -35,11 +37,11 @@ function formatPrice(value: string, quoteAsset: string): string {
   return `${formatUSD(value)} ${quoteAsset}`;
 }
 
-function getUsdcPnl(pnl?: PositionPnL[]): number | null {
+function getDenominationPnl(pnl: PositionPnL[] | undefined, denomination: string): number | null {
   if (!pnl) return null;
-  const usdc = pnl.find((p) => p.denomination === "USDC");
-  if (!usdc) return null;
-  const val = parseFloat(usdc.realized_pnl);
+  const match = pnl.find((p) => p.denomination === denomination);
+  if (!match) return null;
+  const val = parseFloat(match.realized_pnl);
   return isNaN(val) ? null : val;
 }
 
@@ -48,6 +50,7 @@ type Tab = "open" | "closed";
 
 export default function PositionsPage() {
   const { buildFilters } = useGlobalFilters();
+  const { denomination } = useDenomination();
 
   const [tab, setTab] = useState<Tab>("open");
   const [sortColumn, setSortColumn] = useState<SortColumn>("end_time");
@@ -61,6 +64,25 @@ export default function PositionsPage() {
   const [closedPage, setClosedPage] = useState(0);
   const [isLoadingClosed, setIsLoadingClosed] = useState(true);
   const [closedAggregates, setClosedAggregates] = useState<PositionsAggregates | null>(null);
+
+  const [hideUsdcPositions, setHideUsdcPositions] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem(HIDE_USDC_POSITIONS_KEY) === "true";
+    }
+    return false;
+  });
+
+  const toggleHideUsdc = () => {
+    setHideUsdcPositions((prev) => {
+      const next = !prev;
+      localStorage.setItem(HIDE_USDC_POSITIONS_KEY, String(next));
+      return next;
+    });
+  };
+
+  const isUsdcSpot = (pos: Position) => pos.market === "USDC" && pos.market_type === "spot";
+  const filterPositions = (positions: Position[]) =>
+    hideUsdcPositions ? positions.filter((pos) => !isUsdcSpot(pos)) : positions;
 
   const [expandedPositionId, setExpandedPositionId] = useState<string | null>(null);
   const [expandedTab, setExpandedTab] = useState<"trades" | "funding">("trades");
@@ -128,7 +150,18 @@ export default function PositionsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <h1 className="text-2xl font-bold">Positions</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Positions</h1>
+        <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={hideUsdcPositions}
+            onChange={toggleHideUsdc}
+            className="rounded border-border"
+          />
+          Hide USDC Positions
+        </label>
+      </div>
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-border">
@@ -164,7 +197,7 @@ export default function PositionsPage() {
               <div className="space-y-2">
                 {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
               </div>
-            ) : openPositions.length === 0 ? (
+            ) : filterPositions(openPositions).length === 0 ? (
               <p className="text-sm text-muted-foreground py-8 text-center">No open positions</p>
             ) : (
               <Table>
@@ -178,7 +211,7 @@ export default function PositionsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {openPositions.map((pos) => {
+                  {filterPositions(openPositions).map((pos) => {
                     const events = pos.position_events || [];
                     const isExpanded = expandedPositionId === pos.id;
                     const entryEvents = events.filter((e) => e.direction === "entry");
@@ -293,7 +326,7 @@ export default function PositionsPage() {
           <CardContent className="px-2 md:px-6">
             {isLoadingClosed && closedPositions.length === 0 ? (
               <p className="text-sm text-muted-foreground py-4 text-center">Loading...</p>
-            ) : closedPositions.length === 0 ? (
+            ) : filterPositions(closedPositions).length === 0 ? (
               <p className="text-sm text-muted-foreground py-8 text-center">No closed positions</p>
             ) : (
               <div className="space-y-4">
@@ -310,7 +343,7 @@ export default function PositionsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {closedPositions.map((pos) => {
+                    {filterPositions(closedPositions).map((pos) => {
                       const isExpanded = expandedPositionId === pos.id;
                       const events = pos.position_events || [];
                       const tradeEvents = events.filter((e) => e.event_type === "trade" || e.event_type === "interest" || e.event_type === "transfer");
@@ -348,7 +381,7 @@ export default function PositionsPage() {
                             <TableCell className="py-3 text-sm text-muted-foreground">{pos.end_time ? formatTimestamp(pos.end_time) : "-"}</TableCell>
                             <TableCell className="py-3 text-right font-mono">
                               {(() => {
-                                const pnl = getUsdcPnl(pos.position_pnl);
+                                const pnl = getDenominationPnl(pos.position_pnl, denomination);
                                 if (pnl === null) return <span className="text-muted-foreground">-</span>;
                                 return (
                                   <span className={pnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>

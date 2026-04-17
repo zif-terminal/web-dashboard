@@ -27,6 +27,17 @@ interface DateRangeFilterProps {
   /** Which timestamp field positions are filtered by ("end_time" = closed date, "start_time" = opened date) */
   timeField?: "start_time" | "end_time";
   onTimeFieldChange?: (field: "start_time" | "end_time") => void;
+  yearOptions?: number[];
+  isLoadingYears?: boolean;
+}
+
+function isYearSelected(value: DateRangeValue, year: number): boolean {
+  if (value.preset !== "custom" || !value.customRange) return false;
+  const { from, to } = value.customRange;
+  return (
+    from.getFullYear() === year && from.getMonth() === 0 && from.getDate() === 1 &&
+    to.getFullYear() === year && to.getMonth() === 11 && to.getDate() === 31
+  );
 }
 
 const presets: { value: DateRangePreset; label: string }[] = [
@@ -75,6 +86,8 @@ export function DateRangeFilter({
   className,
   timeField,
   onTimeFieldChange,
+  yearOptions,
+  isLoadingYears,
 }: DateRangeFilterProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [tempRange, setTempRange] = useState<DateRange | undefined>(
@@ -202,6 +215,29 @@ export function DateRangeFilter({
         </PopoverContent>
       </Popover>
       </div>
+      {yearOptions && yearOptions.length > 0 && !isLoadingYears && (
+        <div className="flex items-center gap-0.5 sm:gap-1 w-full sm:w-auto">
+          {yearOptions.map((year) => (
+            <button
+              key={year}
+              onClick={() =>
+                onChange({
+                  preset: "custom",
+                  customRange: { from: new Date(year, 0, 1), to: new Date(year, 11, 31) },
+                })
+              }
+              className={cn(
+                "flex-1 sm:flex-none px-2 sm:px-3 py-1.5 text-xs sm:text-sm font-medium rounded-md transition-colors",
+                isYearSelected(value, year)
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+              )}
+            >
+              {year}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

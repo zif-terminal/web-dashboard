@@ -1,31 +1,8 @@
-import { Exchange, ExchangeAccount, ExchangeAccountType, Trade, TradesAggregates, FundingPayment, FundingAggregates, Wallet, WalletWithAccounts, Transfer, TransfersSummary, FundingAssetBreakdown, ExchangeFundingBreakdown, InterestByAsset, Position, PositionsAggregates, PnLAggregates, PositionPnLPoint, TimeSeriesPoint } from "../queries";
-
-export interface CreateAccountInput {
-  exchange_id: string;
-  account_identifier: string;
-  account_type: string;
-  account_type_metadata: Record<string, unknown>;
-  wallet_id?: string;
-  status?: string;
-}
+import { ExchangeAccount, Trade, Wallet, WalletWithAccounts, Transfer, Settlement, UnifiedEvent, FundingAssetBreakdown, Position, PositionsAggregates, AccountPnLDetail, EventDateRange } from "../queries";
 
 export interface CreateWalletInput {
   address: string;
   chain: string;
-}
-
-export interface WalletChallengeResponse {
-  nonce: string;
-  message: string;
-}
-
-export interface WalletVerifyResponse {
-  wallet_id: string;
-  address: string;
-  chain: string;
-  verified: boolean;
-  method?: string;
-  message?: string;
 }
 
 export interface TradesResult {
@@ -33,13 +10,18 @@ export interface TradesResult {
   totalCount: number;
 }
 
-export interface FundingPaymentsResult {
-  fundingPayments: FundingPayment[];
+export interface TransfersResult {
+  transfers: Transfer[];
   totalCount: number;
 }
 
-export interface TransfersResult {
-  transfers: Transfer[];
+export interface SettlementsResult {
+  settlements: Settlement[];
+  totalCount: number;
+}
+
+export interface EventsResult {
+  events: UnifiedEvent[];
   totalCount: number;
 }
 
@@ -69,47 +51,42 @@ export interface DataFilters {
   sort?: SortConfig;
   markets?: string[];
   transferTypes?: string[];
+  /** Event type discriminator used by the unified events view
+   *  (trade | deposit | withdraw | funding | interest | reward |
+   *   if_stake | if_unstake | settlement). */
+  eventTypes?: string[];
+  denomination?: string;
 }
 
 export interface ApiClient {
-  getExchanges(): Promise<Exchange[]>;
-  getAccountTypes(): Promise<ExchangeAccountType[]>;
   getAccounts(): Promise<ExchangeAccount[]>;
   getAccountById(id: string): Promise<ExchangeAccount | null>;
-  createAccount(input: CreateAccountInput): Promise<ExchangeAccount>;
   deleteAccount(id: string): Promise<{ id: string }>;
-  getDistinctBaseAssets(type: "trades" | "funding" | "positions"): Promise<string[]>;
   getTrades(limit: number, offset: number, filters?: DataFilters): Promise<TradesResult>;
-  getTradesAggregates(filters?: DataFilters): Promise<TradesAggregates>;
-  getFundingPayments(limit: number, offset: number, filters?: DataFilters): Promise<FundingPaymentsResult>;
-  getFundingAggregates(filters?: DataFilters): Promise<FundingAggregates>;
-  getFundingAggregatesByExchange(filters?: DataFilters): Promise<ExchangeFundingBreakdown[]>;
   // Transfer methods
   getTransfers(limit: number, offset: number, filters?: DataFilters): Promise<TransfersResult>;
-  getTransfersSummary(filters?: DataFilters): Promise<TransfersSummary>;
-  getInterestByAsset(filters?: DataFilters): Promise<InterestByAsset[]>;
-  getDistinctTransferAssets(): Promise<string[]>;
+  // Settlement methods
+  getSettlements(limit: number, offset: number, filters?: DataFilters): Promise<SettlementsResult>;
+  // Unified events (trades + transfers + settlements)
+  getEvents(limit: number, offset: number, filters?: DataFilters): Promise<EventsResult>;
   // Wallet methods
-  getWallets(): Promise<Wallet[]>;
   getWalletsWithCounts(): Promise<WalletWithAccounts[]>;
   createWallet(input: CreateWalletInput): Promise<Wallet>;
   deleteWallet(id: string): Promise<{ id: string }>;
   updateAccountTags(id: string, tags: string[]): Promise<{ id: string; tags: string[] }>;
   updateWalletLabel(id: string, label: string | null): Promise<{ id: string; label: string | null }>;
-  // Wallet ownership verification (A2.1)
-  requestWalletChallenge(address: string, chain: string): Promise<WalletChallengeResponse>;
-  verifyWalletSignature(address: string, chain: string, signature: string, nonce: string): Promise<WalletVerifyResponse>;
-  verifyWalletAPIKey(address: string, chain: string, apiKey: string): Promise<WalletVerifyResponse>;
   updateAccountLabel(id: string, label: string | null): Promise<{ id: string; label: string | null }>;
+  updateAccountToggles(
+    id: string,
+    toggles: { sync?: boolean; processing?: boolean },
+  ): Promise<{ id: string; sync_enabled: boolean; processing_enabled: boolean }>;
   // A6.3: Per-asset funding breakdown
   getFundingByAssetBreakdown(filters?: DataFilters): Promise<FundingAssetBreakdown[]>;
   // Portfolio / Positions
   getOpenPositions(filters?: DataFilters): Promise<Position[]>;
   getPositions(limit: number, offset: number, filters?: DataFilters): Promise<PositionsResult>;
   getPositionsAggregates(filters?: DataFilters): Promise<PositionsAggregates>;
-  getPnLAggregates(filters?: DataFilters): Promise<PnLAggregates>;
-  getPositionsPnLChart(filters?: DataFilters, denomination?: string): Promise<PositionPnLPoint[]>;
-  getFundingChartData(filters?: DataFilters): Promise<TimeSeriesPoint[]>;
-  getFeesChartData(filters?: DataFilters): Promise<TimeSeriesPoint[]>;
+  getPnLDetailByAccount(filters?: DataFilters): Promise<AccountPnLDetail[]>;
   getSupportedDenominations(): Promise<string[]>;
+  getEventDateRange(filters?: DataFilters): Promise<EventDateRange>;
 }

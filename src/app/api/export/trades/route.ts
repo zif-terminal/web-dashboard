@@ -16,6 +16,8 @@ interface TradeRow {
   quantity: string;
   price: string;
   fee: string;
+  fee_asset: string;
+  tx_signature: string;
   order_id: string;
   trade_id: string;
   exchange_account: {
@@ -37,6 +39,8 @@ const TRADES_QUERY = `
       quantity
       price
       fee
+      fee_asset
+      tx_signature
       order_id
       trade_id
       exchange_account {
@@ -153,6 +157,8 @@ function tradesToCsv(trades: TradeRow[]): string {
     "price",
     "total_value",
     "fee",
+    "fee_asset",
+    "tx_signature",
     "order_id",
     "trade_id",
   ];
@@ -173,6 +179,8 @@ function tradesToCsv(trades: TradeRow[]): string {
       t.price,
       totalValue,
       t.fee,
+      t.fee_asset || "",
+      t.tx_signature || "",
       t.order_id || "",
       t.trade_id || "",
     ].map((v) => escapeCsvField(String(v)));
@@ -200,6 +208,8 @@ function tradesToJson(
       price: t.price,
       total_value: (qty * price).toFixed(6),
       fee: t.fee,
+      fee_asset: t.fee_asset || null,
+      tx_signature: t.tx_signature || null,
       order_id: t.order_id || null,
       trade_id: t.trade_id || null,
     };

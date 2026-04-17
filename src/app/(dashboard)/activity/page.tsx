@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
 import { useGlobalFilters } from "@/hooks/use-global-filters";
 import { useDenomination } from "@/contexts/denomination-context";
-import { StatCard, StatsGrid } from "@/components/stat-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,33 +18,25 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { formatNumber, formatTimestamp, formatCurrency } from "@/lib/format";
-import { Trade, Transfer, EventValue } from "@/lib/queries";
+import { EventValue, UnifiedEvent } from "@/lib/queries";
 
-type EventType = "trade" | "deposit" | "withdraw" | "funding" | "interest" | "settlement" | "reward" | "if_stake" | "if_unstake";
+type EventTypeFilter =
+  | "all"
+  | "trade"
+  | "deposit"
+  | "withdraw"
+  | "funding"
+  | "interest"
+  | "settlement";
 
-interface UnifiedEvent {
-  id: string;
-  type: EventType;
-  timestamp: number;
-  asset: string;
-  amount: string;
-  side?: string;
-  price?: string;
-  valueUSDC?: string;
-  account?: string;
-  exchange?: string;
-  marketType?: string;
-  quoteAsset?: string;
-  market?: string;
-}
-
-const EVENT_TYPES: { value: EventType | "all"; label: string }[] = [
+const EVENT_TYPES: { value: EventTypeFilter; label: string }[] = [
   { value: "all", label: "All" },
   { value: "trade", label: "Trades" },
   { value: "deposit", label: "Deposits" },
   { value: "withdraw", label: "Withdrawals" },
   { value: "funding", label: "Funding" },
   { value: "interest", label: "Interest" },
+  { value: "settlement", label: "Settlements" },
 ];
 
 const TYPE_COLORS: Record<string, string> = {
@@ -68,47 +59,35 @@ function getEventValue(eventValues: EventValue[] | undefined, denomination: stri
   return match?.quantity;
 }
 
+// Map the filter chip value to the list of DB `type` values to pass as a
+// where clause. "all" means no filter; "trade" and "settlement" are
+// single-value; transfer-backed chips pass the exact transfer type.
+function filterToEventTypes(filter: EventTypeFilter): string[] | undefined {
+  if (filter === "all") return undefined;
+  return [filter];
+}
+
 export default function ActivityPage() {
   const { buildFilters } = useGlobalFilters();
   const { denomination } = useDenomination();
 
-  const [typeFilter, setTypeFilter] = useState<EventType | "all">("all");
-  const [trades, setTrades] = useState<Trade[]>([]);
-  const [transfers, setTransfers] = useState<Transfer[]>([]);
+  const [typeFilter, setTypeFilter] = useState<EventTypeFilter>("all");
+  const [events, setEvents] = useState<UnifiedEvent[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
-  const [tradePage, setTradePage] = useState(0);
-  const [transferPage, setTransferPage] = useState(0);
-  const [hasMoreTrades, setHasMoreTrades] = useState(true);
-  const [hasMoreTransfers, setHasMoreTransfers] = useState(true);
+  const [offset, setOffset] = useState(0);
 
   const fetchData = useCallback(async () => {
     const filters = buildFilters();
+    const eventTypes = filterToEventTypes(typeFilter);
 
     setIsLoading(true);
-    setTradePage(0);
-    setTransferPage(0);
+    setOffset(0);
 
     try {
-      const showTrades = typeFilter === "all" || typeFilter === "trade";
-      const showTransfers = typeFilter === "all" || typeFilter !== "trade";
-
-      const transferTypes = typeFilter === "all" ? undefined :
-        typeFilter === "trade" ? undefined :
-        [typeFilter];
-
-      const [tradeResult, transferResult] = await Promise.all([
-        showTrades
-          ? api.getTrades(PAGE_SIZE, 0, filters)
-          : Promise.resolve({ trades: [], totalCount: 0 }),
-        showTransfers
-          ? api.getTransfers(PAGE_SIZE, 0, { ...filters, transferTypes })
-          : Promise.resolve({ transfers: [], totalCount: 0 }),
-      ]);
-
-      setTrades(tradeResult.trades);
-      setTransfers(transferResult.transfers);
-      setHasMoreTrades(tradeResult.trades.length === PAGE_SIZE);
-      setHasMoreTransfers(transferResult.transfers.length === PAGE_SIZE);
+      const result = await api.getEvents(PAGE_SIZE, 0, { ...filters, eventTypes });
+      setEvents(result.events);
+      setTotalCount(result.totalCount);
     } catch (error) {
       console.error("Failed to fetch activity:", error);
     } finally {
@@ -122,102 +101,28 @@ export default function ActivityPage() {
 
   const loadMore = async () => {
     const filters = buildFilters();
-    const showTrades = typeFilter === "all" || typeFilter === "trade";
-    const showTransfers = typeFilter === "all" || typeFilter !== "trade";
-    const transferTypes = typeFilter === "all" ? undefined :
-      typeFilter === "trade" ? undefined : [typeFilter];
+    const eventTypes = filterToEventTypes(typeFilter);
+    const nextOffset = offset + PAGE_SIZE;
 
-    const [newTrades, newTransfers] = await Promise.all([
-      showTrades && hasMoreTrades
-        ? api.getTrades(PAGE_SIZE, (tradePage + 1) * PAGE_SIZE, filters)
-        : Promise.resolve({ trades: [] as Trade[], totalCount: 0 }),
-      showTransfers && hasMoreTransfers
-        ? api.getTransfers(PAGE_SIZE, (transferPage + 1) * PAGE_SIZE, { ...filters, transferTypes })
-        : Promise.resolve({ transfers: [] as Transfer[], totalCount: 0 }),
-    ]);
-
-    if (newTrades.trades.length > 0) {
-      setTrades((prev) => [...prev, ...newTrades.trades]);
-      setTradePage((p) => p + 1);
-      setHasMoreTrades(newTrades.trades.length === PAGE_SIZE);
-    } else {
-      setHasMoreTrades(false);
-    }
-
-    if (newTransfers.transfers.length > 0) {
-      setTransfers((prev) => [...prev, ...newTransfers.transfers]);
-      setTransferPage((p) => p + 1);
-      setHasMoreTransfers(newTransfers.transfers.length === PAGE_SIZE);
-    } else {
-      setHasMoreTransfers(false);
-    }
+    const result = await api.getEvents(PAGE_SIZE, nextOffset, { ...filters, eventTypes });
+    setEvents((prev) => [...prev, ...result.events]);
+    setOffset(nextOffset);
+    setTotalCount(result.totalCount);
   };
 
-  // Merge trades and transfers into unified events
-  const events = useMemo((): UnifiedEvent[] => {
-    const unified: UnifiedEvent[] = [];
-
-    for (const t of trades) {
-      unified.push({
-        id: t.id,
-        type: "trade",
-        timestamp: parseInt(t.timestamp),
-        asset: t.base_asset,
-        quoteAsset: t.quote_asset,
-        amount: t.quantity,
-        side: t.side,
-        price: t.price,
-        valueUSDC: getEventValue(t.event_values, denomination),
-        account: t.exchange_account?.label || t.exchange_account?.account_identifier?.slice(0, 8),
-        exchange: t.exchange_account?.exchange?.display_name,
-        marketType: t.market_type,
-      });
-    }
-
-    for (const t of transfers) {
-      const type = t.type as EventType;
-      unified.push({
-        id: t.id,
-        type,
-        timestamp: t.timestamp,
-        asset: type === "funding" ? ((t.metadata as Record<string, string>)?.market || t.asset) : t.asset,
-        amount: t.amount,
-        valueUSDC: getEventValue(t.event_values, denomination),
-        account: t.exchange_account?.label || t.exchange_account?.account_identifier?.slice(0, 8),
-        exchange: t.exchange_account?.exchange?.display_name,
-        market: type === "funding" ? (t.metadata as Record<string, string>)?.market : undefined,
-      });
-    }
-
-    unified.sort((a, b) => b.timestamp - a.timestamp);
-    return unified;
-  }, [trades, transfers, denomination]);
-
-  // Summary stats
-  const tradeCount = trades.length;
-  const depositCount = transfers.filter((t) => t.type === "deposit").length;
-  const withdrawCount = transfers.filter((t) => t.type === "withdraw").length;
-  const fundingCount = transfers.filter((t) => t.type === "funding").length;
+  const hasMore = events.length < totalCount;
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <h1 className="text-2xl font-bold">Activity</h1>
 
-      {/* Summary */}
-      <StatsGrid columns={4}>
-        <StatCard title="Trades" value={tradeCount} isLoading={isLoading} />
-        <StatCard title="Deposits" value={depositCount} isLoading={isLoading} />
-        <StatCard title="Withdrawals" value={withdrawCount} isLoading={isLoading} />
-        <StatCard title="Funding" value={fundingCount} isLoading={isLoading} />
-      </StatsGrid>
-
       {/* Event type filter */}
       <Card>
         <CardHeader className="pb-2">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Events ({events.length})
+              Events ({events.length} of {totalCount})
             </CardTitle>
             <div className="flex gap-1">
               {EVENT_TYPES.map((et) => (
@@ -252,10 +157,12 @@ export default function ActivityPage() {
                     <TableRow>
                       <TableHead className="text-xs w-[140px]">Time</TableHead>
                       <TableHead className="text-xs w-[90px]">Type</TableHead>
-                      <TableHead className="text-xs">Asset</TableHead>
+                      <TableHead className="text-xs">Market</TableHead>
+                      <TableHead className="text-xs">Quote</TableHead>
                       <TableHead className="text-xs">Side</TableHead>
                       <TableHead className="text-xs text-right">Amount</TableHead>
                       <TableHead className="text-xs text-right">Value</TableHead>
+                      <TableHead className="text-xs text-right">Fee</TableHead>
                       <TableHead className="text-xs">Account</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -263,6 +170,14 @@ export default function ActivityPage() {
                     {events.map((ev) => {
                       const amt = parseFloat(ev.amount);
                       const isPositive = amt >= 0;
+                      const valueUSDC = getEventValue(ev.event_values, denomination);
+                      const exchangeName = ev.exchange_account?.exchange?.display_name;
+                      const marketLabel =
+                        ev.type === "trade"
+                          ? ev.market_type === "perp"
+                            ? `${ev.asset}-PERP`
+                            : ev.asset
+                          : ev.market;
                       return (
                         <TableRow key={`${ev.type}-${ev.id}`}>
                           <TableCell className="py-2 text-xs text-muted-foreground whitespace-nowrap">
@@ -274,17 +189,22 @@ export default function ActivityPage() {
                             </Badge>
                           </TableCell>
                           <TableCell className="py-2">
-                            <div className="flex items-center gap-1.5">
+                            {marketLabel ? (
+                              <span className="text-sm font-medium">{marketLabel}</span>
+                            ) : (
+                              <span className="text-muted-foreground">{"\u2014"}</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="py-2">
+                            {ev.type === "trade" ? (
+                              ev.quote_asset ? (
+                                <span className="text-sm font-medium">{ev.quote_asset}</span>
+                              ) : (
+                                <span className="text-muted-foreground">{"\u2014"}</span>
+                              )
+                            ) : (
                               <span className="text-sm font-medium">{ev.asset}</span>
-                              {ev.quoteAsset && (
-                                <span className="text-xs text-muted-foreground">/{ev.quoteAsset}</span>
-                              )}
-                              {ev.marketType && (
-                                <Badge variant="outline" className="text-[10px] px-1 py-0">
-                                  {ev.marketType.toUpperCase()}
-                                </Badge>
-                              )}
-                            </div>
+                            )}
                           </TableCell>
                           <TableCell className="py-2">
                             {ev.side ? (
@@ -299,9 +219,11 @@ export default function ActivityPage() {
                             ) : (
                               <span className={cn(
                                 "text-xs",
-                                isPositive ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                                ev.type === "deposit" || (ev.type === "interest" && isPositive)
+                                  ? "text-green-600 dark:text-green-400"
+                                  : "text-red-600 dark:text-red-400"
                               )}>
-                                {isPositive ? "IN" : "OUT"}
+                                {ev.type === "withdraw" ? "OUT" : ev.type === "deposit" ? "IN" : isPositive ? "IN" : "OUT"}
                               </span>
                             )}
                           </TableCell>
@@ -311,12 +233,25 @@ export default function ActivityPage() {
                               : formatNumber(ev.amount, 4)}
                           </TableCell>
                           <TableCell className="py-2 text-right text-xs text-muted-foreground">
-                            {ev.valueUSDC ? formatCurrency(ev.valueUSDC) : "-"}
+                            {valueUSDC ? formatCurrency(valueUSDC) : "-"}
+                          </TableCell>
+                          <TableCell className="py-2 text-right text-xs font-mono">
+                            {ev.fee && parseFloat(ev.fee) !== 0 ? (
+                              <span className={cn(
+                                parseFloat(ev.fee) < 0
+                                  ? "text-green-600 dark:text-green-400"
+                                  : "text-muted-foreground"
+                              )}>
+                                {formatNumber(ev.fee, 4)} {ev.fee_asset || ""}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">{"\u2014"}</span>
+                            )}
                           </TableCell>
                           <TableCell className="py-2">
-                            {ev.exchange && (
+                            {exchangeName && (
                               <span className="text-xs text-muted-foreground">
-                                {ev.exchange}
+                                {exchangeName}
                               </span>
                             )}
                           </TableCell>
@@ -327,7 +262,7 @@ export default function ActivityPage() {
                 </Table>
               </div>
 
-              {(hasMoreTrades || hasMoreTransfers) && (
+              {hasMore && (
                 <div className="flex justify-center pt-4">
                   <Button variant="outline" size="sm" onClick={loadMore}>
                     Load More
