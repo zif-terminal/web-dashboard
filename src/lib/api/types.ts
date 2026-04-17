@@ -55,6 +55,7 @@ export interface DataFilters {
    *  (trade | deposit | withdraw | funding | interest | reward |
    *   if_stake | if_unstake | settlement). */
   eventTypes?: string[];
+  denomination?: string;
 }
 
 export interface ApiClient {

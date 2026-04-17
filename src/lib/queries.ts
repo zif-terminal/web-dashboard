@@ -15,6 +15,7 @@ export interface ExchangeAccountType {
 
 export interface ProcessorCheckpoint {
   updated_at: string;
+  last_error?: string | null;
 }
 
 export interface ExchangeAccount {
@@ -29,6 +30,7 @@ export interface ExchangeAccount {
   processing_enabled: boolean;
   detected_at?: string;
   last_synced_at?: string;
+  last_sync_error?: string | null;
   tags: string[];
   label?: string;
   exchange?: Exchange;
@@ -84,6 +86,7 @@ export const GET_ACCOUNTS = gql`
       processing_enabled
       detected_at
       last_synced_at
+      last_sync_error
       tags
       label
       exchange {
@@ -100,6 +103,7 @@ export const GET_ACCOUNTS = gql`
       }
       processor_checkpoint {
         updated_at
+        last_error
       }
       trades_aggregate {
         aggregate {
@@ -209,6 +213,7 @@ export const GET_ACCOUNT_BY_ID = gql`
       processing_enabled
       detected_at
       last_synced_at
+      last_sync_error
       tags
       label
       exchange {
@@ -225,6 +230,7 @@ export const GET_ACCOUNT_BY_ID = gql`
       }
       processor_checkpoint {
         updated_at
+        last_error
       }
       trades_aggregate {
         aggregate {
@@ -278,11 +284,8 @@ export const UPDATE_ACCOUNT_LABEL = gql`
 `;
 
 export const UPDATE_ACCOUNT_TOGGLES = gql`
-  mutation UpdateAccountToggles($id: uuid!, $sync: Boolean, $processing: Boolean) {
-    update_exchange_accounts_by_pk(
-      pk_columns: { id: $id }
-      _set: { sync_enabled: $sync, processing_enabled: $processing }
-    ) {
+  mutation UpdateAccountToggles($id: uuid!, $set: exchange_accounts_set_input!) {
+    update_exchange_accounts_by_pk(pk_columns: { id: $id }, _set: $set) {
       id
       sync_enabled
       processing_enabled
@@ -739,6 +742,10 @@ export interface AccountPnLDetail {
   // Net flow is computed strictly from USDC event_values. `incomplete` is true
   // when any contributing transfer had no event_value — UI should show a marker.
   netFlow: { value: number; incomplete: boolean };
+  /** Perp realized PnL = perp trade + perp funding + perp interest - perp fees */
+  perpRealizedPnl: number;
+  /** Total settlement amount for this account (null if exchange has no settlements, e.g. HL/Lighter) */
+  settlementTotal: number | null;
   account?: ExchangeAccount;
 }
 
@@ -759,18 +766,27 @@ export const GET_PNL_DETAIL_BY_ACCOUNT = gql`
 `;
 
 export const GET_NET_FLOW_BY_ACCOUNT = gql`
-  query GetNetFlowByAccount($depositWhere: transfers_bool_exp!, $withdrawWhere: transfers_bool_exp!) {
+  query GetNetFlowByAccount($depositWhere: transfers_bool_exp!, $withdrawWhere: transfers_bool_exp!, $denomination: String!) {
     deposits: transfers(where: $depositWhere) {
       exchange_account_id
-      event_values(where: { denomination: { _eq: "USDC" } }) {
+      event_values(where: { denomination: { _eq: $denomination } }) {
         quantity
       }
     }
     withdrawals: transfers(where: $withdrawWhere) {
       exchange_account_id
-      event_values(where: { denomination: { _eq: "USDC" } }) {
+      event_values(where: { denomination: { _eq: $denomination } }) {
         quantity
       }
+    }
+  }
+`;
+
+export const GET_SETTLEMENT_TOTALS_BY_ACCOUNT = gql`
+  query GetSettlementTotalsByAccount($where: settlements_bool_exp!) {
+    settlements(where: $where) {
+      exchange_account_id
+      amount
     }
   }
 `;

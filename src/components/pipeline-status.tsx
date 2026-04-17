@@ -28,6 +28,10 @@ type PartState = {
 };
 
 function getSyncPart(account: ExchangeAccount): PartState {
+  // Check for sync error first — takes priority over freshness
+  if (account.last_sync_error) {
+    return { text: "Sync Error", kind: "error" };
+  }
   const freshness = getSyncFreshness(account.last_synced_at);
   if (freshness === "never") {
     return { text: "Never Synced", kind: "error" };
@@ -98,11 +102,15 @@ export function getPipelineStatus(account: ExchangeAccount): PipelineStatusInfo 
   const status = combineStatus([syncPart, procPart]);
 
   const details: string[] = [];
-  details.push(
-    syncEnabled
-      ? `Sync: ${syncPart.text} (${formatRelativeTime(account.last_synced_at)})`
-      : "Sync: Paused",
-  );
+  if (syncEnabled && account.last_sync_error) {
+    details.push(`Sync Error: ${account.last_sync_error}`);
+  } else {
+    details.push(
+      syncEnabled
+        ? `Sync: ${syncPart.text} (${formatRelativeTime(account.last_synced_at)})`
+        : "Sync: Paused",
+    );
+  }
   details.push(
     processingEnabled
       ? `Processing: ${procPart.text}${

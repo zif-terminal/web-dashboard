@@ -24,6 +24,7 @@ import {
   GET_POSITIONS_AGGREGATES_DYNAMIC,
   GET_PNL_DETAIL_BY_ACCOUNT,
   GET_NET_FLOW_BY_ACCOUNT,
+  GET_SETTLEMENT_TOTALS_BY_ACCOUNT,
   AccountPnLDetail,
   ExchangeAccount,
   Trade,
@@ -504,17 +505,16 @@ export const graphqlApi: ApiClient = {
   ): Promise<{ id: string; sync_enabled: boolean; processing_enabled: boolean }> {
     return withErrorHandling(async () => {
       const client = getGraphQLClient();
+      const set: Record<string, boolean> = {};
+      if (toggles.sync !== undefined) set.sync_enabled = toggles.sync;
+      if (toggles.processing !== undefined) set.processing_enabled = toggles.processing;
       const data = await client.request<{
         update_exchange_accounts_by_pk: {
           id: string;
           sync_enabled: boolean;
           processing_enabled: boolean;
         };
-      }>(UPDATE_ACCOUNT_TOGGLES, {
-        id,
-        sync: toggles.sync ?? null,
-        processing: toggles.processing ?? null,
-      });
+      }>(UPDATE_ACCOUNT_TOGGLES, { id, set });
       return data.update_exchange_accounts_by_pk;
     });
   },
@@ -644,11 +644,13 @@ export const graphqlApi: ApiClient = {
       const transfersWhere = buildTransfersWhereClause(filters);
 
       const basePnlWhere: Record<string, unknown> = {
-        denomination: { _eq: "USDC" },
+        denomination: { _eq: filters?.denomination ?? "USDC" },
         position: posWhere,
       };
 
-      const [pnlData, flowData, accounts] = await Promise.all([
+      const settlementsWhere = buildSettlementsWhereClause(filters);
+
+      const [pnlData, flowData, accounts, settlementData] = await Promise.all([
         client.request<{
           position_pnl: {
             realized_pnl: string;
@@ -669,13 +671,29 @@ export const graphqlApi: ApiClient = {
           withdrawWhere: Object.keys(transfersWhere).length > 0
             ? { _and: [transfersWhere, { type: { _eq: "withdraw" } }] }
             : { type: { _eq: "withdraw" } },
+          denomination: filters?.denomination ?? "USDC",
         }),
         client.request<{ exchange_accounts: ExchangeAccount[] }>(GET_ACCOUNTS),
+        client.request<{
+          settlements: { exchange_account_id: string; amount: string }[];
+        }>(GET_SETTLEMENT_TOTALS_BY_ACCOUNT, {
+          where: Object.keys(settlementsWhere).length > 0 ? settlementsWhere : {},
+        }),
       ]);
 
       const accountMap = new Map<string, ExchangeAccount>();
       for (const acc of accounts.exchange_accounts) {
         accountMap.set(acc.id, acc);
+      }
+
+      // Build per-account settlement totals
+      const settlementMap = new Map<string, number>();
+      // Track which accounts have ANY settlement rows (to distinguish 0 from N/A)
+      const accountsWithSettlements = new Set<string>();
+      for (const row of settlementData.settlements) {
+        accountsWithSettlements.add(row.exchange_account_id);
+        const prev = settlementMap.get(row.exchange_account_id) || 0;
+        settlementMap.set(row.exchange_account_id, prev + (parseFloat(row.amount) || 0));
       }
 
       interface AccDetail {
@@ -685,6 +703,7 @@ export const graphqlApi: ApiClient = {
         fees: number;
         funding: number;
         interest: number;
+        perpRealizedPnl: number;
         deposits: number;
         withdrawals: number;
         netFlowIncomplete: boolean;
@@ -695,6 +714,7 @@ export const graphqlApi: ApiClient = {
         if (!entry) {
           entry = {
             totalPnl: 0, perpPnl: 0, spotPnl: 0, fees: 0, funding: 0, interest: 0,
+            perpRealizedPnl: 0,
             deposits: 0, withdrawals: 0, netFlowIncomplete: false,
           };
           summaryMap.set(accId, entry);
@@ -719,6 +739,7 @@ export const graphqlApi: ApiClient = {
         const interestPnl = parseFloat(row.interest_pnl || "0") || 0;
         if (row.position.market_type === "perp") {
           entry.perpPnl += tradeOnly;
+          entry.perpRealizedPnl += tradeOnly + fundingPnl + interestPnl - feePnl;
         } else {
           entry.spotPnl += tradeOnly;
         }
@@ -754,9 +775,23 @@ export const graphqlApi: ApiClient = {
         getEntry(acc.id);
       }
 
+      // Determine which exchanges use settlements (Drift). Accounts on exchanges
+      // without settlements get null for settlementTotal (N/A in UI).
+      const driftExchangeIds = new Set<string>();
+      for (const acc of accounts.exchange_accounts) {
+        if (acc.exchange?.name === "drift") {
+          driftExchangeIds.add(acc.id);
+        }
+      }
+
       return Array.from(summaryMap.entries())
         .map(([accountId, d]) => {
           const acc = accountMap.get(accountId);
+          // Settlement total: null for non-Drift accounts, 0 for Drift accounts with no settlements
+          const isDrift = driftExchangeIds.has(accountId);
+          const settlementTotal = isDrift
+            ? (settlementMap.get(accountId) ?? 0)
+            : null;
           return {
             accountId,
             accountLabel: acc?.label || acc?.account_identifier || accountId,
@@ -767,6 +802,8 @@ export const graphqlApi: ApiClient = {
             fees: d.fees,
             funding: d.funding,
             interest: d.interest,
+            perpRealizedPnl: d.perpRealizedPnl,
+            settlementTotal,
             netFlow: { value: d.withdrawals - d.deposits, incomplete: d.netFlowIncomplete },
             account: acc,
           };

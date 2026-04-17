@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, Fragment } from "react";
 import { api } from "@/lib/api";
 import { useGlobalFilters } from "@/hooks/use-global-filters";
+import { useDenomination } from "@/contexts/denomination-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,11 +37,11 @@ function formatPrice(value: string, quoteAsset: string): string {
   return `${formatUSD(value)} ${quoteAsset}`;
 }
 
-function getUsdcPnl(pnl?: PositionPnL[]): number | null {
+function getDenominationPnl(pnl: PositionPnL[] | undefined, denomination: string): number | null {
   if (!pnl) return null;
-  const usdc = pnl.find((p) => p.denomination === "USDC");
-  if (!usdc) return null;
-  const val = parseFloat(usdc.realized_pnl);
+  const match = pnl.find((p) => p.denomination === denomination);
+  if (!match) return null;
+  const val = parseFloat(match.realized_pnl);
   return isNaN(val) ? null : val;
 }
 
@@ -49,6 +50,7 @@ type Tab = "open" | "closed";
 
 export default function PositionsPage() {
   const { buildFilters } = useGlobalFilters();
+  const { denomination } = useDenomination();
 
   const [tab, setTab] = useState<Tab>("open");
   const [sortColumn, setSortColumn] = useState<SortColumn>("end_time");
@@ -379,7 +381,7 @@ export default function PositionsPage() {
                             <TableCell className="py-3 text-sm text-muted-foreground">{pos.end_time ? formatTimestamp(pos.end_time) : "-"}</TableCell>
                             <TableCell className="py-3 text-right font-mono">
                               {(() => {
-                                const pnl = getUsdcPnl(pos.position_pnl);
+                                const pnl = getDenominationPnl(pos.position_pnl, denomination);
                                 if (pnl === null) return <span className="text-muted-foreground">-</span>;
                                 return (
                                   <span className={pnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
