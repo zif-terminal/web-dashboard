@@ -6,6 +6,7 @@ import {
   UPDATE_ACCOUNT_TAGS,
   UPDATE_ACCOUNT_LABEL,
   UPDATE_ACCOUNT_TOGGLES,
+  RESET_ACCOUNT,
   GET_WALLETS_WITH_COUNTS,
   CREATE_WALLET,
   DELETE_WALLET,
@@ -515,6 +516,16 @@ export const graphqlApi: ApiClient = {
           processing_enabled: boolean;
         };
       }>(UPDATE_ACCOUNT_TOGGLES, { id, set });
+      return data.update_exchange_accounts_by_pk;
+    });
+  },
+
+  async resetAccount(id: string): Promise<{ id: string }> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        update_exchange_accounts_by_pk: { id: string };
+      }>(RESET_ACCOUNT, { id });
       return data.update_exchange_accounts_by_pk;
     });
   },
