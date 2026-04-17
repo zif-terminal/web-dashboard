@@ -118,13 +118,13 @@ export default function DashboardLayout({
   const { selectedAccountIds } = useAccountFilter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [yearOptions, setYearOptions] = useState<number[]>([]);
-  const [isLoadingYears, setIsLoadingYears] = useState(false);
+  const [isLoadingYears, setIsLoadingYears] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    setIsLoadingYears(true);
     const filters = selectedAccountIds.length > 0 ? { accountIds: selectedAccountIds } : undefined;
-    api.getEventDateRange(filters)
+    const promise = api.getEventDateRange(filters);
+    promise
       .then((range) => {
         if (!cancelled) {
           setYearOptions(computeYearOptions(range));
@@ -138,6 +138,13 @@ export default function DashboardLayout({
       });
     return () => { cancelled = true; };
   }, [selectedAccountIds]);
+
+  // Reset loading state when the fetch dependency changes
+  const [prevAccountIds, setPrevAccountIds] = useState(selectedAccountIds);
+  if (prevAccountIds !== selectedAccountIds) {
+    setPrevAccountIds(selectedAccountIds);
+    setIsLoadingYears(true);
+  }
 
   return (
     <div className="min-h-screen bg-background">
