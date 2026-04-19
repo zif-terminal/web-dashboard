@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useMemo, ReactNode } from "react";
 import { DateRangeValue, DateRangeTimestamps, getTimestampsFromDateRange } from "@/components/date-range-filter";
 
 interface DateRangeState {
@@ -11,38 +11,40 @@ interface DateRangeState {
 
 const DateRangeContext = createContext<DateRangeState | undefined>(undefined);
 
+const DEFAULT_RANGE: DateRangeValue = { preset: "all" };
+
 function loadDateRange(): DateRangeValue {
-  if (typeof window === "undefined") return { preset: "all" };
+  if (typeof window === "undefined") return DEFAULT_RANGE;
   try {
     const stored = localStorage.getItem("zif_date_range");
-    if (!stored) return { preset: "all" };
+    if (!stored) return DEFAULT_RANGE;
     const parsed = JSON.parse(stored);
-    // Custom ranges have Date objects that don't survive JSON — restore them
     if (parsed.preset === "custom" && parsed.customRange) {
       parsed.customRange.from = new Date(parsed.customRange.from);
       parsed.customRange.to = new Date(parsed.customRange.to);
     }
     return parsed;
   } catch {
-    return { preset: "all" };
+    return DEFAULT_RANGE;
   }
 }
 
 export function DateRangeProvider({ children }: { children: ReactNode }) {
-  const [dateRange, setDateRangeState] = useState<DateRangeValue>({ preset: "all" });
-  const [timestamps, setTimestamps] = useState<DateRangeTimestamps>({});
+  // Lazy initializer reads localStorage on the client only. Server-side
+  // rendering always starts with DEFAULT_RANGE. The `suppressHydrationWarning`
+  // on the provider element is not needed because both SSR and first client
+  // render produce the same DEFAULT_RANGE when localStorage matches the
+  // default. When localStorage differs, the lazy initializer runs during
+  // React's client-side hydration and picks up the stored value.
+  const [dateRange, setDateRangeState] = useState<DateRangeValue>(loadDateRange);
 
-  // Load from localStorage and compute timestamps only on client to avoid hydration mismatch.
-  // getTimestampsFromDateRange uses Date.now() which differs between server and client.
-  useEffect(() => {
-    const stored = loadDateRange();
-    setDateRangeState(stored);
-    setTimestamps(getTimestampsFromDateRange(stored));
-  }, []);
+  const timestamps = useMemo<DateRangeTimestamps>(
+    () => getTimestampsFromDateRange(dateRange),
+    [dateRange],
+  );
 
   const setDateRange = useCallback((value: DateRangeValue) => {
     setDateRangeState(value);
-    setTimestamps(getTimestampsFromDateRange(value));
     try { localStorage.setItem("zif_date_range", JSON.stringify(value)); } catch {}
   }, []);
 
