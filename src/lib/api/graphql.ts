@@ -26,6 +26,8 @@ import {
   GET_PNL_DETAIL_BY_ACCOUNT,
   GET_NET_FLOW_BY_ACCOUNT,
   GET_SETTLEMENT_TOTALS_BY_ACCOUNT,
+  GET_LATEST_SNAPSHOT_BALANCES,
+  SnapshotBalance,
   AccountPnLDetail,
   ExchangeAccount,
   Trade,
@@ -820,6 +822,16 @@ export const graphqlApi: ApiClient = {
           };
         })
         .sort((a, b) => Math.abs(b.totalPnl) - Math.abs(a.totalPnl));
+    });
+  },
+
+  async getSnapshotBalances(): Promise<SnapshotBalance[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        spot_balance_snapshots: SnapshotBalance[];
+      }>(GET_LATEST_SNAPSHOT_BALANCES, { where: {} });
+      return data.spot_balance_snapshots;
     });
   },
 

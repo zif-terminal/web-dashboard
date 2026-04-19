@@ -1,4 +1,4 @@
-import { ExchangeAccount, Trade, Wallet, WalletWithAccounts, Transfer, Settlement, UnifiedEvent, FundingAssetBreakdown, Position, PositionsAggregates, AccountPnLDetail, EventDateRange } from "../queries";
+import { ExchangeAccount, Trade, Wallet, WalletWithAccounts, Transfer, Settlement, UnifiedEvent, FundingAssetBreakdown, Position, PositionsAggregates, AccountPnLDetail, EventDateRange, SnapshotBalance } from "../queries";
 
 export interface CreateWalletInput {
   address: string;
@@ -88,6 +88,7 @@ export interface ApiClient {
   getPositions(limit: number, offset: number, filters?: DataFilters): Promise<PositionsResult>;
   getPositionsAggregates(filters?: DataFilters): Promise<PositionsAggregates>;
   getPnLDetailByAccount(filters?: DataFilters): Promise<AccountPnLDetail[]>;
+  getSnapshotBalances(): Promise<SnapshotBalance[]>;
   getSupportedDenominations(): Promise<string[]>;
   getEventDateRange(filters?: DataFilters): Promise<EventDateRange>;
 }

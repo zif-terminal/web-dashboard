@@ -34,7 +34,7 @@ async function verifyAccountOwnership(
   userId: string
 ): Promise<boolean> {
   const query = `
-    query VerifyAccountOwnership($accountId: uuid!, $userId: uuid!) {
+    query VerifyAccountOwnership($accountId: uuid!, $userId: String!) {
       exchange_accounts(
         where: {
           id: { _eq: $accountId }
@@ -209,6 +209,91 @@ export async function POST(
       { error: "Database error", details: result.errors },
       { status: 500 }
     );
+  }
+
+  // 6. Propagate API key to sibling Lighter accounts under the same wallet.
+  // Lighter API keys are per-wallet (one key works for all subaccounts),
+  // so when a user submits a key for one account, apply it to all siblings
+  // that are still in needs_token status.
+  try {
+    const siblingQuery = `
+      query GetSiblingLighterAccounts($accountId: uuid!) {
+        exchange_accounts_by_pk(id: $accountId) {
+          wallet_id
+          exchange
+        }
+      }
+    `;
+
+    const siblingResp = await fetch(`${HASURA_URL}/v1/graphql`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Hasura-Admin-Secret": HASURA_ADMIN_SECRET,
+      },
+      body: JSON.stringify({
+        query: siblingQuery,
+        variables: { accountId },
+      }),
+    });
+
+    const siblingResult = await siblingResp.json();
+    const account = siblingResult.data?.exchange_accounts_by_pk;
+
+    if (account?.exchange === "lighter" && account?.wallet_id) {
+      const updateSiblingsQuery = `
+        query GetNeedsTokenSiblings($walletId: uuid!, $exchange: String!, $excludeId: uuid!) {
+          exchange_accounts(
+            where: {
+              wallet_id: { _eq: $walletId }
+              exchange: { _eq: $exchange }
+              id: { _neq: $excludeId }
+              status: { _eq: "needs_token" }
+            }
+          ) {
+            id
+            account_type_metadata
+          }
+        }
+      `;
+
+      const siblingsResp = await fetch(`${HASURA_URL}/v1/graphql`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Hasura-Admin-Secret": HASURA_ADMIN_SECRET,
+        },
+        body: JSON.stringify({
+          query: updateSiblingsQuery,
+          variables: {
+            walletId: account.wallet_id,
+            exchange: "lighter",
+            excludeId: accountId,
+          },
+        }),
+      });
+
+      const siblingsResult = await siblingsResp.json();
+      const siblings = siblingsResult.data?.exchange_accounts || [];
+
+      for (const sibling of siblings) {
+        const siblingMeta = { ...(sibling.account_type_metadata || {}), api_key: apiKey };
+
+        await fetch(`${HASURA_URL}/v1/graphql`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Hasura-Admin-Secret": HASURA_ADMIN_SECRET,
+          },
+          body: JSON.stringify({
+            query: mutation,
+            variables: { id: sibling.id, metadata: siblingMeta, status: "disabled" },
+          }),
+        });
+      }
+    }
+  } catch {
+    // Sibling update is best-effort; don't fail the primary request
   }
 
   return NextResponse.json({
