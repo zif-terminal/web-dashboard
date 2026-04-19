@@ -460,6 +460,11 @@ export const mockApi: ApiClient = {
     return [];
   },
 
+  async getSnapshotBalances(): Promise<import("../queries").SnapshotBalance[]> {
+    await delay(200);
+    return [];
+  },
+
   async getSupportedDenominations(): Promise<string[]> {
     await delay(200);
     return ["USDC"];

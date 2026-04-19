@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from "react";
 import { DateRangeValue, DateRangeTimestamps, getTimestampsFromDateRange } from "@/components/date-range-filter";
 
 interface DateRangeState {
@@ -29,14 +29,22 @@ function loadDateRange(): DateRangeValue {
 }
 
 export function DateRangeProvider({ children }: { children: ReactNode }) {
-  const [dateRange, setDateRangeState] = useState<DateRangeValue>(loadDateRange);
+  const [dateRange, setDateRangeState] = useState<DateRangeValue>({ preset: "all" });
+  const [timestamps, setTimestamps] = useState<DateRangeTimestamps>({});
+
+  // Load from localStorage and compute timestamps only on client to avoid hydration mismatch.
+  // getTimestampsFromDateRange uses Date.now() which differs between server and client.
+  useEffect(() => {
+    const stored = loadDateRange();
+    setDateRangeState(stored);
+    setTimestamps(getTimestampsFromDateRange(stored));
+  }, []);
 
   const setDateRange = useCallback((value: DateRangeValue) => {
     setDateRangeState(value);
+    setTimestamps(getTimestampsFromDateRange(value));
     try { localStorage.setItem("zif_date_range", JSON.stringify(value)); } catch {}
   }, []);
-
-  const timestamps = getTimestampsFromDateRange(dateRange);
 
   return (
     <DateRangeContext.Provider value={{ dateRange, setDateRange, timestamps }}>

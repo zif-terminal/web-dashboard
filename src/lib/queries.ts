@@ -1033,6 +1033,29 @@ export const GET_FUNDING_PNL_BY_ASSET = gql`
   }
 `;
 
+// Snapshot balance — latest exchange-reported balance per account/asset
+export interface SnapshotBalance {
+  exchange_account_id: string;
+  asset: string;
+  balance: string;
+  usd_value: string | null;
+}
+
+export const GET_LATEST_SNAPSHOT_BALANCES = gql`
+  query GetLatestSnapshotBalances($where: spot_balance_snapshots_bool_exp!) {
+    spot_balance_snapshots(
+      where: $where
+      distinct_on: [exchange_account_id, asset]
+      order_by: [{ exchange_account_id: asc }, { asset: asc }, { timestamp: desc }]
+    ) {
+      exchange_account_id
+      asset
+      balance
+      usd_value
+    }
+  }
+`;
+
 // Event date range — used to compute which year buttons to show
 export interface EventDateRange {
   earliest: number | null; // Unix ms
