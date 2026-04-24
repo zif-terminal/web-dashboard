@@ -3,60 +3,26 @@ import { NextRequest, NextResponse } from "next/server";
 import { TOKEN_COOKIE_NAME } from "@/lib/cookie-config";
 
 const HASURA_URL = process.env.HASURA_URL || "http://localhost:8080";
-const HASURA_ADMIN_SECRET = process.env.HASURA_ADMIN_SECRET || "";
-const AUTH_URL = process.env.AUTH_URL || "http://localhost:8081";
 
 /**
- * Verify the JWT token and return the user ID.
+ * Execute a GraphQL operation against Hasura using the user's JWT.
+ * Hasura's auth webhook maps the JWT to the "user" role, so row-level
+ * permissions (wallet.user_id = X-Hasura-User-Id) enforce ownership natively.
  */
-async function getUserId(token: string): Promise<string | null> {
-  try {
-    const resp = await fetch(`${AUTH_URL}/auth/webhook`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    if (!resp.ok) return null;
-    const data = await resp.json();
-    return data["X-Hasura-User-Id"] || null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Check that the account exists and belongs to the user (via wallet ownership).
- */
-async function verifyAccountOwnership(
-  accountId: string,
-  userId: string
-): Promise<boolean> {
-  const query = `
-    query VerifyAccountOwnership($accountId: uuid!, $userId: String!) {
-      exchange_accounts(
-        where: {
-          id: { _eq: $accountId }
-          wallet: { user_id: { _eq: $userId } }
-        }
-      ) {
-        id
-      }
-    }
-  `;
-
+async function hasuraFetch(
+  token: string,
+  query: string,
+  variables: Record<string, unknown>
+): Promise<{ data?: Record<string, unknown>; errors?: Array<{ message: string }> }> {
   const resp = await fetch(`${HASURA_URL}/v1/graphql`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Hasura-Admin-Secret": HASURA_ADMIN_SECRET,
+      Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ query, variables: { accountId, userId } }),
+    body: JSON.stringify({ query, variables }),
   });
-
-  const result = await resp.json();
-  return (result.data?.exchange_accounts?.length ?? 0) > 0;
+  return resp.json();
 }
 
 /**
@@ -69,9 +35,10 @@ async function verifyAccountOwnership(
  *
  * Body: { api_key: string }
  *
- * Security: validates JWT, verifies account ownership via wallet->user_id,
- * then uses admin secret for the mutation (user role cannot update
- * account_type_metadata or status).
+ * Security: all Hasura calls use the user's JWT. Hasura's "user" role
+ * permissions filter by wallet.user_id = X-Hasura-User-Id, so accounts
+ * that aren't owned by the caller are invisible / unmodifiable. A mutation
+ * that matches zero rows (caller doesn't own the account) yields 404.
  */
 export async function POST(
   request: NextRequest,
@@ -79,7 +46,7 @@ export async function POST(
 ) {
   const { id: accountId } = await params;
 
-  // 1. Auth check
+  // 1. Auth check — must have a token cookie.
   const cookieStore = await cookies();
   const token = cookieStore.get(TOKEN_COOKIE_NAME)?.value;
 
@@ -90,15 +57,7 @@ export async function POST(
     );
   }
 
-  const userId = await getUserId(token);
-  if (!userId) {
-    return NextResponse.json(
-      { error: "Invalid or expired token" },
-      { status: 401 }
-    );
-  }
-
-  // 2. Parse body
+  // 2. Parse body.
   let body: { api_key?: string };
   try {
     body = await request.json();
@@ -117,56 +76,71 @@ export async function POST(
     );
   }
 
-  // 3. Verify account ownership
-  const isOwner = await verifyAccountOwnership(accountId, userId);
-  if (!isOwner) {
-    return NextResponse.json(
-      { error: "Account not found or access denied" },
-      { status: 404 }
-    );
-  }
-
-  // 4. Fetch current metadata so we merge rather than overwrite
+  // 3. Fetch current metadata + status. If the caller doesn't own the
+  // account, Hasura's row-level permission filter hides it and the
+  // by_pk query returns null → we respond 404.
   const getQuery = `
     query GetAccountMetadata($id: uuid!) {
       exchange_accounts_by_pk(id: $id) {
+        id
+        wallet_id
+        exchange_id
+        exchange { name }
         account_type_metadata
         status
       }
     }
   `;
 
-  let currentMeta: Record<string, unknown> = {};
-  let currentStatus: string | null = null;
+  let getResult: Awaited<ReturnType<typeof hasuraFetch>>;
   try {
-    const getResp = await fetch(`${HASURA_URL}/v1/graphql`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Hasura-Admin-Secret": HASURA_ADMIN_SECRET,
-      },
-      body: JSON.stringify({ query: getQuery, variables: { id: accountId } }),
-    });
-    const getResult = await getResp.json();
-    const account = getResult.data?.exchange_accounts_by_pk;
-    if (account) {
-      currentMeta = account.account_type_metadata || {};
-      currentStatus = account.status;
-    }
+    getResult = await hasuraFetch(token, getQuery, { id: accountId });
   } catch {
-    // If we can't read, proceed with empty metadata
+    return NextResponse.json(
+      { error: "Failed to connect to database" },
+      { status: 502 }
+    );
   }
 
-  // Only allow setting API key on needs_token accounts
-  if (currentStatus !== "needs_token") {
+  if (getResult.errors) {
+    // Auth failures from Hasura surface here as errors (not 401 on the fetch).
+    return NextResponse.json(
+      { error: "Database error", details: getResult.errors },
+      { status: 500 }
+    );
+  }
+
+  const account = getResult.data?.exchange_accounts_by_pk as
+    | {
+        id: string;
+        wallet_id: string;
+        exchange_id: string;
+        exchange: { name: string } | null;
+        account_type_metadata: Record<string, unknown> | null;
+        status: string | null;
+      }
+    | null;
+
+  if (!account) {
+    // Either the account doesn't exist or the caller doesn't own it.
+    // Either way: 404 (don't leak existence to non-owners).
+    return NextResponse.json(
+      { error: "Account not found or access denied" },
+      { status: 404 }
+    );
+  }
+
+  // Only allow setting API key on needs_token accounts.
+  if (account.status !== "needs_token") {
     return NextResponse.json(
       { error: "Account does not require API key setup" },
       { status: 400 }
     );
   }
 
-  // 5. Update metadata with API key and clear the needs_token blocker.
+  // 4. Update metadata with API key and clear the needs_token blocker.
   // The user manually enables sync_enabled / processing_enabled after this.
+  const currentMeta = account.account_type_metadata || {};
   const updatedMeta = { ...currentMeta, api_key: apiKey };
 
   const mutation = `
@@ -182,18 +156,12 @@ export async function POST(
     }
   `;
 
-  let hasuraResponse: Response;
+  let updateResult: Awaited<ReturnType<typeof hasuraFetch>>;
   try {
-    hasuraResponse = await fetch(`${HASURA_URL}/v1/graphql`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Hasura-Admin-Secret": HASURA_ADMIN_SECRET,
-      },
-      body: JSON.stringify({
-        query: mutation,
-        variables: { id: accountId, metadata: updatedMeta, status: "disabled" },
-      }),
+    updateResult = await hasuraFetch(token, mutation, {
+      id: accountId,
+      metadata: updatedMeta,
+      status: "disabled",
     });
   } catch {
     return NextResponse.json(
@@ -202,51 +170,39 @@ export async function POST(
     );
   }
 
-  const result = await hasuraResponse.json();
-
-  if (result.errors) {
+  if (updateResult.errors) {
     return NextResponse.json(
-      { error: "Database error", details: result.errors },
+      { error: "Database error", details: updateResult.errors },
       { status: 500 }
     );
   }
 
-  // 6. Propagate API key to sibling Lighter accounts under the same wallet.
+  const updatedAccount = updateResult.data?.update_exchange_accounts_by_pk as
+    | { id: string; status: string; account_type_metadata: Record<string, unknown> }
+    | null;
+
+  if (!updatedAccount) {
+    // Permission filter matched zero rows on update — caller doesn't own it.
+    return NextResponse.json(
+      { error: "Account not found or access denied" },
+      { status: 404 }
+    );
+  }
+
+  // 5. Propagate API key to sibling Lighter accounts under the same wallet.
   // Lighter API keys are per-wallet (one key works for all subaccounts),
   // so when a user submits a key for one account, apply it to all siblings
-  // that are still in needs_token status.
+  // that are still in needs_token status. This is a single user-authenticated
+  // mutation — Hasura's permissions keep it scoped to the caller's own
+  // wallet. Best-effort: don't fail the primary request if this errors.
   try {
-    const siblingQuery = `
-      query GetSiblingLighterAccounts($accountId: uuid!) {
-        exchange_accounts_by_pk(id: $accountId) {
-          wallet_id
-          exchange
-        }
-      }
-    `;
-
-    const siblingResp = await fetch(`${HASURA_URL}/v1/graphql`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Hasura-Admin-Secret": HASURA_ADMIN_SECRET,
-      },
-      body: JSON.stringify({
-        query: siblingQuery,
-        variables: { accountId },
-      }),
-    });
-
-    const siblingResult = await siblingResp.json();
-    const account = siblingResult.data?.exchange_accounts_by_pk;
-
-    if (account?.exchange === "lighter" && account?.wallet_id) {
-      const updateSiblingsQuery = `
-        query GetNeedsTokenSiblings($walletId: uuid!, $exchange: String!, $excludeId: uuid!) {
+    if (account.exchange?.name === "lighter" && account.wallet_id) {
+      const siblingsQuery = `
+        query GetNeedsTokenSiblings($walletId: uuid!, $exchangeId: uuid!, $excludeId: uuid!) {
           exchange_accounts(
             where: {
               wallet_id: { _eq: $walletId }
-              exchange: { _eq: $exchange }
+              exchange_id: { _eq: $exchangeId }
               id: { _neq: $excludeId }
               status: { _eq: "needs_token" }
             }
@@ -257,47 +213,34 @@ export async function POST(
         }
       `;
 
-      const siblingsResp = await fetch(`${HASURA_URL}/v1/graphql`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Hasura-Admin-Secret": HASURA_ADMIN_SECRET,
-        },
-        body: JSON.stringify({
-          query: updateSiblingsQuery,
-          variables: {
-            walletId: account.wallet_id,
-            exchange: "lighter",
-            excludeId: accountId,
-          },
-        }),
+      const siblingsResult = await hasuraFetch(token, siblingsQuery, {
+        walletId: account.wallet_id,
+        exchangeId: account.exchange_id,
+        excludeId: accountId,
       });
 
-      const siblingsResult = await siblingsResp.json();
-      const siblings = siblingsResult.data?.exchange_accounts || [];
+      const siblings = (siblingsResult.data?.exchange_accounts as
+        | Array<{ id: string; account_type_metadata: Record<string, unknown> | null }>
+        | undefined) || [];
 
       for (const sibling of siblings) {
-        const siblingMeta = { ...(sibling.account_type_metadata || {}), api_key: apiKey };
-
-        await fetch(`${HASURA_URL}/v1/graphql`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Hasura-Admin-Secret": HASURA_ADMIN_SECRET,
-          },
-          body: JSON.stringify({
-            query: mutation,
-            variables: { id: sibling.id, metadata: siblingMeta, status: "disabled" },
-          }),
+        const siblingMeta = {
+          ...(sibling.account_type_metadata || {}),
+          api_key: apiKey,
+        };
+        await hasuraFetch(token, mutation, {
+          id: sibling.id,
+          metadata: siblingMeta,
+          status: "disabled",
         });
       }
     }
   } catch {
-    // Sibling update is best-effort; don't fail the primary request
+    // Sibling update is best-effort; don't fail the primary request.
   }
 
   return NextResponse.json({
     success: true,
-    account: result.data?.update_exchange_accounts_by_pk,
+    account: updatedAccount,
   });
 }

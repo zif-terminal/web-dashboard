@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { TOKEN_COOKIE_NAME } from "@/lib/cookie-config";
 
 const HASURA_URL = process.env.HASURA_URL || "http://localhost:8080";
-const HASURA_ADMIN_SECRET = process.env.HASURA_ADMIN_SECRET || "";
 
 // Trades CSV headers
 const TRADES_HEADERS = [
@@ -258,7 +257,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Insert via Hasura admin mutation
+  // Insert via Hasura using the user's JWT — row-level permissions on
+  // omni_raw_events require exchange_account.wallet.user_id to match the
+  // caller, so a user can only upload rows for accounts they own.
   const mutation = `
     mutation InsertOmniRawEvents($objects: [omni_raw_events_insert_input!]!) {
       insert_omni_raw_events(
@@ -279,7 +280,7 @@ export async function POST(request: NextRequest) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Hasura-Admin-Secret": HASURA_ADMIN_SECRET,
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
         query: mutation,
