@@ -40,6 +40,12 @@ export interface ExchangeAccount {
   processor_checkpoint?: ProcessorCheckpoint | null;
   trades_aggregate?: { aggregate: { count: number } };
   positions_aggregate?: { aggregate: { count: number } };
+  // Data completeness flag set by account_sync's R1/R2/R3 heuristics. When
+  // false, activity_processor refuses to process the account because partial
+  // event history would yield silently-wrong cost basis / pnl.
+  data_complete?: boolean;
+  data_complete_notes?: string | null;
+  data_complete_checked_at?: string | null;
 }
 
 // Wallet types
@@ -93,6 +99,9 @@ export const GET_ACCOUNTS = gql`
       last_sync_error
       tags
       label
+      data_complete
+      data_complete_notes
+      data_complete_checked_at
       exchange {
         id
         name
@@ -220,6 +229,9 @@ export const GET_ACCOUNT_BY_ID = gql`
       last_sync_error
       tags
       label
+      data_complete
+      data_complete_notes
+      data_complete_checked_at
       exchange {
         id
         name
