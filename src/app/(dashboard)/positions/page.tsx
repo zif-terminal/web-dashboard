@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback, Fragment } from "react";
+import { useState, useMemo, Fragment } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { queryKeys } from "@/lib/query-keys";
 import { useGlobalFilters } from "@/hooks/use-global-filters";
 import { useDenomination } from "@/contexts/denomination-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -55,15 +57,46 @@ export default function PositionsPage() {
   const [tab, setTab] = useState<Tab>("open");
   const [sortColumn, setSortColumn] = useState<SortColumn>("end_time");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
-
-  const [openPositions, setOpenPositions] = useState<Position[]>([]);
-  const [isLoadingOpen, setIsLoadingOpen] = useState(true);
-
-  const [closedPositions, setClosedPositions] = useState<Position[]>([]);
-  const [closedTotalCount, setClosedTotalCount] = useState(0);
   const [closedPage, setClosedPage] = useState(0);
-  const [isLoadingClosed, setIsLoadingClosed] = useState(true);
-  const [closedAggregates, setClosedAggregates] = useState<PositionsAggregates | null>(null);
+
+  const openFilters = useMemo(() => buildFilters(), [buildFilters]);
+  const openPositionsQuery = useQuery<Position[]>({
+    queryKey: queryKeys.positions.open(openFilters),
+    queryFn: () => api.getOpenPositions(openFilters),
+  });
+  const openPositions = useMemo(
+    () => openPositionsQuery.data ?? [],
+    [openPositionsQuery.data],
+  );
+  const isLoadingOpen = openPositionsQuery.isLoading;
+
+  const closedListFilters = useMemo(
+    () => buildFilters({ timeField: "end_time", sort: { column: sortColumn, direction: sortDirection } }),
+    [buildFilters, sortColumn, sortDirection],
+  );
+  const closedAggsFilters = useMemo(
+    () => buildFilters({ timeField: "end_time" }),
+    [buildFilters],
+  );
+  const closedPositionsQuery = useQuery({
+    queryKey: queryKeys.positions.closed(CLOSED_PAGE_SIZE, closedPage * CLOSED_PAGE_SIZE, closedListFilters),
+    queryFn: () => api.getPositions(CLOSED_PAGE_SIZE, closedPage * CLOSED_PAGE_SIZE, closedListFilters),
+    enabled: tab === "closed",
+    placeholderData: (prev) => prev, // keep last data while paginating
+  });
+  const closedAggregatesQuery = useQuery<PositionsAggregates>({
+    queryKey: queryKeys.positions.closedAggregates(closedAggsFilters),
+    queryFn: () => api.getPositionsAggregates(closedAggsFilters),
+    enabled: tab === "closed",
+  });
+
+  const closedPositions = useMemo(
+    () => closedPositionsQuery.data?.positions ?? [],
+    [closedPositionsQuery.data],
+  );
+  const closedTotalCount = closedPositionsQuery.data?.totalCount ?? 0;
+  const isLoadingClosed = closedPositionsQuery.isLoading;
+  const closedAggregates = closedAggregatesQuery.data ?? null;
 
   const [hideUsdcPositions, setHideUsdcPositions] = useState(() => {
     if (typeof window !== "undefined") {
@@ -86,44 +119,6 @@ export default function PositionsPage() {
 
   const [expandedPositionId, setExpandedPositionId] = useState<string | null>(null);
   const [expandedTab, setExpandedTab] = useState<"trades" | "funding">("trades");
-
-  const fetchOpen = useCallback(async () => {
-    setIsLoadingOpen(true);
-    try {
-      const data = await api.getOpenPositions(buildFilters());
-      setOpenPositions(data);
-    } catch (error) {
-      console.error("Failed to fetch open positions:", error);
-    } finally {
-      setIsLoadingOpen(false);
-    }
-  }, [buildFilters]);
-
-  const fetchClosed = useCallback(async () => {
-    setIsLoadingClosed(true);
-    try {
-      const filters = buildFilters({ timeField: "end_time", sort: { column: sortColumn, direction: sortDirection } });
-      const [data, aggs] = await Promise.all([
-        api.getPositions(CLOSED_PAGE_SIZE, closedPage * CLOSED_PAGE_SIZE, filters),
-        api.getPositionsAggregates(buildFilters({ timeField: "end_time" })),
-      ]);
-      setClosedPositions(data.positions);
-      setClosedTotalCount(data.totalCount);
-      setClosedAggregates(aggs);
-    } catch (error) {
-      console.error("Failed to fetch closed positions:", error);
-    } finally {
-      setIsLoadingClosed(false);
-    }
-  }, [buildFilters, sortColumn, sortDirection, closedPage]);
-
-  useEffect(() => {
-    fetchOpen();
-  }, [fetchOpen]);
-
-  useEffect(() => {
-    if (tab === "closed") fetchClosed();
-  }, [tab, fetchClosed]);
 
   const closedTotalPages = Math.ceil(closedTotalCount / CLOSED_PAGE_SIZE);
 

@@ -1,7 +1,9 @@
 "use client";
 
 import { Fragment, useState, useEffect, useCallback, useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { queryKeys } from "@/lib/query-keys";
 import { useGlobalFilters } from "@/hooks/use-global-filters";
 import { useDenomination } from "@/contexts/denomination-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -49,15 +51,47 @@ import {
 export default function DashboardPage() {
   const { buildFilters } = useGlobalFilters();
   const { denomination } = useDenomination();
+  const queryClient = useQueryClient();
 
-  const [openPositions, setOpenPositions] = useState<Position[]>([]);
-  const [accountPnl, setAccountPnl] = useState<AccountPnLDetail[]>([]);
-  const [snapshotBalances, setSnapshotBalances] = useState<SnapshotBalance[]>([]);
-  const [isLoadingPnl, setIsLoadingPnl] = useState(true);
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set());
   const [resettingId, setResettingId] = useState<string | null>(null);
   const [groupBy, setGroupBy] = useState<"status" | "wallet" | "exchange" | "activity" | "tag">("status");
   const [expandedAccounts, setExpandedAccounts] = useState<Set<string>>(new Set());
+
+  // Filters used by the three queries on this page.
+  const baseFilters = useMemo(() => buildFilters(), [buildFilters]);
+  const pnlFilters = useMemo(() => {
+    // PnL table always shows ALL accounts regardless of account filter.
+    const f = { ...buildFilters({ timeField: "end_time" }), denomination };
+    delete f.accountIds;
+    return f;
+  }, [buildFilters, denomination]);
+
+  const openPositionsQuery = useQuery<Position[]>({
+    queryKey: queryKeys.positions.open(baseFilters),
+    queryFn: () => api.getOpenPositions(baseFilters),
+  });
+  const pnlQuery = useQuery<AccountPnLDetail[]>({
+    queryKey: queryKeys.pnl.byAccount(pnlFilters),
+    queryFn: () => api.getPnLDetailByAccount(pnlFilters),
+  });
+  const snapshotsQuery = useQuery<SnapshotBalance[]>({
+    queryKey: queryKeys.snapshots.balances(),
+    queryFn: () => api.getSnapshotBalances(),
+  });
+
+  const openPositions = useMemo(
+    () => openPositionsQuery.data ?? [],
+    [openPositionsQuery.data],
+  );
+  const accountPnl = useMemo(() => pnlQuery.data ?? [], [pnlQuery.data]);
+  const snapshotBalances = useMemo(
+    () => snapshotsQuery.data ?? [],
+    [snapshotsQuery.data],
+  );
+  // Show the loading skeleton only on the very first load — background
+  // refetches keep the prior data on screen.
+  const isLoadingPnl = pnlQuery.isLoading;
 
   // Hydrate groupBy from localStorage on client to avoid hydration mismatch
   useEffect(() => {
@@ -94,32 +128,20 @@ export default function DashboardPage() {
     });
   }, []);
 
-  const fetchData = useCallback(async () => {
-    const filters = buildFilters({ timeField: "end_time" });
-    const baseFilters = buildFilters();
-
-    // PnL table should always show ALL accounts regardless of account filter.
-    // Strip account-specific filters but keep time range, tags, denomination.
-    const pnlFilters = { ...filters };
-    delete pnlFilters.accountIds;
-
-    setIsLoadingPnl(true);
-
-    try {
-      const [openData, pnlData, snapshotData] = await Promise.all([
-        api.getOpenPositions(baseFilters),
-        api.getPnLDetailByAccount({ ...pnlFilters, denomination }),
-        api.getSnapshotBalances(),
-      ]);
-      setOpenPositions(openData);
-      setAccountPnl(pnlData);
-      setSnapshotBalances(snapshotData);
-    } catch (error) {
-      console.error("Failed to fetch dashboard data:", error);
-    } finally {
-      setIsLoadingPnl(false);
-    }
-  }, [buildFilters, denomination]);
+  // Optimistically update the cached PnL row for one account, then mutate it
+  // through React Query's setQueryData so observers re-render immediately.
+  const patchPnlRow = useCallback(
+    (accountId: string, patch: (row: AccountPnLDetail) => AccountPnLDetail) => {
+      queryClient.setQueryData<AccountPnLDetail[] | undefined>(
+        queryKeys.pnl.byAccount(pnlFilters),
+        (prev) =>
+          prev
+            ? prev.map((row) => (row.accountId === accountId ? patch(row) : row))
+            : prev,
+      );
+    },
+    [queryClient, pnlFilters],
+  );
 
   const handleToggle = useCallback(async (accountId: string, field: "sync" | "processing", value: boolean) => {
     const key = `${accountId}-${field}`;
@@ -127,16 +149,13 @@ export default function DashboardPage() {
     try {
       const toggles = field === "sync" ? { sync: value } : { processing: value };
       await api.updateAccountToggles(accountId, toggles);
-      // Optimistically update local state
-      setAccountPnl((prev) =>
-        prev.map((row) => {
-          if (row.accountId !== accountId || !row.account) return row;
-          const updated = { ...row.account };
-          if (field === "sync") updated.sync_enabled = value;
-          else updated.processing_enabled = value;
-          return { ...row, account: updated };
-        }),
-      );
+      patchPnlRow(accountId, (row) => {
+        if (!row.account) return row;
+        const updated = { ...row.account };
+        if (field === "sync") updated.sync_enabled = value;
+        else updated.processing_enabled = value;
+        return { ...row, account: updated };
+      });
     } catch (error) {
       console.error(`Failed to toggle ${field} for ${accountId}:`, error);
     } finally {
@@ -146,26 +165,30 @@ export default function DashboardPage() {
         return next;
       });
     }
-  }, []);
+  }, [patchPnlRow]);
 
   const handleReset = useCallback(async (accountId: string) => {
     setResettingId(accountId);
     try {
       await api.resetAccount(accountId);
-      // Optimistically update local state to show resetting indicator immediately
-      setAccountPnl((prev) =>
-        prev.map((row) => {
-          if (row.accountId !== accountId || !row.account) return row;
-          return { ...row, account: { ...row.account, sync_reset_requested: true, processor_reset_requested: true } };
-        }),
+      // Optimistically show resetting indicator immediately
+      patchPnlRow(accountId, (row) =>
+        row.account
+          ? { ...row, account: { ...row.account, sync_reset_requested: true, processor_reset_requested: true } }
+          : row,
       );
-      await fetchData();
+      // Reset wipes data — invalidate all dashboard queries to refetch fresh.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.pnl.all }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.positions.all }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.snapshots.all }),
+      ]);
     } catch (error) {
       console.error(`Failed to reset account ${accountId}:`, error);
     } finally {
       setResettingId(null);
     }
-  }, [fetchData]);
+  }, [queryClient, patchPnlRow]);
 
   const toggleAll = useCallback(async (field: "sync" | "processing") => {
     const allEnabled = accountPnl.every((row) =>
@@ -173,7 +196,6 @@ export default function DashboardPage() {
     );
     const newValue = !allEnabled;
     const ids = accountPnl.map((row) => row.accountId);
-    // Mark all as toggling
     setTogglingIds((prev) => {
       const next = new Set(prev);
       for (const id of ids) next.add(`${id}-${field}`);
@@ -182,19 +204,23 @@ export default function DashboardPage() {
     try {
       const toggles = field === "sync" ? { sync: newValue } : { processing: newValue };
       await Promise.all(ids.map((id) => api.updateAccountToggles(id, toggles)));
-      // Optimistic update
-      setAccountPnl((prev) =>
-        prev.map((row) => {
-          if (!row.account) return row;
-          const updated = { ...row.account };
-          if (field === "sync") updated.sync_enabled = newValue;
-          else updated.processing_enabled = newValue;
-          return { ...row, account: updated };
-        }),
+      // Optimistic update via cache
+      queryClient.setQueryData<AccountPnLDetail[] | undefined>(
+        queryKeys.pnl.byAccount(pnlFilters),
+        (prev) =>
+          prev
+            ? prev.map((row) => {
+                if (!row.account) return row;
+                const updated = { ...row.account };
+                if (field === "sync") updated.sync_enabled = newValue;
+                else updated.processing_enabled = newValue;
+                return { ...row, account: updated };
+              })
+            : prev,
       );
     } catch (error) {
       console.error(`Failed to toggle all ${field}:`, error);
-      await fetchData();
+      await queryClient.invalidateQueries({ queryKey: queryKeys.pnl.all });
     } finally {
       setTogglingIds((prev) => {
         const next = new Set(prev);
@@ -202,7 +228,7 @@ export default function DashboardPage() {
         return next;
       });
     }
-  }, [accountPnl, fetchData]);
+  }, [accountPnl, queryClient, pnlFilters]);
 
   // Track which accounts have open positions (for data accuracy check context and activity grouping)
   const accountsWithOpenPositions = useMemo(() => {
@@ -343,10 +369,6 @@ export default function DashboardPage() {
     () => accountPnl.length > 0 && accountPnl.every((r) => r.account?.processing_enabled),
     [accountPnl],
   );
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
 
   return (
     <div className="space-y-6">

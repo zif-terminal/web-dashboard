@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
+import { QueryProvider } from "@/components/query-provider";
 import { ErrorProvider } from "@/contexts/error-context";
 import { FiltersProvider } from "@/contexts/filters-context";
 import { DenominationProvider } from "@/contexts/denomination-context";
@@ -42,20 +43,22 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <ErrorProvider>
-            <FiltersProvider>
-              <DenominationProvider>
-                <AccountFilterProvider>
-                  <DateRangeProvider>
-                  <LocalModeBanner />
-                  <ErrorBanner />
-                  {children}
-                  <Toaster />
-                  </DateRangeProvider>
-                </AccountFilterProvider>
-              </DenominationProvider>
-            </FiltersProvider>
-          </ErrorProvider>
+          <QueryProvider>
+            <ErrorProvider>
+              <FiltersProvider>
+                <DenominationProvider>
+                  <AccountFilterProvider>
+                    <DateRangeProvider>
+                    <LocalModeBanner />
+                    <ErrorBanner />
+                    {children}
+                    <Toaster />
+                    </DateRangeProvider>
+                  </AccountFilterProvider>
+                </DenominationProvider>
+              </FiltersProvider>
+            </ErrorProvider>
+          </QueryProvider>
         </ThemeProvider>
       </body>
     </html>

@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useMemo, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { queryKeys } from "@/lib/query-keys";
 import { useGlobalFilters } from "@/hooks/use-global-filters";
 import { useDenomination } from "@/contexts/denomination-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -72,43 +74,45 @@ export default function ActivityPage() {
   const { denomination } = useDenomination();
 
   const [typeFilter, setTypeFilter] = useState<EventTypeFilter>("all");
-  const [events, setEvents] = useState<UnifiedEvent[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
-  const [offset, setOffset] = useState(0);
+  // Pagination is local-only: extra pages are appended on top of the cached
+  // first page, but we never extend the cached query value. This keeps the
+  // cache key small and predictable.
+  const [extraEvents, setExtraEvents] = useState<UnifiedEvent[]>([]);
+  const [extraOffset, setExtraOffset] = useState(0);
 
-  const fetchData = useCallback(async () => {
-    const filters = buildFilters();
-    const eventTypes = filterToEventTypes(typeFilter);
+  const filters = useMemo(
+    () => ({ ...buildFilters(), eventTypes: filterToEventTypes(typeFilter) }),
+    [buildFilters, typeFilter],
+  );
 
-    setIsLoading(true);
-    setOffset(0);
+  // Reset pagination whenever the filter changes (memoized identity).
+  const filterKey = useMemo(() => JSON.stringify(filters), [filters]);
+  const eventsQuery = useQuery({
+    queryKey: queryKeys.events.list(PAGE_SIZE, 0, filters),
+    queryFn: () => api.getEvents(PAGE_SIZE, 0, filters),
+  });
 
-    try {
-      const result = await api.getEvents(PAGE_SIZE, 0, { ...filters, eventTypes });
-      setEvents(result.events);
-      setTotalCount(result.totalCount);
-    } catch (error) {
-      console.error("Failed to fetch activity:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [buildFilters, typeFilter]);
+  // Reset local pagination when the filter changes
+  useMemo(() => {
+    setExtraEvents([]);
+    setExtraOffset(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey]);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  const totalCount = eventsQuery.data?.totalCount ?? 0;
+  const events = useMemo(
+    () => [...(eventsQuery.data?.events ?? []), ...extraEvents],
+    [eventsQuery.data, extraEvents],
+  );
+  const isLoading = eventsQuery.isLoading;
 
-  const loadMore = async () => {
-    const filters = buildFilters();
-    const eventTypes = filterToEventTypes(typeFilter);
-    const nextOffset = offset + PAGE_SIZE;
-
-    const result = await api.getEvents(PAGE_SIZE, nextOffset, { ...filters, eventTypes });
-    setEvents((prev) => [...prev, ...result.events]);
-    setOffset(nextOffset);
-    setTotalCount(result.totalCount);
-  };
+  const loadMore = useCallback(async () => {
+    // First "more" page starts at PAGE_SIZE (after the cached first page).
+    const nextOffset = extraOffset === 0 ? PAGE_SIZE : extraOffset + PAGE_SIZE;
+    const result = await api.getEvents(PAGE_SIZE, nextOffset, filters);
+    setExtraEvents((prev) => [...prev, ...result.events]);
+    setExtraOffset(nextOffset);
+  }, [extraOffset, filters]);
 
   const hasMore = events.length < totalCount;
 
