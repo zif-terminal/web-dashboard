@@ -580,7 +580,13 @@ export const graphqlApi: ApiClient = {
   async getOpenPositions(filters?: DataFilters): Promise<Position[]> {
     return withErrorHandling(async () => {
       const client = getGraphQLClient();
-      const where = buildPositionsWhereClause(filters, "open");
+      // Open positions are inherently current — filtering them by start_time
+      // would incorrectly drop positions opened before the active date range
+      // (e.g. a long-held spot bag entered last year). Strip since/until.
+      const openFilters: DataFilters | undefined = filters
+        ? { ...filters, since: undefined, until: undefined }
+        : filters;
+      const where = buildPositionsWhereClause(openFilters, "open");
 
       const data = await client.request<{
         positions: Position[];
@@ -671,12 +677,14 @@ export const graphqlApi: ApiClient = {
             fee_pnl: string | null;
             funding_pnl: string | null;
             interest_pnl: string | null;
+            reward_pnl: string | null;
             position: { exchange_account_id: string; market_type: string };
           }[];
         }>(GET_PNL_DETAIL_BY_ACCOUNT, { where: basePnlWhere }),
         client.request<{
           deposits: { exchange_account_id: string; event_values: { quantity: string }[] }[];
           withdrawals: { exchange_account_id: string; event_values: { quantity: string }[] }[];
+          fees: { exchange_account_id: string; event_values: { quantity: string }[] }[];
         }>(GET_NET_FLOW_BY_ACCOUNT, {
           depositWhere: Object.keys(transfersWhere).length > 0
             ? { _and: [transfersWhere, { type: { _eq: "deposit" } }] }
@@ -684,6 +692,9 @@ export const graphqlApi: ApiClient = {
           withdrawWhere: Object.keys(transfersWhere).length > 0
             ? { _and: [transfersWhere, { type: { _eq: "withdraw" } }] }
             : { type: { _eq: "withdraw" } },
+          feeWhere: Object.keys(transfersWhere).length > 0
+            ? { _and: [transfersWhere, { type: { _eq: "fee" } }] }
+            : { type: { _eq: "fee" } },
           denomination: filters?.denomination ?? "USDC",
         }),
         client.request<{ exchange_accounts: ExchangeAccount[] }>(GET_ACCOUNTS),
@@ -716,9 +727,15 @@ export const graphqlApi: ApiClient = {
         fees: number;
         funding: number;
         interest: number;
+        rewards: number;
         perpRealizedPnl: number;
         deposits: number;
         withdrawals: number;
+        // Bridge / transfer fees (transfers.type = "fee"). These leave the
+        // account just like a withdrawal, so they are folded into net flow:
+        //   netFlow = (withdrawals + bridgeFees) - deposits
+        // Kept distinct from `fees` (the PnL fee component from position_pnl).
+        bridgeFees: number;
         netFlowIncomplete: boolean;
       }
       const summaryMap = new Map<string, AccDetail>();
@@ -726,9 +743,9 @@ export const graphqlApi: ApiClient = {
         let entry = summaryMap.get(accId);
         if (!entry) {
           entry = {
-            totalPnl: 0, perpPnl: 0, spotPnl: 0, fees: 0, funding: 0, interest: 0,
+            totalPnl: 0, perpPnl: 0, spotPnl: 0, fees: 0, funding: 0, interest: 0, rewards: 0,
             perpRealizedPnl: 0,
-            deposits: 0, withdrawals: 0, netFlowIncomplete: false,
+            deposits: 0, withdrawals: 0, bridgeFees: 0, netFlowIncomplete: false,
           };
           summaryMap.set(accId, entry);
         }
@@ -739,27 +756,29 @@ export const graphqlApi: ApiClient = {
         const accId = row.position.exchange_account_id;
         const entry = getEntry(accId);
         // Breakdown columns are disjoint: spot/perp show only the trade component,
-        // fees/funding/interest are tracked separately. Fees use the opposite
+        // fees/funding/interest/rewards are tracked separately. Fees use the opposite
         // sign convention from the other PnL columns: in the DB fee_pnl is the
         // magnitude of a cost (positive = paid, negative = rebate). The UI
         // displays the raw DB value and uses a fee-specific color helper so
         // positive (paid) renders red and negative (rebate) renders green.
         // Total PnL explicitly subtracts fees:
-        //   total = perp + spot + funding + interest − fees
+        //   total = perp + spot + funding + interest + rewards − fees
         const tradeOnly = parseFloat(row.trade_pnl || "0") || 0;
         const feePnl = parseFloat(row.fee_pnl || "0") || 0;
         const fundingPnl = parseFloat(row.funding_pnl || "0") || 0;
         const interestPnl = parseFloat(row.interest_pnl || "0") || 0;
+        const rewardPnl = parseFloat(row.reward_pnl || "0") || 0;
         if (row.position.market_type === "perp") {
           entry.perpPnl += tradeOnly;
-          entry.perpRealizedPnl += tradeOnly + fundingPnl + interestPnl - feePnl;
+          entry.perpRealizedPnl += tradeOnly + fundingPnl + interestPnl + rewardPnl - feePnl;
         } else {
           entry.spotPnl += tradeOnly;
         }
         entry.fees += feePnl;
         entry.funding += fundingPnl;
         entry.interest += interestPnl;
-        entry.totalPnl += tradeOnly + fundingPnl + interestPnl - feePnl;
+        entry.rewards += rewardPnl;
+        entry.totalPnl += tradeOnly + fundingPnl + interestPnl + rewardPnl - feePnl;
       }
 
       // Net flow is computed strictly from USDC event_values. If a row is missing one,
@@ -781,6 +800,12 @@ export const graphqlApi: ApiClient = {
         const v = flowValue(row);
         if (v == null) entry.netFlowIncomplete = true;
         else entry.withdrawals += v;
+      }
+      for (const row of flowData.fees) {
+        const entry = getEntry(row.exchange_account_id);
+        const v = flowValue(row);
+        if (v == null) entry.netFlowIncomplete = true;
+        else entry.bridgeFees += v;
       }
 
       // Include all accounts, even those with no PnL data
@@ -815,9 +840,10 @@ export const graphqlApi: ApiClient = {
             fees: d.fees,
             funding: d.funding,
             interest: d.interest,
+            rewards: d.rewards,
             perpRealizedPnl: d.perpRealizedPnl,
             settlementTotal,
-            netFlow: { value: d.withdrawals - d.deposits, incomplete: d.netFlowIncomplete },
+            netFlow: { value: d.withdrawals + d.bridgeFees - d.deposits, incomplete: d.netFlowIncomplete },
             account: acc,
           };
         })

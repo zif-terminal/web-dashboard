@@ -768,10 +768,11 @@ export interface AccountPnLDetail {
   fees: number;
   funding: number;
   interest: number;
+  rewards: number;
   // Net flow is computed strictly from USDC event_values. `incomplete` is true
   // when any contributing transfer had no event_value — UI should show a marker.
   netFlow: { value: number; incomplete: boolean };
-  /** Perp realized PnL = perp trade + perp funding + perp interest - perp fees */
+  /** Perp realized PnL = perp trade + perp funding + perp interest + perp rewards - perp fees */
   perpRealizedPnl: number;
   /** Total settlement amount for this account (null if exchange has no settlements, e.g. HL/Lighter) */
   settlementTotal: number | null;
@@ -786,6 +787,7 @@ export const GET_PNL_DETAIL_BY_ACCOUNT = gql`
       fee_pnl
       funding_pnl
       interest_pnl
+      reward_pnl
       position {
         exchange_account_id
         market_type
@@ -795,7 +797,7 @@ export const GET_PNL_DETAIL_BY_ACCOUNT = gql`
 `;
 
 export const GET_NET_FLOW_BY_ACCOUNT = gql`
-  query GetNetFlowByAccount($depositWhere: transfers_bool_exp!, $withdrawWhere: transfers_bool_exp!, $denomination: String!) {
+  query GetNetFlowByAccount($depositWhere: transfers_bool_exp!, $withdrawWhere: transfers_bool_exp!, $feeWhere: transfers_bool_exp!, $denomination: String!) {
     deposits: transfers(where: $depositWhere) {
       exchange_account_id
       event_values(where: { denomination: { _eq: $denomination } }) {
@@ -803,6 +805,12 @@ export const GET_NET_FLOW_BY_ACCOUNT = gql`
       }
     }
     withdrawals: transfers(where: $withdrawWhere) {
+      exchange_account_id
+      event_values(where: { denomination: { _eq: $denomination } }) {
+        quantity
+      }
+    }
+    fees: transfers(where: $feeWhere) {
       exchange_account_id
       event_values(where: { denomination: { _eq: $denomination } }) {
         quantity

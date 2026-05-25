@@ -22,7 +22,8 @@ import { formatNumber, formatSignedNumber, truncateAddress, getDisplayName, pnlC
 import { Position, AccountPnLDetail, SnapshotBalance } from "@/lib/queries";
 import { ExchangeBadge } from "@/components/exchange-badge";
 import { ChainBadge } from "@/components/chain-badge";
-import { Info, Check, X, AlertTriangle, RotateCcw, Loader2, ChevronRight } from "lucide-react";
+import { Info, Check, X, AlertTriangle, RotateCcw, Loader2, ChevronRight, Wallet as WalletIcon } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -276,6 +277,20 @@ export default function DashboardPage() {
     return map;
   }, [snapshotBalances]);
 
+  // Map of accountId -> { asset -> usd_value (number) } from the latest spot_balance_snapshots row.
+  // Used by the open-positions sub-table to render a real "Current Value" column.
+  const accountSnapshotUsdByAsset = useMemo(() => {
+    const map = new Map<string, Map<string, number>>();
+    for (const snap of snapshotBalances) {
+      if (snap.usd_value == null) continue;
+      const usd = parseFloat(snap.usd_value);
+      if (!Number.isFinite(usd)) continue;
+      if (!map.has(snap.exchange_account_id)) map.set(snap.exchange_account_id, new Map());
+      map.get(snap.exchange_account_id)!.set(snap.asset, usd);
+    }
+    return map;
+  }, [snapshotBalances]);
+
   // Group PnL accounts based on selected grouping
   const pnlGroups = useMemo((): { label: string; rows: AccountPnLDetail[] }[] => {
     switch (groupBy) {
@@ -330,7 +345,7 @@ export default function DashboardPage() {
         const inactive: AccountPnLDetail[] = [];
         for (const row of accountPnl) {
           const hasOpenPos = accountsWithOpenPositions.has(row.accountId);
-          const hasActivity = row.totalPnl !== 0 || row.fees !== 0 || row.funding !== 0 || row.interest !== 0;
+          const hasActivity = row.totalPnl !== 0 || row.fees !== 0 || row.funding !== 0 || row.interest !== 0 || row.rewards !== 0;
           if (hasOpenPos || hasActivity) {
             active.push(row);
           } else {
@@ -360,6 +375,32 @@ export default function DashboardPage() {
       }
     }
   }, [accountPnl, groupBy, accountsWithOpenPositions]);
+
+  // Grand total per numeric column across every row currently displayed
+  // (flatten all groups so it respects the active grouping/filtering).
+  const pnlTotals = useMemo(() => {
+    const totals = {
+      totalPnl: 0,
+      perpPnl: 0,
+      spotPnl: 0,
+      fees: 0,
+      funding: 0,
+      interest: 0,
+      rewards: 0,
+    };
+    for (const group of pnlGroups) {
+      for (const row of group.rows) {
+        totals.totalPnl += row.totalPnl;
+        totals.perpPnl += row.perpPnl;
+        totals.spotPnl += row.spotPnl;
+        totals.fees += row.fees;
+        totals.funding += row.funding;
+        totals.interest += row.interest;
+        totals.rewards += row.rewards;
+      }
+    }
+    return totals;
+  }, [pnlGroups]);
 
   const allSyncEnabled = useMemo(
     () => accountPnl.length > 0 && accountPnl.every((r) => r.account?.sync_enabled),
@@ -402,7 +443,20 @@ export default function DashboardPage() {
               {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}
             </div>
           ) : accountPnl.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">No account data</p>
+            <div className="flex flex-col items-center text-center gap-3 py-10">
+              <div className="rounded-full bg-muted p-3">
+                <WalletIcon className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-medium">No account data yet</p>
+                <p className="text-xs text-muted-foreground max-w-md">
+                  Add a wallet to start tracking your exchange accounts and PnL.
+                </p>
+              </div>
+              <Button asChild size="sm" variant="outline">
+                <Link href="/accounts">Go to Accounts</Link>
+              </Button>
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <Table>
@@ -418,7 +472,7 @@ export default function DashboardPage() {
                           </TooltipTrigger>
                           <TooltipContent side="top" className="max-w-xs">
                             <div className="text-xs space-y-1.5">
-                              <p>Total PnL = Perp + Spot + Funding + Interest − Fees</p>
+                              <p>Total PnL = Perp + Spot + Funding + Interest + Rewards − Fees</p>
                               <p className="text-muted-foreground">Fees are subtracted because the Fees column shows paid amounts as positive.</p>
                             </div>
                           </TooltipContent>
@@ -439,7 +493,7 @@ export default function DashboardPage() {
                               <p>Fees use the opposite sign convention from the other PnL columns — raw DB value is shown.</p>
                               <p><span className="text-red-500 font-medium">Positive (+)</span> — Fees paid (cost)</p>
                               <p><span className="text-green-500 font-medium">Negative (−)</span> — Fee rebate (earned)</p>
-                              <p className="text-muted-foreground pt-1 border-t border-border">Fees are subtracted from Total PnL: Total = Perp + Spot + Funding + Interest − Fees</p>
+                              <p className="text-muted-foreground pt-1 border-t border-border">Fees are subtracted from Total PnL: Total = Perp + Spot + Funding + Interest + Rewards − Fees</p>
                             </div>
                           </TooltipContent>
                         </Tooltip>
@@ -447,9 +501,28 @@ export default function DashboardPage() {
                     </TableHead>
                     <TableHead className="text-xs text-right">Funding</TableHead>
                     <TableHead className="text-xs text-right">Interest</TableHead>
+                    <TableHead className="text-xs text-right">Rewards</TableHead>
                     <TableHead className="text-xs text-center">
                       <span className="inline-flex items-center gap-1">
-                        Accuracy
+                        Snapshot
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs">
+                            <div className="text-xs space-y-1.5">
+                              <p><span className="text-green-500 font-medium">Green</span> — all assets match within 0.01</p>
+                              <p><span className="text-red-500 font-medium">Red</span> — any asset off by &ge; 0.01</p>
+                              <p><span className="text-muted-foreground font-medium">N/A</span> — no snapshot data</p>
+                              <p className="text-muted-foreground pt-1 border-t border-border">Snapshot vs derived position quantity (per asset)</p>
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                      </span>
+                    </TableHead>
+                    <TableHead className="text-xs text-center">
+                      <span className="inline-flex items-center gap-1">
+                        PnL
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
@@ -459,8 +532,8 @@ export default function DashboardPage() {
                               <p><span className="text-green-500 font-medium">Green</span> — gap &lt; $1</p>
                               <p><span className="text-yellow-500 font-medium">Yellow</span> — gap &lt; $100</p>
                               <p><span className="text-red-500 font-medium">Red</span> — gap &ge; $100</p>
-                              <p className="text-muted-foreground pt-1 border-t border-border">Check 1: PnL vs Net Flow + Total Balance (all assets, USD)</p>
-                              <p className="text-muted-foreground">Check 2: Per-asset Snapshot Balance vs Open Position Balance</p>
+                              <p><span className="text-muted-foreground font-medium">N/A</span> — no snapshot or incomplete net flow</p>
+                              <p className="text-muted-foreground pt-1 border-t border-border">Realized PnL vs Net Flow + Total Balance (all assets USD)</p>
                             </div>
                           </TooltipContent>
                         </Tooltip>
@@ -502,11 +575,59 @@ export default function DashboardPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
+                  <TableRow className="hover:bg-transparent sticky top-0 z-10 bg-muted shadow-sm">
+                    <TableCell className="py-2 bg-muted">
+                      <span className="text-xs font-bold uppercase tracking-wide">
+                        TOTAL (all shown)
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-2 text-right bg-muted">
+                      <span className={cn("text-sm font-bold font-mono", pnlColor(pnlTotals.totalPnl))}>
+                        {formatSignedNumber(pnlTotals.totalPnl.toString())}
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-2 text-right bg-muted">
+                      <span className={cn("text-sm font-bold font-mono", pnlColor(pnlTotals.perpPnl))}>
+                        {formatSignedNumber(pnlTotals.perpPnl.toString())}
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-2 text-right bg-muted">
+                      <span className={cn("text-sm font-bold font-mono", pnlColor(pnlTotals.spotPnl))}>
+                        {formatSignedNumber(pnlTotals.spotPnl.toString())}
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-2 text-right bg-muted">
+                      <span className={cn("text-sm font-bold font-mono", feePnlColor(pnlTotals.fees))}>
+                        {formatSignedNumber(pnlTotals.fees.toString())}
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-2 text-right bg-muted">
+                      <span className={cn("text-sm font-bold font-mono", pnlColor(pnlTotals.funding))}>
+                        {formatSignedNumber(pnlTotals.funding.toString())}
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-2 text-right bg-muted">
+                      <span className={cn("text-sm font-bold font-mono", pnlColor(pnlTotals.interest))}>
+                        {formatSignedNumber(pnlTotals.interest.toString())}
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-2 text-right bg-muted">
+                      <span className={cn("text-sm font-bold font-mono", pnlColor(pnlTotals.rewards))}>
+                        {formatSignedNumber(pnlTotals.rewards.toString())}
+                      </span>
+                    </TableCell>
+                    {/* Non-numeric status/action columns: no total */}
+                    <TableCell className="py-2 bg-muted" />
+                    <TableCell className="py-2 bg-muted" />
+                    <TableCell className="py-2 bg-muted" />
+                    <TableCell className="py-2 bg-muted" />
+                    <TableCell className="py-2 bg-muted" />
+                  </TableRow>
                   {pnlGroups.map((group) => {
                     return (
                       <Fragment key={group.label}>
                         <TableRow className="hover:bg-transparent">
-                          <TableCell colSpan={11} className="py-1.5 bg-muted/50 border-b">
+                          <TableCell colSpan={13} className="py-1.5 bg-muted/50 border-b">
                             <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                               {group.label}
                             </span>
@@ -571,107 +692,172 @@ export default function DashboardPage() {
                                   {formatSignedNumber(row.interest.toString())}
                                 </span>
                               </TableCell>
-                              <TableCell className="py-1.5 text-center">
-                                {(() => {
-                                  const snapshotBal = accountSnapshotBalance.get(row.accountId);
-                                  const hasSnapshot = snapshotBal !== undefined;
+                              <TableCell className="py-1.5 text-right">
+                                <span className={cn("text-sm font-mono", pnlColor(row.rewards))}>
+                                  {formatSignedNumber(row.rewards.toString())}
+                                </span>
+                              </TableCell>
+                              {(() => {
+                                // While the snapshots/positions queries are still
+                                // loading, the underlying maps are empty and any
+                                // comparison would trivially "match" zero values.
+                                // Show a loading spinner instead so users don't
+                                // see a false-positive green tick before data
+                                // has actually arrived.
+                                const snapshotsLoading = snapshotsQuery.isLoading;
+                                const positionsLoading = openPositionsQuery.isLoading;
 
-                                  // Check 1: Realized PnL vs Net Flow + Total Snapshot Balance (all assets in USD)
-                                  const check1Gap = hasSnapshot && !row.netFlow.incomplete
-                                    ? Math.abs(row.totalPnl - (row.netFlow.value + snapshotBal))
-                                    : null;
-                                  const check1Status: "green" | "yellow" | "red" | "na" =
-                                    check1Gap === null ? "na"
-                                    : check1Gap < 1 ? "green"
-                                    : check1Gap < 100 ? "yellow"
-                                    : "red";
+                                const snapshotBal = accountSnapshotBalance.get(row.accountId);
+                                const hasSnapshot = snapshotBal !== undefined;
 
-                                  // Check 2: Per-asset snapshot balance vs open position balance
-                                  const snapAssets = accountSnapshotByAsset.get(row.accountId);
-                                  const posAssets = accountOpenPositionByAsset.get(row.accountId);
-                                  let check2Gap: number | null = null;
-                                  const check2Mismatches: string[] = [];
-                                  if (snapAssets) {
-                                    check2Gap = 0;
-                                    const allAssets = new Set([
-                                      ...snapAssets.keys(),
-                                      ...(posAssets?.keys() ?? []),
-                                    ]);
-                                    for (const asset of allAssets) {
-                                      const snapVal = snapAssets.get(asset) ?? 0;
-                                      const posVal = posAssets?.get(asset) ?? 0;
-                                      const diff = Math.abs(snapVal - posVal);
-                                      if (diff >= 0.01) {
-                                        check2Gap += diff;
-                                        check2Mismatches.push(`${asset}: snap=${formatNumber(snapVal.toString(), 4)} pos=${formatNumber(posVal.toString(), 4)}`);
-                                      }
+                                // Check 1: Realized PnL vs Net Flow + Total Snapshot Balance (all assets in USD)
+                                const check1Gap = hasSnapshot && !row.netFlow.incomplete
+                                  ? Math.abs(row.totalPnl - (row.netFlow.value + snapshotBal))
+                                  : null;
+                                const check1Status: "green" | "yellow" | "red" | "na" | "loading" =
+                                  snapshotsLoading ? "loading"
+                                  : check1Gap === null ? "na"
+                                  : check1Gap < 1 ? "green"
+                                  : check1Gap < 100 ? "yellow"
+                                  : "red";
+
+                                // Check 2: Per-asset snapshot balance vs open position balance.
+                                // Run whenever EITHER side has assets — exchanges skip zero-balance
+                                // rows in their /balances response, so an account with derived
+                                // positions but no snapshot rows must still surface the mismatch
+                                // (treating absent snapshot rows as balance=0) rather than N/A.
+                                const snapAssets = accountSnapshotByAsset.get(row.accountId);
+                                const posAssets = accountOpenPositionByAsset.get(row.accountId);
+                                let check2Gap: number | null = null;
+                                const check2Mismatches: { asset: string; snap: number; pos: number; diff: number }[] = [];
+                                if (snapAssets || posAssets) {
+                                  check2Gap = 0;
+                                  const allAssets = new Set([
+                                    ...(snapAssets?.keys() ?? []),
+                                    ...(posAssets?.keys() ?? []),
+                                  ]);
+                                  for (const asset of allAssets) {
+                                    const snapVal = snapAssets?.get(asset) ?? 0;
+                                    const posVal = posAssets?.get(asset) ?? 0;
+                                    const diff = Math.abs(snapVal - posVal);
+                                    if (diff >= 0.01) {
+                                      check2Gap += diff;
+                                      check2Mismatches.push({ asset, snap: snapVal, pos: posVal, diff });
                                     }
                                   }
-                                  const check2Status: "green" | "red" | "na" =
-                                    check2Gap === null ? "na"
-                                    : check2Mismatches.length === 0 ? "green"
-                                    : "red";
+                                }
+                                const check2Status: "green" | "red" | "na" | "loading" =
+                                  snapshotsLoading || positionsLoading ? "loading"
+                                  : check2Gap === null ? "na"
+                                  : check2Mismatches.length === 0 ? "green"
+                                  : "red";
 
-                                  // Overall icon uses worst status
-                                  const statusRank = { red: 0, yellow: 1, na: 2, green: 3 };
-                                  const worstRank = Math.min(statusRank[check1Status], statusRank[check2Status]);
-                                  const icon = worstRank >= 3 ? (
-                                    <Check className="h-4 w-4 text-green-500" />
-                                  ) : worstRank >= 1 ? (
-                                    <AlertTriangle className="h-4 w-4 text-yellow-500" />
-                                  ) : (
-                                    <X className="h-4 w-4 text-red-500" />
-                                  );
+                                // Build PnL (Check 1) tooltip text
+                                let check1Text: string;
+                                if (check1Status === "loading") {
+                                  check1Text = "PnL vs Net Flow + Balance — loading snapshot data...";
+                                } else if (!hasSnapshot) {
+                                  check1Text = "PnL vs Net Flow + Balance — no snapshot data";
+                                } else if (row.netFlow.incomplete) {
+                                  check1Text = "PnL vs Net Flow + Balance — incomplete flow data";
+                                } else {
+                                  const expected = row.netFlow.value + snapshotBal;
+                                  check1Text = check1Status === "green"
+                                    ? `PnL matches Net Flow + Total Balance ($${formatNumber(check1Gap!.toString(), 2)} diff)`
+                                    : `PnL != Net Flow + Total Balance (PnL: ${formatSignedNumber(row.totalPnl.toString())} | Expected: ${formatSignedNumber(expected.toString())} | diff: $${formatNumber(check1Gap!.toString(), 2)})`;
+                                }
 
-                                  // Build tooltip lines
-                                  let check1Text: string;
-                                  if (!hasSnapshot) {
-                                    check1Text = "PnL vs Net Flow + Balance — no snapshot data";
-                                  } else if (row.netFlow.incomplete) {
-                                    check1Text = "PnL vs Net Flow + Balance — incomplete flow data";
-                                  } else {
-                                    const expected = row.netFlow.value + snapshotBal;
-                                    check1Text = check1Status === "green"
-                                      ? `PnL matches Net Flow + Total Balance ($${formatNumber(check1Gap!.toString(), 2)} diff)`
-                                      : `PnL != Net Flow + Total Balance (PnL: ${formatSignedNumber(row.totalPnl.toString())} | Expected: ${formatSignedNumber(expected.toString())} | diff: $${formatNumber(check1Gap!.toString(), 2)})`;
-                                  }
+                                const statusColor = (s: string) =>
+                                  s === "green" ? "text-green-500"
+                                  : s === "yellow" ? "text-yellow-500"
+                                  : s === "red" ? "text-red-500"
+                                  : "text-muted-foreground";
 
-                                  let check2Text: string;
-                                  if (!snapAssets) {
-                                    check2Text = "Snapshot vs Position Balance — no snapshot data";
-                                  } else if (check2Mismatches.length === 0) {
-                                    check2Text = "Snapshot matches Position Balance (all assets)";
-                                  } else {
-                                    check2Text = `Snapshot != Position Balance: ${check2Mismatches.join("; ")}`;
-                                  }
+                                // Snapshot column icon (Check 2)
+                                const snapshotIcon = check2Status === "loading" ? (
+                                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                                ) : check2Status === "green" ? (
+                                  <Check className="h-4 w-4 text-green-500" />
+                                ) : check2Status === "red" ? (
+                                  <X className="h-4 w-4 text-red-500" />
+                                ) : (
+                                  <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+                                );
 
-                                  const statusColor = (s: string) =>
-                                    s === "green" ? "text-green-500"
-                                    : s === "yellow" ? "text-yellow-500"
-                                    : s === "red" ? "text-red-500"
-                                    : "text-muted-foreground";
+                                // PnL column icon (Check 1)
+                                const pnlIcon = check1Status === "loading" ? (
+                                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                                ) : check1Status === "green" ? (
+                                  <Check className="h-4 w-4 text-green-500" />
+                                ) : check1Status === "yellow" ? (
+                                  <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                                ) : check1Status === "red" ? (
+                                  <X className="h-4 w-4 text-red-500" />
+                                ) : (
+                                  <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+                                );
 
-                                  return (
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <span className="inline-flex items-center justify-center cursor-help">
-                                          {icon}
-                                        </span>
-                                      </TooltipTrigger>
-                                      <TooltipContent side="top" className="max-w-xs">
-                                        <div className="text-xs space-y-1">
-                                          <p>
-                                            <span className={statusColor(check1Status)}>{check1Text}</span>
-                                          </p>
-                                          <p>
-                                            <span className={statusColor(check2Status)}>{check2Text}</span>
-                                          </p>
-                                        </div>
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  );
-                                })()}
-                              </TableCell>
+                                return (
+                                  <>
+                                    <TableCell className="py-1.5 text-center">
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <span className="inline-flex items-center justify-center cursor-help">
+                                            {snapshotIcon}
+                                          </span>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="top" className="max-w-xs">
+                                          <div className="text-xs space-y-1">
+                                            <p className={statusColor(check2Status)}>
+                                              Snapshot vs derived position quantity (per asset)
+                                            </p>
+                                            {check2Status === "loading" && (
+                                              <p className="text-muted-foreground">Loading snapshot data...</p>
+                                            )}
+                                            {check2Status === "na" && (
+                                              <p className="text-muted-foreground">No snapshot data</p>
+                                            )}
+                                            {check2Status === "green" && (
+                                              <p className="text-muted-foreground">All assets match within 0.01</p>
+                                            )}
+                                            {check2Status === "red" && (
+                                              <div className="space-y-0.5">
+                                                {check2Mismatches.map((m) => (
+                                                  <p key={m.asset} className="text-muted-foreground font-mono">
+                                                    {m.asset}: snap={formatNumber(m.snap.toString(), 4)} pos={formatNumber(m.pos.toString(), 4)} diff={formatNumber(m.diff.toString(), 4)}
+                                                  </p>
+                                                ))}
+                                              </div>
+                                            )}
+                                          </div>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </TableCell>
+                                    <TableCell className="py-1.5 text-center">
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <span className="inline-flex items-center justify-center cursor-help">
+                                            {pnlIcon}
+                                          </span>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="top" className="max-w-xs">
+                                          <div className="text-xs space-y-1">
+                                            <p className={statusColor(check1Status)}>
+                                              Realized PnL vs Net Flow + Total Balance (all assets USD)
+                                            </p>
+                                            {check1Gap !== null && (
+                                              <p className="text-muted-foreground">
+                                                Gap: ${formatNumber(check1Gap.toString(), 2)}
+                                              </p>
+                                            )}
+                                            <p className="text-muted-foreground">{check1Text}</p>
+                                          </div>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </TableCell>
+                                  </>
+                                );
+                              })()}
                               <TableCell className="py-1.5 text-center">
                                 {(() => {
                                   const syncEnabled = row.account?.sync_enabled;
@@ -808,7 +994,7 @@ export default function DashboardPage() {
                             {isExpanded && (
                               accountPositions.length === 0 ? (
                                 <TableRow className="hover:bg-transparent">
-                                  <TableCell colSpan={11} className="py-2 pl-10 bg-muted/20">
+                                  <TableCell colSpan={13} className="py-2 pl-10 bg-muted/20">
                                     <span className="text-xs text-muted-foreground">No open positions</span>
                                   </TableCell>
                                 </TableRow>
@@ -819,11 +1005,17 @@ export default function DashboardPage() {
                                     <TableCell className="py-1 bg-muted/20 text-[11px] text-muted-foreground font-medium">Side</TableCell>
                                     <TableCell className="py-1 bg-muted/20 text-[11px] text-muted-foreground font-medium text-right" colSpan={2}>Quantity</TableCell>
                                     <TableCell className="py-1 bg-muted/20 text-[11px] text-muted-foreground font-medium text-right" colSpan={2}>Current Value</TableCell>
+                                    <TableCell className="py-1 bg-muted/20 text-[11px] text-muted-foreground font-medium text-right" colSpan={2}>Realized PnL</TableCell>
                                     <TableCell colSpan={5} className="py-1 bg-muted/20" />
                                   </TableRow>
                                   {accountPositions.map((pos) => {
                                     const denomPnl = pos.position_pnl?.find((p) => p.denomination === denomination);
-                                    const currentValue = denomPnl ? parseFloat(denomPnl.realized_pnl) : null;
+                                    const realizedPnl = denomPnl ? parseFloat(denomPnl.realized_pnl) : null;
+                                    // Current Value = latest spot_balance_snapshots.usd_value for (account, asset).
+                                    // Only meaningful for spot positions; perp positions have no spot snapshot.
+                                    const currentValueUsd = pos.market_type === "spot"
+                                      ? accountSnapshotUsdByAsset.get(pos.exchange_account_id)?.get(pos.market) ?? null
+                                      : null;
                                     return (
                                       <TableRow key={pos.id} className="hover:bg-muted/10 border-b-0">
                                         <TableCell className="py-1 pl-10 bg-muted/20">
@@ -856,7 +1048,10 @@ export default function DashboardPage() {
                                           {formatNumber(pos.quantity, 4)}
                                         </TableCell>
                                         <TableCell className="py-1 bg-muted/20 text-right text-xs font-mono text-muted-foreground" colSpan={2}>
-                                          {currentValue !== null ? formatSignedNumber(currentValue.toString()) : "-"}
+                                          {currentValueUsd !== null ? formatSignedNumber(currentValueUsd.toString()) : "-"}
+                                        </TableCell>
+                                        <TableCell className="py-1 bg-muted/20 text-right text-xs font-mono text-muted-foreground" colSpan={2}>
+                                          {realizedPnl !== null ? formatSignedNumber(realizedPnl.toString()) : "-"}
                                         </TableCell>
                                         <TableCell colSpan={5} className="py-1 bg-muted/20" />
                                       </TableRow>

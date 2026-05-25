@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SyncButton } from "@/components/sync-button";
 import { OmniCsvUpload } from "@/components/omni-csv-upload";
 import { ApiKeySetup, ApiKeyConnectedBadge } from "@/components/api-key-setup";
+import { EditApiKeyDialog } from "@/components/edit-api-key-dialog";
 import { PipelineStatusCard } from "@/components/pipeline-status";
 import {
   Card,
@@ -177,12 +178,24 @@ export function AccountDetail({ accountId }: AccountDetailProps) {
               <p className="text-sm font-medium text-muted-foreground">
                 Account Type
               </p>
-              <div className="flex items-center gap-2 mt-1">
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <Badge variant="secondary">
                   {account.account_type}
                 </Badge>
                 {account.exchange?.requires_api_key && account.status !== "needs_token" && (
-                  <ApiKeyConnectedBadge />
+                  <>
+                    <ApiKeyConnectedBadge />
+                    <EditApiKeyDialog
+                      accountId={account.id}
+                      exchangeName={account.exchange?.display_name || "Exchange"}
+                      currentApiKey={
+                        typeof account.account_type_metadata?.api_key === "string"
+                          ? (account.account_type_metadata.api_key as string)
+                          : ""
+                      }
+                      onSuccess={fetchAccount}
+                    />
+                  </>
                 )}
               </div>
             </div>
