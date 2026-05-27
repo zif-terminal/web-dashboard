@@ -458,30 +458,30 @@ export default function DashboardPage() {
               </Button>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
+            <div>
+              <Table className="table-fixed">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="text-xs">Account</TableHead>
-                    <TableHead className="text-xs text-right font-bold">
+                    <TableHead className="text-xs w-[18%]">Account</TableHead>
+                    <TableHead className="text-xs text-right font-bold px-1">
                       <span className="inline-flex items-center justify-end gap-1">
-                        Total PnL
+                        Total
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
                           </TooltipTrigger>
                           <TooltipContent side="top" className="max-w-xs">
                             <div className="text-xs space-y-1.5">
-                              <p>Total PnL = Perp + Spot + Funding + Interest + Rewards − Fees</p>
-                              <p className="text-muted-foreground">Fees are subtracted because the Fees column shows paid amounts as positive.</p>
+                              <p>Total PnL = Perp + Spot + Funding + Interest + Rewards − Fees + Unrealized (open spot)</p>
+                              <p className="text-muted-foreground">Closed realized + open realized cashflows + unrealized PnL on open non-self-denominated spot positions (current snapshot value − cost basis). Fees are subtracted because the Fees column shows paid amounts as positive.</p>
                             </div>
                           </TooltipContent>
                         </Tooltip>
                       </span>
                     </TableHead>
-                    <TableHead className="text-xs text-right">Perp PnL</TableHead>
-                    <TableHead className="text-xs text-right">Spot PnL</TableHead>
-                    <TableHead className="text-xs text-right">
+                    <TableHead className="text-xs text-right px-1">Perp</TableHead>
+                    <TableHead className="text-xs text-right px-1">Spot</TableHead>
+                    <TableHead className="text-xs text-right px-1">
                       <span className="inline-flex items-center justify-end gap-1">
                         Fees
                         <Tooltip>
@@ -493,18 +493,18 @@ export default function DashboardPage() {
                               <p>Fees use the opposite sign convention from the other PnL columns — raw DB value is shown.</p>
                               <p><span className="text-red-500 font-medium">Positive (+)</span> — Fees paid (cost)</p>
                               <p><span className="text-green-500 font-medium">Negative (−)</span> — Fee rebate (earned)</p>
-                              <p className="text-muted-foreground pt-1 border-t border-border">Fees are subtracted from Total PnL: Total = Perp + Spot + Funding + Interest + Rewards − Fees</p>
+                              <p className="text-muted-foreground pt-1 border-t border-border">Fees are subtracted from Total PnL: Total = Perp + Spot + Funding + Interest + Rewards − Fees + Unrealized (open spot)</p>
                             </div>
                           </TooltipContent>
                         </Tooltip>
                       </span>
                     </TableHead>
-                    <TableHead className="text-xs text-right">Funding</TableHead>
-                    <TableHead className="text-xs text-right">Interest</TableHead>
-                    <TableHead className="text-xs text-right">Rewards</TableHead>
-                    <TableHead className="text-xs text-center">
+                    <TableHead className="text-xs text-right px-1">Fund.</TableHead>
+                    <TableHead className="text-xs text-right px-1">Int.</TableHead>
+                    <TableHead className="text-xs text-right px-1">Rew.</TableHead>
+                    <TableHead className="text-xs text-center px-1">
                       <span className="inline-flex items-center gap-1">
-                        Snapshot
+                        Snap
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
@@ -520,7 +520,7 @@ export default function DashboardPage() {
                         </Tooltip>
                       </span>
                     </TableHead>
-                    <TableHead className="text-xs text-center">
+                    <TableHead className="text-xs text-center px-1">
                       <span className="inline-flex items-center gap-1">
                         PnL
                         <Tooltip>
@@ -539,7 +539,7 @@ export default function DashboardPage() {
                         </Tooltip>
                       </span>
                     </TableHead>
-                    <TableHead className="text-xs text-center">
+                    <TableHead className="text-xs text-center px-1">
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <button
@@ -555,7 +555,7 @@ export default function DashboardPage() {
                         </TooltipContent>
                       </Tooltip>
                     </TableHead>
-                    <TableHead className="text-xs text-center">
+                    <TableHead className="text-xs text-center px-1">
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <button
@@ -571,57 +571,57 @@ export default function DashboardPage() {
                         </TooltipContent>
                       </Tooltip>
                     </TableHead>
-                    <TableHead className="text-xs text-center">Actions</TableHead>
+                    <TableHead className="text-xs text-center px-1"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   <TableRow className="hover:bg-transparent sticky top-0 z-10 bg-muted shadow-sm">
-                    <TableCell className="py-2 bg-muted">
+                    <TableCell className="py-1.5 px-1 bg-muted">
                       <span className="text-xs font-bold uppercase tracking-wide">
-                        TOTAL (all shown)
+                        TOTAL
                       </span>
                     </TableCell>
-                    <TableCell className="py-2 text-right bg-muted">
-                      <span className={cn("text-sm font-bold font-mono", pnlColor(pnlTotals.totalPnl))}>
+                    <TableCell className="py-1.5 px-1 text-right bg-muted">
+                      <span className={cn("text-xs font-bold font-mono", pnlColor(pnlTotals.totalPnl))}>
                         {formatSignedNumber(pnlTotals.totalPnl.toString())}
                       </span>
                     </TableCell>
-                    <TableCell className="py-2 text-right bg-muted">
-                      <span className={cn("text-sm font-bold font-mono", pnlColor(pnlTotals.perpPnl))}>
+                    <TableCell className="py-1.5 px-1 text-right bg-muted">
+                      <span className={cn("text-xs font-bold font-mono", pnlColor(pnlTotals.perpPnl))}>
                         {formatSignedNumber(pnlTotals.perpPnl.toString())}
                       </span>
                     </TableCell>
-                    <TableCell className="py-2 text-right bg-muted">
-                      <span className={cn("text-sm font-bold font-mono", pnlColor(pnlTotals.spotPnl))}>
+                    <TableCell className="py-1.5 px-1 text-right bg-muted">
+                      <span className={cn("text-xs font-bold font-mono", pnlColor(pnlTotals.spotPnl))}>
                         {formatSignedNumber(pnlTotals.spotPnl.toString())}
                       </span>
                     </TableCell>
-                    <TableCell className="py-2 text-right bg-muted">
-                      <span className={cn("text-sm font-bold font-mono", feePnlColor(pnlTotals.fees))}>
+                    <TableCell className="py-1.5 px-1 text-right bg-muted">
+                      <span className={cn("text-xs font-bold font-mono", feePnlColor(pnlTotals.fees))}>
                         {formatSignedNumber(pnlTotals.fees.toString())}
                       </span>
                     </TableCell>
-                    <TableCell className="py-2 text-right bg-muted">
-                      <span className={cn("text-sm font-bold font-mono", pnlColor(pnlTotals.funding))}>
+                    <TableCell className="py-1.5 px-1 text-right bg-muted">
+                      <span className={cn("text-xs font-bold font-mono", pnlColor(pnlTotals.funding))}>
                         {formatSignedNumber(pnlTotals.funding.toString())}
                       </span>
                     </TableCell>
-                    <TableCell className="py-2 text-right bg-muted">
-                      <span className={cn("text-sm font-bold font-mono", pnlColor(pnlTotals.interest))}>
+                    <TableCell className="py-1.5 px-1 text-right bg-muted">
+                      <span className={cn("text-xs font-bold font-mono", pnlColor(pnlTotals.interest))}>
                         {formatSignedNumber(pnlTotals.interest.toString())}
                       </span>
                     </TableCell>
-                    <TableCell className="py-2 text-right bg-muted">
-                      <span className={cn("text-sm font-bold font-mono", pnlColor(pnlTotals.rewards))}>
+                    <TableCell className="py-1.5 px-1 text-right bg-muted">
+                      <span className={cn("text-xs font-bold font-mono", pnlColor(pnlTotals.rewards))}>
                         {formatSignedNumber(pnlTotals.rewards.toString())}
                       </span>
                     </TableCell>
                     {/* Non-numeric status/action columns: no total */}
-                    <TableCell className="py-2 bg-muted" />
-                    <TableCell className="py-2 bg-muted" />
-                    <TableCell className="py-2 bg-muted" />
-                    <TableCell className="py-2 bg-muted" />
-                    <TableCell className="py-2 bg-muted" />
+                    <TableCell className="py-1.5 px-1 bg-muted" />
+                    <TableCell className="py-1.5 px-1 bg-muted" />
+                    <TableCell className="py-1.5 px-1 bg-muted" />
+                    <TableCell className="py-1.5 px-1 bg-muted" />
+                    <TableCell className="py-1.5 px-1 bg-muted" />
                   </TableRow>
                   {pnlGroups.map((group) => {
                     return (
@@ -643,57 +643,57 @@ export default function DashboardPage() {
                           return (
                             <Fragment key={row.accountId}>
                             <TableRow>
-                              <TableCell className="py-1.5">
+                              <TableCell className="py-1 px-1">
                                 <div
-                                  className="cursor-pointer"
+                                  className="cursor-pointer min-w-0"
                                   onClick={() => toggleAccountExpanded(row.accountId)}
                                   role="button"
                                   tabIndex={0}
                                   onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleAccountExpanded(row.accountId); } }}
                                 >
-                                  <div className="flex items-center gap-2">
-                                    <ChevronRight className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform shrink-0", isExpanded && "rotate-90")} />
-                                    <span className="text-sm font-medium">{accountLabel}</span>
-                                    <ExchangeBadge exchangeName={row.exchangeName} className="text-[10px] px-1.5 py-0" />
+                                  <div className="flex items-center gap-1 min-w-0">
+                                    <ChevronRight className={cn("h-3 w-3 text-muted-foreground transition-transform shrink-0", isExpanded && "rotate-90")} />
+                                    <span className="text-xs font-medium truncate">{accountLabel}</span>
+                                    <ExchangeBadge exchangeName={row.exchangeName} className="text-[9px] px-1 py-0 shrink-0" />
                                   </div>
-                                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground pl-[22px]">
+                                  <div className="flex items-center gap-1 text-[10px] text-muted-foreground pl-[16px]">
                                     {wallet?.chain && <ChainBadge chain={wallet.chain} />}
-                                    <span>{truncateAddress(wallet?.address || "", 6, 4)}</span>
+                                    <span className="truncate">{truncateAddress(wallet?.address || "", 6, 4)}</span>
                                   </div>
                                 </div>
                               </TableCell>
-                              <TableCell className="py-1.5 text-right">
-                                <span className={cn("text-sm font-bold font-mono", pnlColor(row.totalPnl))}>
+                              <TableCell className="py-1 px-1 text-right">
+                                <span className={cn("text-xs font-bold font-mono", pnlColor(row.totalPnl))}>
                                   {formatSignedNumber(row.totalPnl.toString())}
                                 </span>
                               </TableCell>
-                              <TableCell className="py-1.5 text-right">
-                                <span className={cn("text-sm font-mono", pnlColor(row.perpPnl))}>
+                              <TableCell className="py-1 px-1 text-right">
+                                <span className={cn("text-xs font-mono", pnlColor(row.perpPnl))}>
                                   {formatSignedNumber(row.perpPnl.toString())}
                                 </span>
                               </TableCell>
-                              <TableCell className="py-1.5 text-right">
-                                <span className={cn("text-sm font-mono", pnlColor(row.spotPnl))}>
+                              <TableCell className="py-1 px-1 text-right">
+                                <span className={cn("text-xs font-mono", pnlColor(row.spotPnl))}>
                                   {formatSignedNumber(row.spotPnl.toString())}
                                 </span>
                               </TableCell>
-                              <TableCell className="py-1.5 text-right">
-                                <span className={cn("text-sm font-mono", feePnlColor(row.fees))}>
+                              <TableCell className="py-1 px-1 text-right">
+                                <span className={cn("text-xs font-mono", feePnlColor(row.fees))}>
                                   {formatSignedNumber(row.fees.toString())}
                                 </span>
                               </TableCell>
-                              <TableCell className="py-1.5 text-right">
-                                <span className={cn("text-sm font-mono", pnlColor(row.funding))}>
+                              <TableCell className="py-1 px-1 text-right">
+                                <span className={cn("text-xs font-mono", pnlColor(row.funding))}>
                                   {formatSignedNumber(row.funding.toString())}
                                 </span>
                               </TableCell>
-                              <TableCell className="py-1.5 text-right">
-                                <span className={cn("text-sm font-mono", pnlColor(row.interest))}>
+                              <TableCell className="py-1 px-1 text-right">
+                                <span className={cn("text-xs font-mono", pnlColor(row.interest))}>
                                   {formatSignedNumber(row.interest.toString())}
                                 </span>
                               </TableCell>
-                              <TableCell className="py-1.5 text-right">
-                                <span className={cn("text-sm font-mono", pnlColor(row.rewards))}>
+                              <TableCell className="py-1 px-1 text-right">
+                                <span className={cn("text-xs font-mono", pnlColor(row.rewards))}>
                                   {formatSignedNumber(row.rewards.toString())}
                                 </span>
                               </TableCell>
@@ -775,31 +775,31 @@ export default function DashboardPage() {
 
                                 // Snapshot column icon (Check 2)
                                 const snapshotIcon = check2Status === "loading" ? (
-                                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
                                 ) : check2Status === "green" ? (
-                                  <Check className="h-4 w-4 text-green-500" />
+                                  <Check className="h-3.5 w-3.5 text-green-500" />
                                 ) : check2Status === "red" ? (
-                                  <X className="h-4 w-4 text-red-500" />
+                                  <X className="h-3.5 w-3.5 text-red-500" />
                                 ) : (
-                                  <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+                                  <AlertTriangle className="h-3.5 w-3.5 text-muted-foreground" />
                                 );
 
                                 // PnL column icon (Check 1)
                                 const pnlIcon = check1Status === "loading" ? (
-                                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
                                 ) : check1Status === "green" ? (
-                                  <Check className="h-4 w-4 text-green-500" />
+                                  <Check className="h-3.5 w-3.5 text-green-500" />
                                 ) : check1Status === "yellow" ? (
-                                  <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                                  <AlertTriangle className="h-3.5 w-3.5 text-yellow-500" />
                                 ) : check1Status === "red" ? (
-                                  <X className="h-4 w-4 text-red-500" />
+                                  <X className="h-3.5 w-3.5 text-red-500" />
                                 ) : (
-                                  <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+                                  <AlertTriangle className="h-3.5 w-3.5 text-muted-foreground" />
                                 );
 
                                 return (
                                   <>
-                                    <TableCell className="py-1.5 text-center">
+                                    <TableCell className="py-1 px-1 text-center">
                                       <Tooltip>
                                         <TooltipTrigger asChild>
                                           <span className="inline-flex items-center justify-center cursor-help">
@@ -833,7 +833,7 @@ export default function DashboardPage() {
                                         </TooltipContent>
                                       </Tooltip>
                                     </TableCell>
-                                    <TableCell className="py-1.5 text-center">
+                                    <TableCell className="py-1 px-1 text-center">
                                       <Tooltip>
                                         <TooltipTrigger asChild>
                                           <span className="inline-flex items-center justify-center cursor-help">
@@ -858,7 +858,7 @@ export default function DashboardPage() {
                                   </>
                                 );
                               })()}
-                              <TableCell className="py-1.5 text-center">
+                              <TableCell className="py-1 px-1 text-center">
                                 {(() => {
                                   const syncEnabled = row.account?.sync_enabled;
                                   const syncError = row.account?.last_sync_error;
@@ -894,7 +894,7 @@ export default function DashboardPage() {
                                   );
                                 })()}
                               </TableCell>
-                              <TableCell className="py-1.5 text-center">
+                              <TableCell className="py-1 px-1 text-center">
                                 {(() => {
                                   const procEnabled = row.account?.processing_enabled;
                                   const procError = row.account?.processor_checkpoint?.last_error;
@@ -930,7 +930,7 @@ export default function DashboardPage() {
                                   );
                                 })()}
                               </TableCell>
-                              <TableCell className="py-1.5 text-center">
+                              <TableCell className="py-1 px-1 text-center">
                                 {row.account?.sync_reset_requested || row.account?.processor_reset_requested ? (
                                   <Tooltip>
                                     <TooltipTrigger asChild>

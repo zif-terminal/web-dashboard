@@ -1,7 +1,9 @@
 import { getGraphQLClient } from "../graphql-client";
 import {
+  GET_EXCHANGES,
   GET_ACCOUNTS,
   GET_ACCOUNT_BY_ID,
+  CREATE_ACCOUNT,
   DELETE_ACCOUNT,
   UPDATE_ACCOUNT_TAGS,
   UPDATE_ACCOUNT_LABEL,
@@ -24,11 +26,13 @@ import {
   GET_POSITIONS_DYNAMIC,
   GET_POSITIONS_AGGREGATES_DYNAMIC,
   GET_PNL_DETAIL_BY_ACCOUNT,
+  GET_OPEN_SPOT_COST_BASIS_BY_ACCOUNT,
   GET_NET_FLOW_BY_ACCOUNT,
   GET_SETTLEMENT_TOTALS_BY_ACCOUNT,
   GET_LATEST_SNAPSHOT_BALANCES,
   SnapshotBalance,
   AccountPnLDetail,
+  Exchange,
   ExchangeAccount,
   Trade,
   Wallet,
@@ -39,7 +43,7 @@ import {
   Position,
   PositionsAggregates,
 } from "../queries";
-import { ApiClient, CreateWalletInput, TradesResult, TransfersResult, SettlementsResult, PositionsResult, EventsResult, DataFilters } from "./types";
+import { ApiClient, CreateWalletInput, CreateAccountInput, TradesResult, TransfersResult, SettlementsResult, PositionsResult, EventsResult, DataFilters } from "./types";
 import { ApiError } from "./errors";
 
 function isAuthError(error: unknown): boolean {
@@ -336,11 +340,36 @@ function buildPositionsWhereClause(filters?: DataFilters, status?: "open" | "clo
 }
 
 export const graphqlApi: ApiClient = {
+  async getExchanges(): Promise<Exchange[]> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{ exchanges: Exchange[] }>(GET_EXCHANGES);
+      return data.exchanges;
+    });
+  },
+
   async getAccounts(): Promise<ExchangeAccount[]> {
     return withErrorHandling(async () => {
       const client = getGraphQLClient();
       const data = await client.request<{ exchange_accounts: ExchangeAccount[] }>(GET_ACCOUNTS);
       return data.exchange_accounts;
+    });
+  },
+
+  async createAccount(input: CreateAccountInput): Promise<ExchangeAccount> {
+    return withErrorHandling(async () => {
+      const client = getGraphQLClient();
+      const data = await client.request<{
+        insert_exchange_accounts_one: ExchangeAccount;
+      }>(CREATE_ACCOUNT, { input });
+      const created = data.insert_exchange_accounts_one;
+      // Flip processing_enabled to true (user role can't set it on insert,
+      // but CAN update it). sync_enabled stays false — manual-upload only.
+      await client.request(UPDATE_ACCOUNT_TOGGLES, {
+        id: created.id,
+        set: { processing_enabled: true },
+      });
+      return created;
     });
   },
 
@@ -659,17 +688,35 @@ export const graphqlApi: ApiClient = {
   async getPnLDetailByAccount(filters?: DataFilters): Promise<AccountPnLDetail[]> {
     return withErrorHandling(async () => {
       const client = getGraphQLClient();
-      const posWhere = buildPositionsWhereClause(filters, "closed");
+      const denomination = filters?.denomination ?? "USDC";
+      // Pull pnl rows for BOTH open and closed positions so totalPnl folds in
+      // any realized cashflow accrued while a position is still open (e.g. the
+      // USDC reward position on Hype OG carries $287 of realized rewards even
+      // though it never closes). Open-position unrealized PnL is computed
+      // separately below from cost basis + current snapshot value.
+      const posWhere = buildPositionsWhereClause(filters);
+      const openSpotPosWhere = buildPositionsWhereClause(filters, "open");
+      // Restrict cost basis query to NON-self-denominated open spot positions:
+      // a USDC-in-USDC position has no cost basis distinct from its current
+      // value (transfers are pure cash flow, see activity_processor/valuation/
+      // pnl.go) — including it would conflate net flow with unrealized PnL.
+      const openSpotCostBasisWhere = {
+        _and: [
+          openSpotPosWhere,
+          { market_type: { _eq: "spot" } },
+          { market: { _neq: denomination } },
+        ],
+      };
       const transfersWhere = buildTransfersWhereClause(filters);
 
       const basePnlWhere: Record<string, unknown> = {
-        denomination: { _eq: filters?.denomination ?? "USDC" },
+        denomination: { _eq: denomination },
         position: posWhere,
       };
 
       const settlementsWhere = buildSettlementsWhereClause(filters);
 
-      const [pnlData, flowData, accounts, settlementData] = await Promise.all([
+      const [pnlData, costBasisData, snapshotData, flowData, accounts, settlementData] = await Promise.all([
         client.request<{
           position_pnl: {
             realized_pnl: string;
@@ -681,6 +728,24 @@ export const graphqlApi: ApiClient = {
             position: { exchange_account_id: string; market_type: string };
           }[];
         }>(GET_PNL_DETAIL_BY_ACCOUNT, { where: basePnlWhere }),
+        client.request<{
+          positions: {
+            id: string;
+            exchange_account_id: string;
+            market: string;
+            position_events: {
+              direction: string;
+              event_type: string;
+              event_values: { quantity: string }[];
+            }[];
+          }[];
+        }>(GET_OPEN_SPOT_COST_BASIS_BY_ACCOUNT, {
+          where: openSpotCostBasisWhere,
+          denomination,
+        }),
+        client.request<{
+          spot_balance_snapshots: SnapshotBalance[];
+        }>(GET_LATEST_SNAPSHOT_BALANCES, { where: {} }),
         client.request<{
           deposits: { exchange_account_id: string; event_values: { quantity: string }[] }[];
           withdrawals: { exchange_account_id: string; event_values: { quantity: string }[] }[];
@@ -695,7 +760,7 @@ export const graphqlApi: ApiClient = {
           feeWhere: Object.keys(transfersWhere).length > 0
             ? { _and: [transfersWhere, { type: { _eq: "fee" } }] }
             : { type: { _eq: "fee" } },
-          denomination: filters?.denomination ?? "USDC",
+          denomination,
         }),
         client.request<{ exchange_accounts: ExchangeAccount[] }>(GET_ACCOUNTS),
         client.request<{
@@ -729,6 +794,11 @@ export const graphqlApi: ApiClient = {
         interest: number;
         rewards: number;
         perpRealizedPnl: number;
+        // Unrealized PnL on open non-self-denominated spot positions
+        // (current snapshot USD value - cost basis USDC). See AccountPnLDetail
+        // for the full definition. Required so Check1 closes for spot-heavy
+        // accounts holding bags that have drifted from their entry value.
+        unrealizedSpotPnl: number;
         deposits: number;
         withdrawals: number;
         // Bridge / transfer fees (transfers.type = "fee"). These leave the
@@ -744,7 +814,7 @@ export const graphqlApi: ApiClient = {
         if (!entry) {
           entry = {
             totalPnl: 0, perpPnl: 0, spotPnl: 0, fees: 0, funding: 0, interest: 0, rewards: 0,
-            perpRealizedPnl: 0,
+            perpRealizedPnl: 0, unrealizedSpotPnl: 0,
             deposits: 0, withdrawals: 0, bridgeFees: 0, netFlowIncomplete: false,
           };
           summaryMap.set(accId, entry);
@@ -761,8 +831,11 @@ export const graphqlApi: ApiClient = {
         // magnitude of a cost (positive = paid, negative = rebate). The UI
         // displays the raw DB value and uses a fee-specific color helper so
         // positive (paid) renders red and negative (rebate) renders green.
+        // Open positions are included so realized cashflows accrued on still-open
+        // positions (rewards, funding, interest) roll into totalPnl. Open-spot
+        // UNREALIZED PnL is computed separately below from cost basis + snapshot.
         // Total PnL explicitly subtracts fees:
-        //   total = perp + spot + funding + interest + rewards − fees
+        //   total = perp + spot + funding + interest + rewards − fees + open_spot_unrealized
         const tradeOnly = parseFloat(row.trade_pnl || "0") || 0;
         const feePnl = parseFloat(row.fee_pnl || "0") || 0;
         const fundingPnl = parseFloat(row.funding_pnl || "0") || 0;
@@ -779,6 +852,51 @@ export const graphqlApi: ApiClient = {
         entry.interest += interestPnl;
         entry.rewards += rewardPnl;
         entry.totalPnl += tradeOnly + fundingPnl + interestPnl + rewardPnl - feePnl;
+      }
+
+      // Build per-(account, asset) latest USD snapshot value lookup for open
+      // spot positions. usd_value is null when the snapshot row exists but no
+      // price was available (e.g. unsupported asset) — treat that as 0 so the
+      // position contributes a full unrealized loss equal to its remaining
+      // cost basis (the bag is on-chain but worth nothing per oracle).
+      const snapshotUsdByAccountAsset = new Map<string, Map<string, number>>();
+      for (const snap of snapshotData.spot_balance_snapshots) {
+        const usd = parseFloat(snap.usd_value ?? "0") || 0;
+        let inner = snapshotUsdByAccountAsset.get(snap.exchange_account_id);
+        if (!inner) {
+          inner = new Map();
+          snapshotUsdByAccountAsset.set(snap.exchange_account_id, inner);
+        }
+        inner.set(snap.asset, usd);
+      }
+
+      // Open-spot unrealized PnL per account:
+      //   unrealized = current_value_usdc - cost_basis_usdc
+      // cost_basis_usdc = sum of entry event_values (USDC denom) minus exit
+      // event_values for the position. current_value_usdc = latest snapshot
+      // usd_value for the same (account, asset). Self-denominated positions
+      // are already excluded by the query filter (market != denomination).
+      // If a position has no matching snapshot row, current value is 0
+      // (asset fully spent / withdrawn, or never snapshotted).
+      for (const pos of costBasisData.positions) {
+        let costBasis = 0;
+        for (const pe of pos.position_events) {
+          for (const ev of pe.event_values) {
+            const qty = parseFloat(ev.quantity || "0") || 0;
+            if (pe.direction === "entry") {
+              costBasis += qty;
+            } else if (pe.direction === "exit") {
+              costBasis -= qty;
+            }
+          }
+        }
+        const currentValue = snapshotUsdByAccountAsset
+          .get(pos.exchange_account_id)
+          ?.get(pos.market) ?? 0;
+        const unrealized = currentValue - costBasis;
+        const entry = getEntry(pos.exchange_account_id);
+        entry.unrealizedSpotPnl += unrealized;
+        entry.totalPnl += unrealized;
       }
 
       // Net flow is computed strictly from USDC event_values. If a row is missing one,
@@ -842,6 +960,7 @@ export const graphqlApi: ApiClient = {
             interest: d.interest,
             rewards: d.rewards,
             perpRealizedPnl: d.perpRealizedPnl,
+            unrealizedSpotPnl: d.unrealizedSpotPnl,
             settlementTotal,
             netFlow: { value: d.withdrawals + d.bridgeFees - d.deposits, incomplete: d.netFlowIncomplete },
             account: acc,

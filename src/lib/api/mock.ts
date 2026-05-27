@@ -1,5 +1,5 @@
 import { Exchange, ExchangeAccount, Trade, FundingPayment, Wallet, WalletWithAccounts, Transfer, FundingAssetBreakdown } from "../queries";
-import { ApiClient, CreateWalletInput, TradesResult, TransfersResult, SettlementsResult, EventsResult, DataFilters } from "./types";
+import { ApiClient, CreateWalletInput, CreateAccountInput, TradesResult, TransfersResult, SettlementsResult, EventsResult, DataFilters } from "./types";
 
 // Mock wallets
 const mockWallets: Wallet[] = [
@@ -251,9 +251,34 @@ function filterTransfers(transfers: Transfer[], filters?: DataFilters): Transfer
 }
 
 export const mockApi: ApiClient = {
+  async getExchanges(): Promise<Exchange[]> {
+    await delay(200);
+    return [...mockExchanges];
+  },
+
   async getAccounts(): Promise<ExchangeAccount[]> {
     await delay(300);
     return [...mockAccounts];
+  },
+
+  async createAccount(input: CreateAccountInput): Promise<ExchangeAccount> {
+    await delay(400);
+    const exchange = mockExchanges.find((e) => e.id === input.exchange_id);
+    const account: ExchangeAccount = {
+      id: `mock-acc-${Date.now()}`,
+      exchange_id: input.exchange_id,
+      account_identifier: input.account_identifier,
+      account_type: input.account_type,
+      account_type_metadata: {},
+      wallet_id: input.wallet_id,
+      sync_enabled: false,
+      processing_enabled: true,
+      tags: [],
+      label: input.label,
+      exchange: exchange,
+    };
+    mockAccounts.push(account);
+    return account;
   },
 
   async getAccountById(id: string): Promise<ExchangeAccount | null> {

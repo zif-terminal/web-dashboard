@@ -6,6 +6,7 @@ import { WalletSearch } from "@/components/wallet-search";
 import { WalletsSection } from "@/components/wallets-section";
 import { SyncButton } from "@/components/sync-button";
 import { DataUploadDialog } from "@/components/data-upload-dialog";
+import { CreateManualAccountDialog } from "@/components/create-manual-account-dialog";
 import {
   Card,
   CardContent,
@@ -80,7 +81,10 @@ export default function AccountsPage() {
             isLoading={isLoading}
           />
         </div>
-        <DataUploadDialog />
+        <div className="flex items-center gap-2">
+          <CreateManualAccountDialog onAccountCreated={handleRefresh} />
+          <DataUploadDialog />
+        </div>
       </div>
 
       {/* Empty-state onboarding card (only when the user has zero wallets) */}
