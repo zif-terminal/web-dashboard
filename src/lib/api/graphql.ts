@@ -363,11 +363,14 @@ export const graphqlApi: ApiClient = {
         insert_exchange_accounts_one: ExchangeAccount;
       }>(CREATE_ACCOUNT, { input });
       const created = data.insert_exchange_accounts_one;
-      // Flip processing_enabled to true (user role can't set it on insert,
-      // but CAN update it). sync_enabled stays false — manual-upload only.
+      // Flip processing_enabled and sync_enabled to true (user role can't
+      // set them on insert, but CAN update). Manual-upload exchanges like
+      // Variational need sync_enabled because the sync cycle reads staged
+      // rows from omni_raw_events and writes to transfers/trades — without
+      // it the uploaded CSV data never gets processed.
       await client.request(UPDATE_ACCOUNT_TOGGLES, {
         id: created.id,
-        set: { processing_enabled: true },
+        set: { processing_enabled: true, sync_enabled: true },
       });
       return created;
     });
