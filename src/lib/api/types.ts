@@ -1,8 +1,16 @@
-import { ExchangeAccount, Trade, Wallet, WalletWithAccounts, Transfer, Settlement, UnifiedEvent, FundingAssetBreakdown, Position, PositionsAggregates, AccountPnLDetail, EventDateRange, SnapshotBalance } from "../queries";
+import { Exchange, ExchangeAccount, Trade, Wallet, WalletWithAccounts, Transfer, Settlement, UnifiedEvent, FundingAssetBreakdown, Position, PositionsAggregates, AccountPnLDetail, EventDateRange, SnapshotBalance } from "../queries";
 
 export interface CreateWalletInput {
   address: string;
   chain: string;
+}
+
+export interface CreateAccountInput {
+  exchange_id: string;
+  account_identifier: string;
+  account_type: string;
+  wallet_id: string;
+  label?: string;
 }
 
 export interface TradesResult {
@@ -59,8 +67,10 @@ export interface DataFilters {
 }
 
 export interface ApiClient {
+  getExchanges(): Promise<Exchange[]>;
   getAccounts(): Promise<ExchangeAccount[]>;
   getAccountById(id: string): Promise<ExchangeAccount | null>;
+  createAccount(input: CreateAccountInput): Promise<ExchangeAccount>;
   deleteAccount(id: string): Promise<{ id: string }>;
   getTrades(limit: number, offset: number, filters?: DataFilters): Promise<TradesResult>;
   // Transfer methods

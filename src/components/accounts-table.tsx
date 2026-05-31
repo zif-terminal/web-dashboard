@@ -3,7 +3,9 @@
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Lock } from "lucide-react";
+import { Lock, KeyRound } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { EditApiKeyDialog } from "@/components/edit-api-key-dialog";
 import { api } from "@/lib/api";
 import { ExchangeAccount } from "@/lib/queries";
 import { normalizeTags, cn } from "@/lib/utils";
@@ -90,6 +92,45 @@ function SyncStatusCell({ lastSyncedAt }: { lastSyncedAt: string | null | undefi
         <p className="text-xs">{label}</p>
       </TooltipContent>
     </Tooltip>
+  );
+}
+
+/** Per-row actions cell. Currently exposes "Edit API Key" for accounts whose
+ *  exchange requires an API key (e.g. Lighter). Click events are stopped from
+ *  bubbling so they don't trigger the row's navigation handler. */
+function ActionsCell({
+  account,
+  onUpdated,
+}: {
+  account: ExchangeAccount;
+  onUpdated: () => void;
+}) {
+  if (!account.exchange?.requires_api_key) {
+    return null;
+  }
+  const currentKey =
+    typeof account.account_type_metadata?.api_key === "string"
+      ? (account.account_type_metadata.api_key as string)
+      : "";
+  return (
+    <div onClick={(e) => e.stopPropagation()} className="inline-flex">
+      <EditApiKeyDialog
+        accountId={account.id}
+        exchangeName={account.exchange?.display_name || "Exchange"}
+        currentApiKey={currentKey}
+        onSuccess={onUpdated}
+        trigger={
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+            aria-label="Edit API key"
+          >
+            <KeyRound className="h-4 w-4" />
+          </Button>
+        }
+      />
+    </div>
   );
 }
 
@@ -245,6 +286,7 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
               <TableHead>Status</TableHead>
               <TableHead>Last Synced</TableHead>
               <TableHead>Pipeline</TableHead>
+              <TableHead className="w-[60px] text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -287,6 +329,9 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
                 </TableCell>
                 <TableCell>
                   <PipelineStatusCell account={account} />
+                </TableCell>
+                <TableCell className="text-right">
+                  <ActionsCell account={account} onUpdated={fetchAccounts} />
                 </TableCell>
               </TableRow>
             ))}
@@ -334,6 +379,7 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
                   <TableHead>Status</TableHead>
                   <TableHead>Last Synced</TableHead>
                   <TableHead>Pipeline</TableHead>
+                  <TableHead className="w-[60px] text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -377,6 +423,9 @@ export function AccountsTable({ refreshKey, onLoadingChange, onRefreshComplete }
                     </TableCell>
                     <TableCell>
                       <PipelineStatusCell account={account} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <ActionsCell account={account} onUpdated={fetchAccounts} />
                     </TableCell>
                   </TableRow>
                 ))}

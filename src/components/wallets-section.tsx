@@ -36,6 +36,12 @@ interface WalletsSectionProps {
   refreshKey?: number;
   detectingWalletIds?: Set<string>;
   onWalletDeleted?: () => void;
+  /**
+   * Called after every fetch with the wallet count. Lets parents react to
+   * empty/non-empty state (e.g. show an onboarding card on /accounts when
+   * a new user has zero wallets).
+   */
+  onWalletsLoaded?: (count: number) => void;
 }
 
 function truncateAddress(address: string, startChars = 6, endChars = 4): string {
@@ -89,7 +95,7 @@ function WalletsSkeleton() {
   );
 }
 
-export function WalletsSection({ refreshKey, detectingWalletIds, onWalletDeleted }: WalletsSectionProps) {
+export function WalletsSection({ refreshKey, detectingWalletIds, onWalletDeleted, onWalletsLoaded }: WalletsSectionProps) {
   const { withErrorReporting } = useApi();
   const [wallets, setWallets] = useState<WalletWithAccounts[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -101,6 +107,7 @@ export function WalletsSection({ refreshKey, detectingWalletIds, onWalletDeleted
     try {
       const data = await withErrorReporting(() => api.getWalletsWithCounts());
       setWallets(data);
+      onWalletsLoaded?.(data.length);
       return data;
     } catch (err) {
       console.error(err);
@@ -108,7 +115,7 @@ export function WalletsSection({ refreshKey, detectingWalletIds, onWalletDeleted
     } finally {
       setIsLoading(false);
     }
-  }, [withErrorReporting]);
+  }, [withErrorReporting, onWalletsLoaded]);
 
   // Initial fetch
   useEffect(() => {

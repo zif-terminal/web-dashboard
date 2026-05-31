@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useGlobalTags } from "@/contexts/filters-context";
 import { useDenomination } from "@/contexts/denomination-context";
@@ -11,8 +12,10 @@ import { useDateRange } from "@/contexts/date-range-context";
 import { DateRangeFilter } from "@/components/date-range-filter";
 import { ExchangeAccount, EventDateRange } from "@/lib/queries";
 import { api } from "@/lib/api";
+import { queryKeys } from "@/lib/query-keys";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { RefreshButton } from "@/components/refresh-button";
 import { TagFilter } from "@/components/tag-filter";
 import {
   Select,
@@ -117,34 +120,24 @@ export default function DashboardLayout({
   const { dateRange, setDateRange } = useDateRange();
   const { selectedAccountIds } = useAccountFilter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [yearOptions, setYearOptions] = useState<number[]>([]);
-  const [isLoadingYears, setIsLoadingYears] = useState(true);
 
-  useEffect(() => {
-    let cancelled = false;
-    const filters = selectedAccountIds.length > 0 ? { accountIds: selectedAccountIds } : undefined;
-    const promise = api.getEventDateRange(filters);
-    promise
-      .then((range) => {
-        if (!cancelled) {
-          setYearOptions(computeYearOptions(range));
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setYearOptions([]);
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoadingYears(false);
-      });
-    return () => { cancelled = true; };
-  }, [selectedAccountIds]);
-
-  // Reset loading state when the fetch dependency changes
-  const [prevAccountIds, setPrevAccountIds] = useState(selectedAccountIds);
-  if (prevAccountIds !== selectedAccountIds) {
-    setPrevAccountIds(selectedAccountIds);
-    setIsLoadingYears(true);
-  }
+  const eventRangeFilters = useMemo(
+    () => (selectedAccountIds.length > 0 ? { accountIds: selectedAccountIds } : undefined),
+    [selectedAccountIds],
+  );
+  const eventDateRangeQuery = useQuery<EventDateRange | null>({
+    queryKey: queryKeys.reference.eventDateRange(eventRangeFilters),
+    queryFn: () => api.getEventDateRange(eventRangeFilters),
+    enabled: pathname !== "/login" && pathname !== "/signup",
+    // Date range only changes when new events arrive — refresh less aggressively.
+    staleTime: 5 * 60_000,
+    refetchInterval: 5 * 60_000,
+  });
+  const yearOptions = useMemo(
+    () => computeYearOptions(eventDateRangeQuery.data ?? null),
+    [eventDateRangeQuery.data],
+  );
+  const isLoadingYears = eventDateRangeQuery.isLoading;
 
   return (
     <div className="min-h-screen bg-background">
@@ -188,6 +181,7 @@ export default function DashboardLayout({
                   </SelectContent>
                 </Select>
               )}
+              <RefreshButton />
               <ThemeToggle />
               <Button variant="outline" onClick={logout}>
                 Logout
@@ -196,6 +190,7 @@ export default function DashboardLayout({
 
             {/* Mobile hamburger */}
             <div className="flex items-center gap-2 md:hidden">
+              <RefreshButton />
               <ThemeToggle />
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}

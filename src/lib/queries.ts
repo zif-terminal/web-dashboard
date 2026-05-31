@@ -40,6 +40,12 @@ export interface ExchangeAccount {
   processor_checkpoint?: ProcessorCheckpoint | null;
   trades_aggregate?: { aggregate: { count: number } };
   positions_aggregate?: { aggregate: { count: number } };
+  // Data completeness flag set by account_sync's R1/R2/R3 heuristics. When
+  // false, activity_processor refuses to process the account because partial
+  // event history would yield silently-wrong cost basis / pnl.
+  data_complete?: boolean;
+  data_complete_notes?: string | null;
+  data_complete_checked_at?: string | null;
 }
 
 // Wallet types
@@ -93,6 +99,9 @@ export const GET_ACCOUNTS = gql`
       last_sync_error
       tags
       label
+      data_complete
+      data_complete_notes
+      data_complete_checked_at
       exchange {
         id
         name
@@ -220,6 +229,9 @@ export const GET_ACCOUNT_BY_ID = gql`
       last_sync_error
       tags
       label
+      data_complete
+      data_complete_notes
+      data_complete_checked_at
       exchange {
         id
         name
@@ -257,6 +269,7 @@ export const CREATE_ACCOUNT = gql`
       id
       account_identifier
       account_type
+      label
     }
   }
 `;
@@ -756,11 +769,24 @@ export interface AccountPnLDetail {
   fees: number;
   funding: number;
   interest: number;
+  rewards: number;
   // Net flow is computed strictly from USDC event_values. `incomplete` is true
   // when any contributing transfer had no event_value — UI should show a marker.
   netFlow: { value: number; incomplete: boolean };
-  /** Perp realized PnL = perp trade + perp funding + perp interest - perp fees */
+  /** Perp realized PnL = perp trade + perp funding + perp interest + perp rewards - perp fees */
   perpRealizedPnl: number;
+  /**
+   * Sum of unrealized PnL on OPEN non-self-denominated SPOT positions:
+   *   sum over (current_value_usdc - cost_basis_usdc) for each open spot position
+   *   where market != denomination.
+   * current_value_usdc = latest spot_balance_snapshots.usd_value for (account, asset).
+   * cost_basis_usdc = entry event_values minus exit event_values (USDC denom).
+   * Required for Check1 (totalPnl ?= netFlow + snapshotBalance) to close for
+   * accounts holding open spot bags whose current market value differs from
+   * the USDC paid to acquire them. Self-denominated spot (e.g. USDC-in-USDC) is
+   * excluded — those positions have no cost basis distinct from current value.
+   */
+  unrealizedSpotPnl: number;
   /** Total settlement amount for this account (null if exchange has no settlements, e.g. HL/Lighter) */
   settlementTotal: number | null;
   account?: ExchangeAccount;
@@ -774,6 +800,7 @@ export const GET_PNL_DETAIL_BY_ACCOUNT = gql`
       fee_pnl
       funding_pnl
       interest_pnl
+      reward_pnl
       position {
         exchange_account_id
         market_type
@@ -782,8 +809,34 @@ export const GET_PNL_DETAIL_BY_ACCOUNT = gql`
   }
 `;
 
+// Cost basis for OPEN, non-self-denominated SPOT positions, used to compute
+// open-position unrealized PnL in the dashboard's `totalPnl` aggregation.
+//
+// For each open spot position (market != denomination), we want:
+//   cost_basis_usdc = sum(event_values.quantity where direction='entry')
+//                   - sum(event_values.quantity where direction='exit')
+//                   for denomination=USDC across the position's events.
+// JS rolls this up; Hasura just returns the raw rows. Each open spot
+// position typically has a handful of events, so the payload is small.
+export const GET_OPEN_SPOT_COST_BASIS_BY_ACCOUNT = gql`
+  query GetOpenSpotCostBasisByAccount($where: positions_bool_exp!, $denomination: String!) {
+    positions(where: $where) {
+      id
+      exchange_account_id
+      market
+      position_events {
+        direction
+        event_type
+        event_values(where: { denomination: { _eq: $denomination } }) {
+          quantity
+        }
+      }
+    }
+  }
+`;
+
 export const GET_NET_FLOW_BY_ACCOUNT = gql`
-  query GetNetFlowByAccount($depositWhere: transfers_bool_exp!, $withdrawWhere: transfers_bool_exp!, $denomination: String!) {
+  query GetNetFlowByAccount($depositWhere: transfers_bool_exp!, $withdrawWhere: transfers_bool_exp!, $feeWhere: transfers_bool_exp!, $denomination: String!) {
     deposits: transfers(where: $depositWhere) {
       exchange_account_id
       event_values(where: { denomination: { _eq: $denomination } }) {
@@ -791,6 +844,12 @@ export const GET_NET_FLOW_BY_ACCOUNT = gql`
       }
     }
     withdrawals: transfers(where: $withdrawWhere) {
+      exchange_account_id
+      event_values(where: { denomination: { _eq: $denomination } }) {
+        quantity
+      }
+    }
+    fees: transfers(where: $feeWhere) {
       exchange_account_id
       event_values(where: { denomination: { _eq: $denomination } }) {
         quantity

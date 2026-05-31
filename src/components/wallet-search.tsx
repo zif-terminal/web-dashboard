@@ -14,13 +14,16 @@ interface WalletSearchProps {
 type DetectionStatus = "idle" | "detecting" | "done" | "error";
 
 function detectChain(address: string): string | null {
-  // Solana addresses are base58 encoded, 32-44 characters
+  // Loose detection (Phase C spec): accept anything that *looks* like an EVM
+  // or Solana address — formal validation is the exchange-detector's job.
+  //
+  // Ethereum: leading 0x, length >= 10 (real ones are 42).
+  if (/^0x[0-9A-Za-z_-]{8,}$/.test(address)) {
+    return "ethereum";
+  }
+  // Solana: base58, length >= 32 (real ones are 32-44).
   if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) {
     return "solana";
-  }
-  // Ethereum addresses start with 0x and are 42 characters
-  if (/^0x[a-fA-F0-9]{40}$/.test(address)) {
-    return "ethereum";
   }
   return null;
 }
@@ -38,6 +41,7 @@ function getChainDisplayName(chainName: string): string {
 
 export function WalletSearch({ onWalletAdded }: WalletSearchProps) {
   const [walletInput, setWalletInput] = useState("");
+  const [labelInput, setLabelInput] = useState("");
   const [status, setStatus] = useState<DetectionStatus>("idle");
   const [chain, setChain] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -45,7 +49,9 @@ export function WalletSearch({ onWalletAdded }: WalletSearchProps) {
 
   // Detect chain when wallet input changes
   useEffect(() => {
-    if (walletInput.length >= 32) {
+    // Phase C spec: minimum 10 chars (loose — accept EVM 0x... and Solana
+    // base58, defer strict format checks to the exchange detector).
+    if (walletInput.length >= 10) {
       setStatus("detecting");
       const detectedChain = detectChain(walletInput.trim());
       if (detectedChain) {
@@ -81,13 +87,32 @@ export function WalletSearch({ onWalletAdded }: WalletSearchProps) {
       if (!wallet) {
         toast.info("This wallet is already in your list.");
         setWalletInput("");
+        setLabelInput("");
         setStatus("idle");
         setChain(null);
         return;
       }
 
+      // Optional label is applied as a follow-up update — the user role's
+      // insert preset only permits address+chain (Phase B). Label updates
+      // are independently permitted for the row's owner.
+      const trimmedLabel = labelInput.trim();
+      if (trimmedLabel.length > 0) {
+        try {
+          await api.updateWalletLabel(wallet.id, trimmedLabel);
+        } catch (labelErr) {
+          // Non-fatal: wallet was created. Surface label failure separately.
+          toast.error(
+            labelErr instanceof Error
+              ? `Wallet added but label failed: ${labelErr.message}`
+              : "Wallet added but label failed",
+          );
+        }
+      }
+
       toast.success("Wallet added! Detecting accounts...");
       setWalletInput("");
+      setLabelInput("");
       setStatus("idle");
       setChain(null);
       onWalletAdded?.(wallet.id);
@@ -108,7 +133,7 @@ export function WalletSearch({ onWalletAdded }: WalletSearchProps) {
 
   return (
     <div className="space-y-2">
-      <div className="flex gap-2">
+      <div className="flex flex-col sm:flex-row gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
@@ -120,6 +145,15 @@ export function WalletSearch({ onWalletAdded }: WalletSearchProps) {
             className="pl-9"
           />
         </div>
+        <Input
+          placeholder="Label (optional)"
+          value={labelInput}
+          onChange={(e) => setLabelInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          disabled={isAdding}
+          maxLength={80}
+          className="sm:max-w-[200px]"
+        />
         <Button
           onClick={handleAddWallet}
           disabled={status !== "done" || !chain || isAdding}

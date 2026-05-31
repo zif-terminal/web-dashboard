@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { TOKEN_COOKIE_NAME } from "@/lib/cookie-config";
 
 const HASURA_URL = process.env.HASURA_URL || "http://localhost:8080";
-const HASURA_ADMIN_SECRET = process.env.HASURA_ADMIN_SECRET || "";
 
 // Trades CSV headers
 const TRADES_HEADERS = [
@@ -53,6 +52,19 @@ interface OmniRawEventInsert {
   status?: string;
   raw_data: string;
   upload_batch_id: string;
+}
+
+// normalizeEventType maps a Variational transfer_type to an internal event_type.
+// Variational exports reward/refund rows under names like "Referral Reward",
+// "Loss Refund Referral Cut", and "Loss Refund Deposit". These should all be
+// ingested as event_type="reward" so the processor books them to reward_pnl.
+// Everything else (deposit/withdrawal/fee/funding) passes through unchanged.
+function normalizeEventType(transferType: string): string {
+  const lower = transferType.toLowerCase();
+  if (lower.includes("reward") || lower.includes("refund")) {
+    return "reward";
+  }
+  return transferType;
 }
 
 function parseCSV(text: string): string[][] {
@@ -134,8 +146,9 @@ function parseTransferRow(
   const createdAt = row.created_at;
   const timestampMs = String(new Date(createdAt).getTime());
 
-  // Map transfer_type directly to event_type
-  const eventType = row.transfer_type; // deposit, withdrawal, fee, funding
+  // Map transfer_type to event_type, normalizing Variational reward/refund
+  // transfer_types (e.g. "Referral Reward", "Loss Refund Deposit") to "reward".
+  const eventType = normalizeEventType(row.transfer_type); // deposit, withdrawal, fee, funding, reward
 
   return {
     exchange_account_id: exchangeAccountId,
@@ -251,14 +264,26 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  console.log("[omni-upload] Parsed CSV:", JSON.stringify({
+    csv_type: csvType,
+    total_rows: rows.length - 1,
+    valid_objects: objects.length,
+    parse_errors: errors.length,
+    account_id: exchangeAccountId,
+    batch_id: batchId,
+  }));
+
   if (objects.length === 0) {
+    console.error("[omni-upload] No valid rows:", errors.slice(0, 5));
     return NextResponse.json(
       { error: "No valid rows found in CSV", parse_errors: errors },
       { status: 400 }
     );
   }
 
-  // Insert via Hasura admin mutation
+  // Insert via Hasura using the user's JWT — row-level permissions on
+  // omni_raw_events require exchange_account.wallet.user_id to match the
+  // caller, so a user can only upload rows for accounts they own.
   const mutation = `
     mutation InsertOmniRawEvents($objects: [omni_raw_events_insert_input!]!) {
       insert_omni_raw_events(
@@ -273,20 +298,30 @@ export async function POST(request: NextRequest) {
     }
   `;
 
+  // Diagnostic: test if mutations are available for this token
+  const probeRes = await fetch(`${HASURA_URL}/v1/graphql`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ query: "mutation { __typename }" }),
+  });
+  const probeResult = await probeRes.json();
+  console.log("[omni-upload] Mutation probe:", JSON.stringify(probeResult));
+
   let hasuraResponse: Response;
   try {
     hasuraResponse = await fetch(`${HASURA_URL}/v1/graphql`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Hasura-Admin-Secret": HASURA_ADMIN_SECRET,
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
         query: mutation,
         variables: { objects },
       }),
     });
-  } catch {
+  } catch (err) {
+    console.error("[omni-upload] Failed to connect to Hasura:", err);
     return NextResponse.json(
       { error: "Failed to connect to database" },
       { status: 502 }
@@ -296,6 +331,13 @@ export async function POST(request: NextRequest) {
   const result = await hasuraResponse.json();
 
   if (result.errors) {
+    console.error("[omni-upload] Hasura insert failed:", JSON.stringify({
+      errors: result.errors,
+      account_id: exchangeAccountId,
+      csv_type: csvType,
+      row_count: objects.length,
+      sample_object: objects[0],
+    }, null, 2));
     return NextResponse.json(
       { error: "Database error", details: result.errors },
       { status: 500 }
