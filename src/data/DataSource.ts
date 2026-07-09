@@ -1,5 +1,5 @@
 import type {
-  Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ClosedTrade, Account,
+  Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account,
   ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
@@ -20,13 +20,16 @@ export interface DataSource {
   subscribeOrderLevels(cb: (d: { levels: OrderLevel[]; orders: RestingOrder[] }) => void): Unsub;
   subscribeActivity(sinceTs: number, cb: (rows: ActivityEvent[]) => void): Unsub;
   // One-shot: the NEWEST `limit` activity rows (ts DESC). Seeds the feed before the
-  // forward-only stream takes over, so "recent" is actually recent.
-  fetchRecentActivity(limit: number): Promise<ActivityEvent[]>;
+  // forward-only stream takes over, so "recent" is actually recent. An optional
+  // server-side filter narrows the WHOLE feed (#209).
+  fetchRecentActivity(limit: number, filter?: ActivityFilter): Promise<ActivityEvent[]>;
   // Paginated history (ts DESC, newest-first) for the Activity tab's infinite
   // scroll. Returns a BOUNDED page of events strictly older than `before`; pass
   // Number.MAX_SAFE_INTEGER for the first page, then the oldest ts you got back
-  // as the next cursor. Bounded on purpose — never pulls the whole history.
-  fetchActivityPage(before: number, limit: number): Promise<ActivityEvent[]>;
+  // as the next cursor. Bounded on purpose — never pulls the whole history. An
+  // optional server-side filter is folded into the `where` (applies across the
+  // whole feed, not just loaded rows) (#209).
+  fetchActivityPage(before: number, limit: number, filter?: ActivityFilter): Promise<ActivityEvent[]>;
 
   fetchClosedTrades(sinceDays: number): Promise<ClosedTrade[]>;
 

@@ -3,6 +3,7 @@ import { useStore } from '../store/store';
 import { Card, Mono, Segment } from '../ui/primitives';
 import { t, exchMeta } from '../ui/theme';
 import { k, kc, col, px, usd, shortAddr } from '../lib/format';
+import { exchChipStyle, WALLET_CHIP, ACCOUNT_CHIP, ColorChip, walletLabelOf, accountLabelOf } from '../lib/tags';
 import { distToLiq } from '../lib/pnl';
 import { ExitPlanner } from './ExitPlanner';
 import { useIsMobile } from '../lib/useIsMobile';
@@ -55,26 +56,8 @@ const TYPE_BADGE = {
   staked: { fg: '#e0b872', bd: '#4a3d1f', bg: 'rgba(224,184,114,0.10)' },
 } as const;
 
-// L3 chip palette ────────────────────────────────────────────────────────────
-// Exchange chip is colored PER VENUE, reusing exchMeta (the same palette as the
-// group-header dot) so a card's venue scans at a glance: Hyperliquid=teal,
-// Lighter=violet, Drift=pink, Variational=blue. fg = exchMeta.color, bd =
-// exchMeta.bd, bg = a faint wash of the venue color. Neutral fallback for
-// unknown venues keeps the old InfoChip look.
-function exchChipStyle(exch: string): { fg: string; bd: string; bg: string } {
-  const m = exchMeta[exch];
-  if (!m) return { fg: t.mut, bd: t.border, bg: 'transparent' };
-  return { fg: m.color, bd: m.bd, bg: `${m.color}14` };
-}
-// Wallet chip: ONE distinct warm-bronze accent, the same across every wallet.
-// Chosen clear of all four exchange tints (teal/violet/pink/blue), of the
-// green/red LONG/SHORT side, and of the SPOT(teal)/PERP(indigo) type badges.
-const WALLET_CHIP = { fg: '#d3a574', bd: '#4a3a26', bg: 'rgba(211,165,116,0.10)' } as const;
-// Account chip: muted cool-slate, distinct from every other chip color.
-// Shows the exchange sub-account / account label (exchange_accounts.label) so
-// the card reads: exchange → wallet → account. Kept subdued (same saturation as
-// InfoChip) because it's metadata, not a primary classifier.
-const ACCOUNT_CHIP = { fg: '#8faab8', bd: '#2c3d4a', bg: 'rgba(143,170,184,0.08)' } as const;
+// L3 chip palette lives in lib/tags.tsx now (exchChipStyle / WALLET_CHIP /
+// ACCOUNT_CHIP / ColorChip) so the Activity feed renders identical chips.
 
 /** |units × mark| — absolute mark-priced notional of a position. */
 function notional(p: Position): number {
@@ -144,11 +127,7 @@ function fmtUnits(units: number, asset: string): string {
  * there is neither — the chip is then omitted.
  */
 function walletLabel(p: Position): string {
-  const wl = p.walletLabel?.trim() ?? '';
-  if (wl && wl !== '—') return wl;
-  const w = p.wallet?.trim() ?? '';
-  if (!w || w === '—') return '';
-  return shortAddr(w);
+  return walletLabelOf(p);
 }
 
 /**
@@ -178,15 +157,7 @@ function walletGroupKey(p: Position): string {
  *    (e.g. user labelled the wallet "main" and the account is also "main").
  */
 function accountLabel(p: Position): string {
-  const w = p.wallet?.trim() ?? '';
-  if (!w || w === '—') return '';
-  // If there is no distinct per-user wallet label, the wallet chip already shows
-  // the account label — don't duplicate it.
-  const wl = p.walletLabel?.trim() ?? '';
-  if (!wl || wl === '—') return '';
-  // If they're identical (user labelled their wallet the same as the account), skip.
-  if (wl === w) return '';
-  return w;
+  return accountLabelOf(p);
 }
 
 /**
@@ -592,16 +563,6 @@ const StatChip: React.FC<{ label: string; v: string; color?: string }> = ({ labe
 /** Neutral bordered info chip (order-count). */
 const InfoChip: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <span style={{ fontSize: 10.5, fontWeight: 600, color: t.mut, border: `1px solid ${t.border}`, borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>
-    {children}
-  </span>
-);
-
-/**
- * Colored bordered chip — same size/shape as InfoChip, color only. Used for the
- * per-venue exchange chip and the warm-bronze wallet chip on the L3 row.
- */
-const ColorChip: React.FC<{ fg: string; bd: string; bg: string; children: React.ReactNode }> = ({ fg, bd, bg, children }) => (
-  <span style={{ fontSize: 10.5, fontWeight: 600, color: fg, border: `1px solid ${bd}`, background: bg, borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>
     {children}
   </span>
 );

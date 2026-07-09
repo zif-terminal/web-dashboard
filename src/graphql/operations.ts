@@ -106,17 +106,36 @@ export const RESTING_ORDERS_SUB = gql`
 // `ts` is bigint in this schema → cursor var is bigint!.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Shared selection set for every activity op. Adds the #209 identity + market
+// columns (exch/account/market/exchange_account_id) + the nested per-user wallet
+// label via exchange_account -> wallet -> user_wallets (RLS-scoped; at most one
+// row) — the same chain mat_positions uses. apolloSource flattens these.
+const ACTIVITY_FIELDS = `
+  id
+  ts
+  act
+  text
+  pnl
+  exch
+  account
+  market
+  exchange_account_id
+  exchange_account {
+    wallet {
+      user_wallets {
+        label
+      }
+    }
+  }
+`;
+
 export const ACTIVITY_STREAM_SUB = gql`
   subscription ActivityStream($cursor: bigint!) {
     activity_stream(
       cursor: { initial_value: { ts: $cursor }, ordering: ASC }
       batch_size: 20
     ) {
-      id
-      ts
-      act
-      text
-      pnl
+      ${ACTIVITY_FIELDS}
     }
   }
 `;
@@ -127,13 +146,9 @@ export const ACTIVITY_STREAM_SUB = gql`
 // random/stale and kept changing. We fetch the latest N once on load, then start
 // the stream from the newest ts so it only appends genuinely new events.
 export const ACTIVITY_RECENT_QUERY = gql`
-  query ActivityRecent($limit: Int!) {
-    activity_stream_query(order_by: { ts: desc }, limit: $limit) {
-      id
-      ts
-      act
-      text
-      pnl
+  query ActivityRecent($limit: Int!, $where: activity_stream_bool_exp) {
+    activity_stream_query(where: $where, order_by: { ts: desc }, limit: $limit) {
+      ${ACTIVITY_FIELDS}
     }
   }
 `;
@@ -145,17 +160,13 @@ export const ACTIVITY_RECENT_QUERY = gql`
 // fetch bounded is deliberate — this is the OOM-prone historical-query class,
 // so we never pull the whole stream in one shot.
 export const ACTIVITY_PAGE_QUERY = gql`
-  query ActivityPage($before: bigint!, $limit: Int!) {
+  query ActivityPage($where: activity_stream_bool_exp!, $limit: Int!) {
     activity_stream_query(
-      where: { ts: { _lt: $before } }
+      where: $where
       order_by: { ts: desc }
       limit: $limit
     ) {
-      id
-      ts
-      act
-      text
-      pnl
+      ${ACTIVITY_FIELDS}
     }
   }
 `;

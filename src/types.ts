@@ -61,6 +61,24 @@ export interface ActivityEvent {
   act: string;        // CLOSE / FILL / FUNDING / LIQ ...
   text: string;
   pnl: number;
+  // Identity + market tags (#209). All optional-ish so mock seeds can omit them;
+  // the live apolloSource fills them from the widened mat_activity_stream columns.
+  exch: string;                 // exchanges.display_name (e.g. "Hyperliquid"); '' if absent
+  wallet: string;               // account label (exchange_accounts.label); '' if absent
+  walletLabel: string;          // per-user wallet name (user_wallets.label); '' if unset
+  exchange_account_id?: string; // grouping/filter key (combine mode)
+  market?: string;              // funding/settle/fill market (e.g. "HYPE-PERP"); '' if none
+}
+
+// Server-side filter for the activity feed (#209). Each field, when set, pushes a
+// `where` clause into the paginated/recent queries so the filter applies across
+// the WHOLE feed (not just loaded rows). '' / undefined = no constraint for that
+// dimension. `wallet` matches the per-user user_wallets.label via the nested path.
+export interface ActivityFilter {
+  exch?: string;      // exchanges.display_name
+  wallet?: string;    // user_wallets.label (nested path)
+  account?: string;   // exchange_accounts.label (the `account` column)
+  act?: string;       // event type
 }
 
 export interface ClosedTrade {

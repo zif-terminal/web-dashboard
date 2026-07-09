@@ -11,7 +11,7 @@ import {
   INSERT_OMNI_RAW_EVENTS,
 } from '../graphql/operations';
 import type {
-  Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ClosedTrade, Account, Exchange, Accuracy, Side,
+  Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account, Exchange, Accuracy, Side,
   ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
@@ -221,6 +221,43 @@ const rowWalletGroupKey = (r: any): string => {
   return w && w !== '—' ? `Unlabeled · ${shortAddr(w)}` : 'Unlabeled';
 };
 
+// Map a raw mat_activity_stream row → ActivityEvent, flattening the widened #209
+// columns (exch/account/market/exchange_account_id) + the nested per-user wallet
+// label. `wallet` = exchange_accounts.label (the `account` column); `walletLabel`
+// = user_wallets.label (nested chain, same as positions).
+const mapActivity = (a: any): ActivityEvent => ({
+  id: a.id,
+  ts: num(a.ts),
+  act: a.act,
+  text: a.text,
+  pnl: num(a.pnl),
+  exch: (a.exch as string | undefined)?.trim() ?? '',
+  wallet: (a.account as string | undefined)?.trim() ?? '',
+  walletLabel: rowWalletLabel(a),
+  exchange_account_id: (a.exchange_account_id as string | undefined) ?? undefined,
+  market: (a.market as string | undefined)?.trim() ?? '',
+});
+
+// Build the Hasura `where` for the activity feed from an ActivityFilter (#209).
+// Empty/unset fields add no constraint. `wallet` matches the nested per-user
+// user_wallets.label path (RLS-scoped). `cursorLt` (ts _lt) is folded in for the
+// paginated query so filters apply across the whole feed, not just loaded rows.
+const activityWhere = (filter?: ActivityFilter, cursorLt?: number): any => {
+  const and: any[] = [];
+  if (cursorLt !== undefined) and.push({ ts: { _lt: cursorLt } });
+  if (filter?.exch) and.push({ exch: { _eq: filter.exch } });
+  if (filter?.account) and.push({ account: { _eq: filter.account } });
+  if (filter?.act) and.push({ act: { _eq: filter.act } });
+  if (filter?.wallet) {
+    and.push({
+      exchange_account: { wallet: { user_wallets: { label: { _eq: filter.wallet } } } },
+    });
+  }
+  if (and.length === 0) return {};
+  if (and.length === 1) return and[0];
+  return { _and: and };
+};
+
 /** Real Hasura adapter. Every subscribe* maps onto a graphql-ws subscription. */
 export function makeApolloDataSource(client: ApolloClient<any>): DataSource {
   const sub = <T>(query: any, variables: any, pick: (d: any) => T, cb: (v: T) => void): Unsub => {
@@ -271,37 +308,34 @@ export function makeApolloDataSource(client: ApolloClient<any>): DataSource {
       return () => { u1(); u2(); };
     },
 
-    // Streaming subscription: re-emits only *new* rows past the cursor.
+    // Streaming subscription: re-emits only *new* rows past the cursor. Left
+    // UNFILTERED — new live rows are few and the store/UI apply the active filter
+    // client-side on the merged feed (server filters live on the paged queries).
     subscribeActivity: (sinceTs, cb) =>
       sub(ACTIVITY_STREAM_SUB, { cursor: sinceTs }, (d) =>
-        (d.activity_stream as any[]).map((a) => ({
-          id: a.id, ts: num(a.ts), act: a.act, text: a.text, pnl: num(a.pnl),
-        })) as ActivityEvent[], cb),
+        (d.activity_stream as any[]).map(mapActivity) as ActivityEvent[], cb),
 
     // One-shot newest-N (ts DESC) to seed the feed before the forward stream.
-    fetchRecentActivity: async (limit) => {
+    fetchRecentActivity: async (limit, filter) => {
       const { data } = await client.query({
         query: ACTIVITY_RECENT_QUERY,
-        variables: { limit },
+        variables: { limit, where: activityWhere(filter) },
         fetchPolicy: 'network-only',
       });
-      return ((data?.activity_stream_query as any[]) ?? []).map((a) => ({
-        id: a.id, ts: num(a.ts), act: a.act, text: a.text, pnl: num(a.pnl),
-      })) as ActivityEvent[];
+      return ((data?.activity_stream_query as any[]) ?? []).map(mapActivity) as ActivityEvent[];
     },
 
     // Paginated history (ts DESC) for the Activity tab. Bounded page of events
     // strictly older than `before`; the caller feeds back the oldest ts as the
-    // next cursor. Never pulls the whole stream in one query.
-    fetchActivityPage: async (before, limit) => {
+    // next cursor. Never pulls the whole stream in one query. The optional filter
+    // is folded into the `where` so it narrows the WHOLE feed server-side.
+    fetchActivityPage: async (before, limit, filter) => {
       const { data } = await client.query({
         query: ACTIVITY_PAGE_QUERY,
-        variables: { before: Math.floor(before), limit },
+        variables: { where: activityWhere(filter, Math.floor(before)), limit },
         fetchPolicy: 'network-only',
       });
-      return ((data?.activity_stream_query as any[]) ?? []).map((a) => ({
-        id: a.id, ts: num(a.ts), act: a.act, text: a.text, pnl: num(a.pnl),
-      })) as ActivityEvent[];
+      return ((data?.activity_stream_query as any[]) ?? []).map(mapActivity) as ActivityEvent[];
     },
 
     // Accounts (inc7b): live per-account list folded into Wallet[] client-side.

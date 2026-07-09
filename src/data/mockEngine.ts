@@ -2,7 +2,7 @@ import type {
   DataSource, Unsub,
 } from './DataSource';
 import type {
-  Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ClosedTrade, Account,
+  Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account,
   ClosedAgg, ClosedGroupAgg, PerfDim,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
@@ -12,6 +12,17 @@ import {
 } from './mockSeed';
 
 type Listener<T> = (v: T) => void;
+
+// Mock parity for the server-side activity `where` (#209): an event matches when
+// every set filter field equals the row's value ('' = no constraint).
+function activityMatches(a: ActivityEvent, f?: ActivityFilter): boolean {
+  if (!f) return true;
+  if (f.exch && a.exch !== f.exch) return false;
+  if (f.account && a.wallet !== f.account) return false;
+  if (f.act && a.act !== f.act) return false;
+  if (f.wallet && a.walletLabel !== f.wallet) return false;
+  return true;
+}
 
 /**
  * In-memory engine that imitates a Hasura backend:
@@ -26,7 +37,11 @@ export class MockEngine {
   private orders: RestingOrder[] = seedOrders.map((o) => ({ ...o }));
   private wallets: Wallet[] = structuredClone(seedWallets);
   private activity: ActivityEvent[] = seedActivity.map((a, i) => ({
-    id: 'act' + i, ts: Date.now() - (seedActivity.length - i) * 60000, ...a,
+    id: 'act' + i, ts: Date.now() - (seedActivity.length - i) * 60000,
+    exch: 'Hyperliquid', wallet: 'main', walletLabel: 'Dad Trading',
+    exchange_account_id: 'ea-mock-1',
+    market: a.act === 'FUNDING' || a.act === 'FILL' ? 'HYPE-PERP' : '',
+    ...a,
   }));
 
   private posL = new Set<Listener<Position[]>>();
@@ -85,6 +100,9 @@ export class MockEngine {
       id: 'act' + Date.now(), ts: Date.now(), act,
       text: `${act === 'FUNDING' ? p.asset + ' funding' : act === 'CLOSE' ? 'Closed ' + p.asset + ' ' + p.side.toLowerCase() : p.asset + ' partial fill'}`,
       pnl,
+      exch: p.exch, wallet: p.wallet, walletLabel: p.walletLabel,
+      exchange_account_id: 'ea-mock-1',
+      market: act === 'FUNDING' || act === 'FILL' ? `${p.asset}-PERP` : '',
     };
     this.activity.push(ev);
     this.actL.forEach((cb) => cb([ev])); // streaming: only the new row
@@ -99,19 +117,30 @@ export class MockEngine {
     if (!this.synthActivity) {
       const pool = ['FUNDING', 'FILL', 'CLOSE', 'LIQ'];
       const assets = ['BTC', 'ETH', 'SOL', 'HYPE', 'TAO', 'JTO', 'WTI', 'ARB'];
+      // A few distinct venues/wallets/accounts so mock mode exercises the filter
+      // bar + per-row tags + combine grouping (#209).
+      const venues = [
+        { exch: 'Hyperliquid', wallet: 'main', walletLabel: 'Dad Trading', eaId: 'ea-mock-1' },
+        { exch: 'Lighter', wallet: 'ARB', walletLabel: 'Dad Trading', eaId: 'ea-mock-2' },
+        { exch: 'Drift', wallet: 'vault', walletLabel: 'Fund', eaId: 'ea-mock-3' },
+      ];
       const oldest = this.activity.reduce((m, a) => Math.min(m, a.ts), Date.now());
       const rows: ActivityEvent[] = [];
       // 240 rows → ~12 pages at pageSize 20; deterministic (seeded by index).
       for (let i = 0; i < 240; i++) {
         const act = pool[i % pool.length];
         const asset = assets[i % assets.length];
+        const v = venues[i % venues.length];
         const pnl = act === 'CLOSE' ? ((i * 137) % 2000) - 400 : act === 'FUNDING' ? (i * 13) % 120 : 0;
+        const market = act === 'FUNDING' || act === 'FILL' ? `${asset}-PERP` : '';
         rows.push({
           id: 'synth' + i,
           ts: oldest - (i + 1) * 60_000, // strictly older than the live events
           act,
           text: `${asset} ${act === 'FUNDING' ? 'funding' : act === 'CLOSE' ? 'closed' : act === 'LIQ' ? 'liq warning' : 'partial fill'} #${i}`,
           pnl,
+          exch: v.exch, wallet: v.wallet, walletLabel: v.walletLabel,
+          exchange_account_id: v.eaId, market,
         });
       }
       this.synthActivity = rows;
@@ -134,15 +163,20 @@ export class MockEngine {
       subscribeActivity: (sinceTs, cb) =>
         reg(this.actL, cb, () => cb(this.activity.filter((a) => a.ts >= sinceTs))),
 
-      fetchRecentActivity: async (limit) =>
-        this.activityHistory().sort((a, b) => b.ts - a.ts).slice(0, limit).map((a) => ({ ...a })),
+      fetchRecentActivity: async (limit, filter) =>
+        this.activityHistory()
+          .filter((a) => activityMatches(a, filter))
+          .sort((a, b) => b.ts - a.ts)
+          .slice(0, limit)
+          .map((a) => ({ ...a })),
 
       // Paginated history (ts DESC) — mirrors the Hasura `where: ts _lt` page.
       // Returns a bounded slice of events strictly older than `before`, so the
       // Activity tab's infinite scroll fetches page-by-page (never all at once).
-      fetchActivityPage: async (before, limit) =>
+      // The optional filter mirrors the server `where` (#209).
+      fetchActivityPage: async (before, limit, filter) =>
         this.activityHistory()
-          .filter((a) => a.ts < before)
+          .filter((a) => a.ts < before && activityMatches(a, filter))
           .sort((a, b) => b.ts - a.ts)
           .slice(0, limit)
           .map((a) => ({ ...a })),

@@ -6,3 +6,5 @@ dist.*
 .env.local
 .env.*.local
 *.tsbuildinfo
+# Override the top-level lib/ gitignore rule so zif-app/src/lib/ can be tracked.
+!src/lib/
