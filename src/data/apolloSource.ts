@@ -1,0 +1,417 @@
+import type { ApolloClient } from '@apollo/client';
+import type { DataSource, Unsub } from './DataSource';
+import {
+  POSITIONS_SUB, PORTFOLIO_SUB, ORDER_LEVELS_SUB, RESTING_ORDERS_SUB, ACTIVITY_STREAM_SUB, ACTIVITY_RECENT_QUERY,
+  ACTIVITY_PAGE_QUERY, ACCOUNTS_SUB, CLOSED_TRADES_QUERY,
+  CLOSED_AGG_QUERY, CLOSED_PAGE_QUERY,
+  CLOSED_DISTINCT_EXCH_QUERY, CLOSED_DISTINCT_ASSET_QUERY, CLOSED_DISTINCT_WALLET_QUERY,
+  CLOSED_GROUP_AGG_EXCH_QUERY, CLOSED_GROUP_AGG_ASSET_QUERY, CLOSED_GROUP_AGG_WALLET_QUERY,
+  UPSERT_ORDER_LEVEL, ADD_ORDER_LEVEL, REMOVE_ORDER_LEVEL, SET_WALLET_LABEL,
+} from '../graphql/operations';
+import type {
+  Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ClosedTrade, Account, Exchange, Accuracy, Side,
+  ClosedAgg, ClosedGroupAgg, PerfDim,
+} from '../types';
+import { shortAddr } from '../lib/format';
+
+// ── coercion helpers ─────────────────────────────────────────────────────────
+// Hasura `numeric` / `bigint` arrive as JS numbers here (small magnitudes), but
+// can surface as strings for very large values — coerce defensively.
+const num = (v: any): number => (typeof v === 'number' ? v : Number(v ?? 0)) || 0;
+
+// `exch` is a free-form string on mat_positions ('Hyperliquid'|'Lighter'|'Drift'|
+// 'Variational'|...). The Exchange union is advisory in the UI; pass through.
+const exch = (v: any): Exchange => (v as Exchange);
+
+// mat_positions row → domain Position. Columns are already 1:1 with the type; we
+// only coerce numerics and normalise the nullable `wallet`.
+const mapPosition = (p: any): Position => {
+  // Staked-pool bags materialize with a DISTINCT asset key ("LIT-POOL") so they don't
+  // collide with the plain spot bag ("LIT") in mat_positions (zif #189). Strip the
+  // -POOL suffix for the display/group name and flag `staked` for the STAKED badge.
+  const staked = typeof p.asset === 'string' && p.asset.endsWith('-POOL');
+  const asset = staked ? p.asset.slice(0, -'-POOL'.length) : p.asset;
+  return {
+  id: p.id,
+  asset,
+  exch: exch(p.exch),
+  wallet: p.wallet ?? '',
+  // Real per-user wallet label via exchange_account → wallet → user_wallets
+  // (RLS-scoped to this user, so [0] is the only row). Falls back to '' when the
+  // user hasn't labelled the wallet. `wallet` above is the ACCOUNT label.
+  walletLabel: (p.exchange_account?.wallet?.user_wallets?.[0]?.label as string | undefined)?.trim() ?? '',
+  side: p.side,
+  units: num(p.units),
+  entry: num(p.entry),
+  mark: num(p.mark),
+  liq: num(p.liq),
+  lev: num(p.lev),
+  type: p.type,
+  unreal: num(p.unreal),
+  realized: num(p.realized),
+  staked,
+  };
+};
+
+/**
+ * Fold the per-exchange-account `mat_portfolio` rows + the latest positions into
+ * the single aggregated `Portfolio` the UI expects.
+ *  - value        = Σ equity
+ *  - unrealTotal  = Σ unrealized
+ *  - change24h    = Σ (equity − equity_24h_ago)   (absolute $)
+ *  - changePct    = change24h / Σ equity_24h_ago
+ *  - netLong/gross = signed / abs notional from positions (units × mark)
+ *  - risks        = # positions inside 10% of liquidation
+ */
+const aggregatePortfolio = (rows: any[], positions: Position[]): Portfolio => {
+  let value = 0, unrealTotal = 0, eq24 = 0;
+  for (const r of rows) {
+    value += num(r.equity);
+    unrealTotal += num(r.unrealized);
+    eq24 += num(r.equity_24h_ago);
+  }
+  const change24h = value - eq24;
+  const changePct = eq24 !== 0 ? (change24h / eq24) * 100 : 0;
+
+  let netLong = 0, gross = 0, risks = 0;
+  for (const p of positions) {
+    const notional = p.units * p.mark;
+    const signed = p.side === 'LONG' ? notional : -notional;
+    netLong += signed;
+    gross += Math.abs(notional);
+    if (p.liq > 0 && Math.abs(p.mark - p.liq) / p.mark <= 0.1) risks += 1;
+  }
+  return { value, change24h, changePct, netLong, gross, risks, unrealTotal };
+};
+
+// ── accounts (inc7b) ─────────────────────────────────────────────────────────
+// `mat_accounts` is a FLAT per-account list. The UI wants Wallet[] (nested), so we
+// fold rows into wallets keyed on wallet_id, preserving row order (the query sorts
+// by wallet_id, type).
+const ACCURACY_SET = new Set<Accuracy>(['synced', 'gap', 'mismatch', 'pending', 'nokey']);
+const accuracyOf = (v: any): Accuracy => (ACCURACY_SET.has(v) ? v : 'synced');
+
+const groupAccounts = (rows: any[]): Wallet[] => {
+  const byWallet = new Map<string, Wallet>();
+  for (const r of rows) {
+    const wid = r.wallet_id;
+    let w = byWallet.get(wid);
+    if (!w) {
+      // Per-user friendly label (user_wallets.label), RLS-scoped to THIS user, is
+      // now the SINGLE source of truth for wallet labels; fall back to the address.
+      const perUserLabel = r.wallet?.user_wallets?.[0]?.label as string | undefined;
+      w = {
+        id: wid,
+        address: r.wallet_address ?? '',
+        label: (perUserLabel?.trim() || r.wallet_address) ?? '',
+        status: r.wallet_status === 'detecting' ? 'detecting' : 'ready',
+        accounts: [],
+      };
+      byWallet.set(wid, w);
+    }
+    const needsApi = !!r.needs_api;
+    const apiProvided = needsApi ? !!r.api_provided : true;
+    const account: Account = {
+      id: r.id,
+      walletId: wid,
+      name: r.name ?? '',
+      exch: exch(r.exch),
+      type: r.type === 'main' ? 'main' : 'sub',
+      value: num(r.value),
+      pnl: num(r.pnl),
+      accuracy: accuracyOf(r.accuracy),
+      needsApi,
+      apiProvided,
+      // No durable DB source — local UI/edit state in the prototype. Default sensibly.
+      apiSkipped: false,
+      hidden: false,
+      tags: Array.isArray(r.tags) ? r.tags.map(String) : [],
+    };
+    w.accounts.push(account);
+  }
+  return [...byWallet.values()];
+};
+
+// ── closed trades (inc7b) ────────────────────────────────────────────────────
+// The view exposes real epoch-ms opened_ts/closed_ts. The UI's ClosedTrade uses
+// relative endDays/dur measured from the SAME zero point the Performance screen's
+// fmtDate() uses (today = 2026-06-25). Keep these in lock-step.
+const PERF_TODAY_MS = Date.UTC(2026, 5, 25); // 2026-06-25, matches Performance.tsx `today`
+const DAY_MS = 86_400_000;
+
+const mapClosedTrade = (r: any): ClosedTrade => {
+  const openedMs = num(r.opened_ts);
+  const closedMs = num(r.closed_ts);
+  return {
+    id: r.id,
+    asset: r.asset ?? '',
+    exch: exch(r.exch),
+    wallet: r.wallet ?? '',
+    // Real per-user wallet label via exchange_account → wallet → user_wallets
+    // (RLS-scoped to this user, so [0] is the only row). Falls back to '' when the
+    // user hasn't labelled the wallet. `wallet` above is the ACCOUNT label.
+    walletLabel: (r.exchange_account?.wallet?.user_wallets?.[0]?.label as string | undefined)?.trim() ?? '',
+    side: (r.side as Side) ?? 'LONG',
+    // closedMs = raw epoch-ms of the close timestamp (for year filtering in Performance).
+    closedMs,
+    // endDays = days from the perf "today" back to the close; dur = days the trade was open.
+    endDays: Math.max(0, (PERF_TODAY_MS - closedMs) / DAY_MS),
+    dur: Math.max(0, (closedMs - openedMs) / DAY_MS),
+    size: num(r.size),
+    entry: num(r.entry),
+    exit: num(r.exit),
+    pnl: num(r.pnl),
+    fees: num(r.fees),
+    funding: num(r.funding),
+    rewards: num(r.rewards),
+    interest: num(r.interest),
+    hack: num(r.hack),
+    total: num(r.total),
+  };
+};
+
+// ── closed-trades aggregates (#184) ──────────────────────────────────────────
+// Coerce a mat_closed_trades_aggregate { aggregate { count sum {...} } } payload
+// into a ClosedAgg. Hasura returns null sums for an empty bucket → 0. NO money
+// math here: the SUMs are the already-reconciled per-trade components; total is
+// the reconciled realized net summed by the DB.
+const mapAgg = (agg: any): ClosedAgg => {
+  const s = agg?.sum ?? {};
+  return {
+    count: num(agg?.count),
+    pnl: num(s.pnl),
+    funding: num(s.funding),
+    fees: num(s.fees),
+    rewards: num(s.rewards),
+    interest: num(s.interest),
+    hack: num(s.hack),
+    total: num(s.total),
+  };
+};
+
+// Per-user wallet label off the exchange_account→wallet→user_wallets chain (RLS
+// scopes the array to the current user, so [0] is the only row).
+const rowWalletLabel = (r: any): string =>
+  (r?.exchange_account?.wallet?.user_wallets?.[0]?.label as string | undefined)?.trim() ?? '';
+
+// Stable wallet GROUP KEY for a distinct-wallet row — mirrors Performance.tsx
+// ctWalletGroupKey so server-driven groups align with the client's open-position
+// groups. Prefers the per-user label; falls back to "Unlabeled · <shortAddr>".
+const rowWalletGroupKey = (r: any): string => {
+  const wl = rowWalletLabel(r);
+  if (wl && wl !== '—') return wl;
+  const w = (r?.wallet as string | undefined)?.trim() ?? '';
+  return w && w !== '—' ? `Unlabeled · ${shortAddr(w)}` : 'Unlabeled';
+};
+
+/** Real Hasura adapter. Every subscribe* maps onto a graphql-ws subscription. */
+export function makeApolloDataSource(client: ApolloClient<any>): DataSource {
+  const sub = <T>(query: any, variables: any, pick: (d: any) => T, cb: (v: T) => void): Unsub => {
+    const o = client.subscribe({ query, variables }).subscribe({
+      next: ({ data }) => data && cb(pick(data)),
+      error: (e) => console.error('[hasura] subscription error', e),
+    });
+    return () => o.unsubscribe();
+  };
+
+  // Latest positions snapshot, shared so the portfolio aggregation can derive
+  // netLong/gross/risks (mat_portfolio carries equity/PnL but not notional).
+  let lastPositions: Position[] = [];
+  let portfolioCb: ((p: Portfolio) => void) | null = null;
+  let lastPortfolioRows: any[] = [];
+  const reemitPortfolio = () => {
+    if (portfolioCb) portfolioCb(aggregatePortfolio(lastPortfolioRows, lastPositions));
+  };
+
+  return {
+    subscribePositions: (cb) =>
+      sub(POSITIONS_SUB, {}, (d) => (d.positions as any[]).map(mapPosition), (rows) => {
+        lastPositions = rows;
+        cb(rows);
+        reemitPortfolio(); // keep derived netLong/gross/risks in step with marks
+      }),
+
+    subscribePortfolio: (cb) => {
+      portfolioCb = cb;
+      return sub(PORTFOLIO_SUB, {}, (d) => d.portfolio as any[], (rows) => {
+        lastPortfolioRows = rows;
+        reemitPortfolio();
+      });
+    },
+
+    // Two separate WS subscriptions (Hasura = one root field each), merged here.
+    subscribeOrderLevels: (cb) => {
+      let levels: OrderLevel[] = [];
+      let orders: RestingOrder[] = [];
+      const emit = () => cb({ levels, orders });
+      const u1 = sub(ORDER_LEVELS_SUB, {}, (d) => (d.order_levels as any[]).map((l) => ({
+        id: l.id, positionId: l.position_id, kind: l.kind, price: num(l.price), size: num(l.size),
+      })) as OrderLevel[], (rows) => { levels = rows; emit(); });
+      const u2 = sub(RESTING_ORDERS_SUB, {}, (d) => (d.resting_orders as any[]).map((o) => ({
+        id: o.id, positionId: o.position_id, kind: o.kind, action: o.action,
+        price: num(o.price), size: num(o.size), color: o.color,
+      })) as RestingOrder[], (rows) => { orders = rows; emit(); });
+      return () => { u1(); u2(); };
+    },
+
+    // Streaming subscription: re-emits only *new* rows past the cursor.
+    subscribeActivity: (sinceTs, cb) =>
+      sub(ACTIVITY_STREAM_SUB, { cursor: sinceTs }, (d) =>
+        (d.activity_stream as any[]).map((a) => ({
+          id: a.id, ts: num(a.ts), act: a.act, text: a.text, pnl: num(a.pnl),
+        })) as ActivityEvent[], cb),
+
+    // One-shot newest-N (ts DESC) to seed the feed before the forward stream.
+    fetchRecentActivity: async (limit) => {
+      const { data } = await client.query({
+        query: ACTIVITY_RECENT_QUERY,
+        variables: { limit },
+        fetchPolicy: 'network-only',
+      });
+      return ((data?.activity_stream_query as any[]) ?? []).map((a) => ({
+        id: a.id, ts: num(a.ts), act: a.act, text: a.text, pnl: num(a.pnl),
+      })) as ActivityEvent[];
+    },
+
+    // Paginated history (ts DESC) for the Activity tab. Bounded page of events
+    // strictly older than `before`; the caller feeds back the oldest ts as the
+    // next cursor. Never pulls the whole stream in one query.
+    fetchActivityPage: async (before, limit) => {
+      const { data } = await client.query({
+        query: ACTIVITY_PAGE_QUERY,
+        variables: { before: Math.floor(before), limit },
+        fetchPolicy: 'network-only',
+      });
+      return ((data?.activity_stream_query as any[]) ?? []).map((a) => ({
+        id: a.id, ts: num(a.ts), act: a.act, text: a.text, pnl: num(a.pnl),
+      })) as ActivityEvent[];
+    },
+
+    // Accounts (inc7b): live per-account list folded into Wallet[] client-side.
+    subscribeAccounts: (cb) =>
+      sub(ACCOUNTS_SUB, {}, (d) => groupAccounts(d.accounts as any[]), cb),
+
+    // Closed trades (inc7b): one-shot fetch, filtered to the last `sinceDays`.
+    // `since` is an epoch-ms cutoff on closed_ts (matches mat_closed_trades).
+    fetchClosedTrades: async (sinceDays) => {
+      const since = Math.floor(Date.now() - sinceDays * 86_400_000);
+      const { data } = await client.query({
+        query: CLOSED_TRADES_QUERY,
+        variables: { since },
+        fetchPolicy: 'network-only',
+      });
+      return ((data?.closed_trades as any[]) ?? []).map(mapClosedTrade);
+    },
+
+    // ── Performance aggregates + pagination (#184) ──────────────────────────────
+    // Grand-total aggregate over the real-now window. Drives the summary cards +
+    // the Total row from a SINGLE round-trip — no all-rows download.
+    fetchClosedAggregate: async (sinceMs, untilMs) => {
+      const { data } = await client.query({
+        query: CLOSED_AGG_QUERY,
+        variables: { since: Math.floor(sinceMs), until: Math.floor(untilMs) },
+        fetchPolicy: 'network-only',
+      });
+      return mapAgg(data?.mat_closed_trades_aggregate?.aggregate);
+    },
+
+    // Per-group breakdown (closed side): fetch the distinct group values in the
+    // window, then one aggregate per value (bounded by the number of exchanges /
+    // assets / wallets — small). Open positions are folded in client-side.
+    fetchClosedGroups: async (sinceMs, untilMs, dim: PerfDim) => {
+      const since = Math.floor(sinceMs);
+      const until = Math.floor(untilMs);
+      if (dim === 'none') return [];
+
+      const distinctQ =
+        dim === 'exch' ? CLOSED_DISTINCT_EXCH_QUERY
+        : dim === 'asset' ? CLOSED_DISTINCT_ASSET_QUERY
+        : CLOSED_DISTINCT_WALLET_QUERY;
+      const aggQ =
+        dim === 'exch' ? CLOSED_GROUP_AGG_EXCH_QUERY
+        : dim === 'asset' ? CLOSED_GROUP_AGG_ASSET_QUERY
+        : CLOSED_GROUP_AGG_WALLET_QUERY;
+
+      const { data: dData } = await client.query({
+        query: distinctQ,
+        variables: { since, until },
+        fetchPolicy: 'network-only',
+      });
+      const rows = (dData?.mat_closed_trades as any[]) ?? [];
+
+      // For wallet, the equality predicate keys on the ACCOUNT label column
+      // (`wallet`) — the finest stable key — while the display group key folds
+      // labels the same way the client does. exch/asset key == value == group key.
+      const specs = rows.map((r) => {
+        if (dim === 'wallet') {
+          return { val: (r.wallet as string | undefined) ?? '', key: rowWalletGroupKey(r), walletLabel: rowWalletLabel(r), wallet: (r.wallet as string | undefined) ?? '' };
+        }
+        const v = (dim === 'exch' ? r.exch : r.asset) as string;
+        return { val: v, key: v, walletLabel: '', wallet: '' };
+      });
+
+      const results = await Promise.all(
+        specs.map(async (spec) => {
+          const { data: aData } = await client.query({
+            query: aggQ,
+            variables: { since, until, val: spec.val },
+            fetchPolicy: 'network-only',
+          });
+          const agg = mapAgg(aData?.mat_closed_trades_aggregate?.aggregate);
+          // groupValue = the account-label the paginated `where` predicate keys on
+          // (exch/asset: the value itself; wallet: the account label column).
+          return { ...agg, key: spec.key, groupValue: spec.val, walletLabel: spec.walletLabel, wallet: spec.wallet } as ClosedGroupAgg;
+        }),
+      );
+
+      // Distinct-on(wallet) can yield several account labels that fold into ONE
+      // display group key (e.g. two unlabeled accounts under the same user label).
+      // Merge buckets sharing a key so the breakdown row totals match the grand
+      // total. (The first bucket's groupValue is kept for pagination — the rare
+      // multi-account-per-label case only affects the expanded LIST, not the money.)
+      const byKey = new Map<string, ClosedGroupAgg>();
+      for (const g of results) {
+        const cur = byKey.get(g.key);
+        if (!cur) { byKey.set(g.key, { ...g }); continue; }
+        cur.count += g.count; cur.pnl += g.pnl; cur.funding += g.funding; cur.fees += g.fees;
+        cur.rewards += g.rewards; cur.interest += g.interest; cur.hack += g.hack; cur.total += g.total;
+      }
+      return [...byKey.values()];
+    },
+
+    // One bounded page of the closed LIST (newest-first) within the window,
+    // optionally restricted to one group value for an expanded group.
+    fetchClosedPage: async (sinceMs, untilMs, opts) => {
+      const { limit, offset, dim, groupValue } = opts;
+      let where: any = {};
+      if (dim && groupValue !== undefined && dim !== 'none') {
+        if (dim === 'exch') where = { exch: { _eq: groupValue } };
+        else if (dim === 'asset') where = { asset: { _eq: groupValue } };
+        else if (dim === 'wallet') where = { wallet: { _eq: groupValue } };
+      }
+      const { data } = await client.query({
+        query: CLOSED_PAGE_QUERY,
+        variables: { since: Math.floor(sinceMs), until: Math.floor(untilMs), limit, offset, where },
+        fetchPolicy: 'network-only',
+      });
+      return ((data?.closed_trades as any[]) ?? []).map(mapClosedTrade);
+    },
+
+    upsertOrderLevel: (id, price, size) =>
+      void client.mutate({ mutation: UPSERT_ORDER_LEVEL, variables: { id, price, size } }),
+    addOrderLevel: (positionId, kind, price, size) =>
+      void client.mutate({ mutation: ADD_ORDER_LEVEL, variables: { positionId, kind, price, size } }),
+    removeOrderLevel: (id) =>
+      void client.mutate({ mutation: REMOVE_ORDER_LEVEL, variables: { id } }),
+
+    // No writable account surface in inc7 — no-op (see note above).
+    updateAccount: (_id: string, _set: Partial<Account>) => {},
+    addWallet: (_address: string, _label: string) => {},
+
+    // Per-user wallet label: writes user_wallets.label for the current user's
+    // association (RLS pins the row to X-Hasura-User-Id). The ACCOUNTS_SUB live
+    // query re-broadcasts the new label, so no local reconcile is needed here.
+    setWalletLabel: (walletId, label) =>
+      void client.mutate({ mutation: SET_WALLET_LABEL, variables: { walletId, label } }),
+  };
+}

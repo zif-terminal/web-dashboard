@@ -1,128 +1,79 @@
-export function formatNumber(value: string, decimals: number = 4): string {
-  const num = parseFloat(value);
-  if (isNaN(num)) return value;
-  return num.toLocaleString(undefined, {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: decimals,
-  });
+// Pure formatting + P/L helpers, ported from the prototype so numbers read identically.
+
+export const GREEN = '#34d399';
+export const RED = '#f87171';
+export const AMBER = '#fbbf24';
+export const MUT = '#8b95a0';
+export const TXT = '#e7ebee';
+export const ACC = '#8aa2ff';
+
+export const col = (n: number): string => (n > 0 ? GREEN : n < 0 ? RED : TXT);
+
+export function n0(n: number): string {
+  return Math.round(n).toLocaleString('en-US');
 }
 
-export function formatSignedNumber(value: string, decimals: number = 2): string {
-  const num = parseFloat(value);
-  if (isNaN(num)) return value;
-  const sign = num >= 0 ? "+" : "";
-  return sign + num.toLocaleString(undefined, {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
+/** Compact signed currency: +$23.8K, -$1.2M */
+export function k(n: number): string {
+  const s = n < 0 ? '-' : '+';
+  const a = Math.abs(n);
+  if (a >= 1e6) return `${s}$${(a / 1e6).toFixed(2)}M`;
+  if (a >= 1e3) return `${s}$${(a / 1e3).toFixed(1)}K`;
+  return `${s}$${a.toFixed(0)}`;
 }
 
-/** Parse a timestamp that may be an ISO string, a unix-ms number, or a unix-ms string. */
-export function parseTimestamp(timestamp: string | number): Date {
-  const ts = typeof timestamp === "string" && /^\d+$/.test(timestamp) ? Number(timestamp) : timestamp;
-  return new Date(ts);
+/** Compact unsigned currency: $23.8K */
+export function kc(n: number): string {
+  const a = Math.abs(n);
+  if (a >= 1e6) return `$${(a / 1e6).toFixed(2)}M`;
+  if (a >= 1e3) return `$${(a / 1e3).toFixed(1)}K`;
+  return `$${a.toFixed(0)}`;
 }
 
-export function formatTimestamp(timestamp: string | number): string {
-  return parseTimestamp(timestamp).toLocaleString();
+export function usd(n: number): string {
+  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
-
-export function formatRelativeTime(timestamp: string | number | null | undefined): string {
-  if (!timestamp) return "Never";
-
-  const date = parseTimestamp(timestamp);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffSec = Math.floor(diffMs / 1000);
-  const diffMin = Math.floor(diffSec / 60);
-  const diffHour = Math.floor(diffMin / 60);
-  const diffDay = Math.floor(diffHour / 24);
-
-  if (diffSec < 60) return "Just now";
-  if (diffMin < 60) return `${diffMin} min ago`;
-  if (diffHour < 24) return `${diffHour} hour${diffHour !== 1 ? "s" : ""} ago`;
-  if (diffDay < 7) return `${diffDay} day${diffDay !== 1 ? "s" : ""} ago`;
-
-  return date.toLocaleDateString();
-}
-
-export type SyncFreshness = "fresh" | "ok" | "stale" | "very-stale" | "never";
-
-/** Classify how fresh a last_synced_at timestamp is. */
-export function getSyncFreshness(timestamp: string | number | null | undefined): SyncFreshness {
-  if (!timestamp) return "never";
-
-  const date = parseTimestamp(timestamp);
-  const diffMs = Date.now() - date.getTime();
-  const diffMin = diffMs / 60_000;
-
-  if (diffMin < 15) return "fresh";
-  if (diffMin < 60) return "ok";
-  if (diffMin < 360) return "stale";
-  return "very-stale";
-}
-
-/** Get Tailwind text color class for a sync freshness level. */
-export function getSyncFreshnessColor(freshness: SyncFreshness): string {
-  switch (freshness) {
-    case "fresh": return "text-green-600 dark:text-green-400";
-    case "ok": return "text-muted-foreground";
-    case "stale": return "text-yellow-600 dark:text-yellow-400";
-    case "very-stale": return "text-red-600 dark:text-red-400";
-    case "never": return "text-red-600 dark:text-red-400";
-  }
-}
-
-/** Human-readable label for sync freshness. */
-export function getSyncFreshnessLabel(freshness: SyncFreshness): string {
-  switch (freshness) {
-    case "fresh": return "Fresh";
-    case "ok": return "OK";
-    case "stale": return "Stale";
-    case "very-stale": return "Very stale";
-    case "never": return "Never synced";
-  }
-}
-
-/** Format a currency value with $ sign (no +/- prefix). */
-export function formatCurrency(value: string | number, decimals = 2): string {
-  const num = typeof value === "string" ? parseFloat(value) : value;
-  if (isNaN(num)) return "$0.00";
-  return `$${Math.abs(num).toLocaleString("en-US", {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  })}`;
-}
-
-/** Color class based on value sign. Positive = earned (green), negative = loss (red). */
-export function pnlColor(value: number): string {
-  if (value > 0) return "text-green-600 dark:text-green-400";
-  if (value < 0) return "text-red-600 dark:text-red-400";
-  return "text-muted-foreground";
+export function usd0(n: number): string {
+  return '$' + n0(n);
 }
 
 /**
- * Color class for fee values. Fees use the OPPOSITE convention of pnlColor:
- * positive = paid (red), negative = rebate (green). This matches the raw DB
- * convention where fee_pnl is the magnitude of a cost.
+ * Price with precision scaled to magnitude.
+ * - ≥$1: normal 2-decimal currency (with thousands separators, K/M handled by kc elsewhere).
+ * - <$1: ~4 significant figures so sub-cent prices keep meaningful digits
+ *   ($0.002027 → $0.002027, $0.000057 → $0.000057) instead of collapsing to $0.000000.
  */
-export function feePnlColor(value: number): string {
-  if (value > 0) return "text-red-600 dark:text-red-400";
-  if (value < 0) return "text-green-600 dark:text-green-400";
-  return "text-muted-foreground";
+export function px(v: number): string {
+  const a = Math.abs(v);
+  if (a === 0) return '$0.00';
+  if (a >= 1) {
+    // ≥$1: 2 decimals is plenty; >100 still reads cleanly with 2.
+    return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  // <$1: target ~4 significant figures. Find the first significant decimal place
+  // (e.g. 0.0020 → leading zeros = 2) and add 3 more digits for 4 sig figs.
+  const leadingZeros = Math.floor(-Math.log10(a));
+  const decimals = Math.min(leadingZeros + 4, 12);
+  return '$' + v.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
 
-export function truncateAddress(address: string, startChars = 6, endChars = 4): string {
-  if (address.length <= startChars + endChars + 3) return address;
-  return `${address.slice(0, startChars)}...${address.slice(-endChars)}`;
+/**
+ * Shorten a wallet address / account identifier for chip display.
+ * - 0x-prefixed EVM address → `0xAB…CD` (first 6 + last 4).
+ * - Long non-0x identifier (≥12 chars: Solana pubkey, long sub-account id) →
+ *   `XXXX…XXXX` (first 4 + last 4).
+ * - Anything shorter (already a friendly/short label) → returned as-is.
+ */
+export function shortAddr(s: string): string {
+  if (!s) return s;
+  if (s.startsWith('0x') && s.length > 12) return `${s.slice(0, 6)}…${s.slice(-4)}`;
+  if (s.length >= 12) return `${s.slice(0, 4)}…${s.slice(-4)}`;
+  return s;
 }
 
-export function getDisplayName(label: string | null | undefined, address: string, startChars = 6, endChars = 4, walletLabel?: string | null): string {
-  if (label && label.trim().length > 0) {
-    return label.trim();
-  }
-  if (walletLabel && walletLabel.trim().length > 0) {
-    return walletLabel.trim();
-  }
-  return truncateAddress(address, startChars, endChars);
+export function pricePrecision(v: number): number {
+  const a = Math.abs(v);
+  if (a >= 1) return 2;
+  if (a === 0) return 2;
+  return Math.min(Math.floor(-Math.log10(a)) + 4, 12);
 }

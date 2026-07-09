@@ -1,0 +1,154 @@
+// ── Domain types ────────────────────────────────────────────────────────────
+// These mirror the shape of the GraphQL documents in src/graphql/operations.ts.
+// In real mode they come from Hasura; in mock mode the engine emits the same shapes.
+
+export type Side = 'LONG' | 'SHORT';
+export type Exchange = 'Hyperliquid' | 'Lighter' | 'Drift' | 'Variational' | 'Binance';
+export type LadderKind = 'tp' | 'sl';
+export type Accuracy = 'synced' | 'gap' | 'mismatch' | 'pending' | 'nokey';
+
+export interface Position {
+  id: string;
+  asset: string;
+  exch: Exchange;
+  wallet: string;       // account label (exchange_accounts.label — e.g. "main", "ARB")
+  walletLabel: string;  // per-user friendly WALLET label (user_wallets.label — e.g. "Dad Trading"); '' if unset
+  side: Side;
+  units: number;
+  entry: number;
+  mark: number;       // live — updated by subscription
+  liq: number;
+  lev: number;
+  type: string;       // PERP / spot
+  unreal: number;     // live
+  realized: number;
+  staked?: boolean;   // true for staked-pool bags (mat_positions.asset ended in -POOL);
+  // rendered with a STAKED badge and grouped under the base asset (zif #189). Optional
+  // so mock seeds (which never stake) omit it; the live apolloSource always sets it.
+}
+
+export interface OrderLevel {
+  id: string;
+  positionId: string;
+  kind: LadderKind;
+  price: number;
+  size: number;       // % of position
+}
+
+export interface RestingOrder {
+  id: string;
+  positionId: string;
+  kind: string;       // 'Limit' | 'Stop' | ...
+  action: string;
+  price: number;
+  size: number;
+  color: string;
+}
+
+export interface Portfolio {
+  value: number;
+  change24h: number;
+  changePct: number;
+  netLong: number;
+  gross: number;
+  risks: number;
+  unrealTotal: number;
+}
+
+export interface ActivityEvent {
+  id: string;
+  ts: number;         // cursor for streaming subscription
+  act: string;        // CLOSE / FILL / FUNDING / LIQ ...
+  text: string;
+  pnl: number;
+}
+
+export interface ClosedTrade {
+  id: string;
+  asset: string;
+  exch: Exchange;
+  wallet: string;       // account label (exchange_accounts.label — e.g. "main", "ARB")
+  walletLabel: string;  // per-user friendly WALLET label (user_wallets.label — e.g. "Dad Trading"); '' if unset
+  side: Side;
+  closedMs: number;     // raw epoch-ms of close (for year filtering)
+  endDays: number;
+  dur: number;
+  size: number;
+  entry: number;
+  exit: number;
+  pnl: number;
+  fees: number;
+  funding: number;
+  rewards: number;
+  interest: number;
+  hack: number;
+  total: number;
+}
+
+// ── Performance server-side aggregates (#184) ────────────────────────────────
+// One reconciled money bucket. Sourced from mat_closed_trades_aggregate SUMs —
+// NO new client money math (Realized net = total; the rest are the raw component
+// SUMs). `count` is the number of closed trades folded into this bucket.
+export interface ClosedAgg {
+  count: number;
+  pnl: number;
+  funding: number;
+  fees: number;
+  rewards: number;
+  interest: number;
+  hack: number;
+  total: number; // realized net (pnl + fees + funding + rewards + interest)
+}
+
+// One per-group breakdown row for the closed side (open positions are folded in
+// on the client from the live WS store). `key` is the display/group key that
+// matches the client's existing exch/asset/wallet grouping.
+export interface ClosedGroupAgg extends ClosedAgg {
+  key: string;        // display/group key (exch name | asset | wallet group key)
+  // Opaque value the caller passes back to fetchClosedPage to page THIS group's
+  // rows. For exch/asset it equals `key`; for wallet it is the account-label the
+  // live `where: { wallet: { _eq } }` predicate keys on (the mock uses the display
+  // key). Treat it as opaque — do not reconstruct it.
+  groupValue: string;
+  walletLabel: string; // per-user wallet label (wallet dim only; '' otherwise)
+  wallet: string;      // account label (wallet dim only; '' otherwise)
+}
+
+// Real-now window bounds (epoch-ms) for the server-side closed_ts _gte/_lte
+// filter. Computed from Date.now() at call time — the #177 anchor fix.
+export interface WinBounds {
+  sinceMs: number;
+  untilMs: number;
+}
+
+export interface Account {
+  id: string;
+  walletId: string;
+  name: string;
+  exch: Exchange;
+  type: 'main' | 'sub';
+  value: number;
+  pnl: number;
+  accuracy: Accuracy;
+  needsApi: boolean;
+  apiProvided: boolean;
+  apiSkipped: boolean;
+  keyMask?: string;
+  hidden: boolean;
+  tags: string[];
+}
+
+export interface Wallet {
+  id: string;
+  address: string;
+  label: string;
+  status: 'detecting' | 'ready';
+  accounts: Account[];
+}
+
+// Short windows + calendar year strings ('2023', '2024', …). Year values are
+// validated at store-init by checking they're 4-digit numeric strings.
+export type Timeframe = 'hour' | 'day' | 'week' | 'month' | 'ytd' | 'all' | (string & {});
+export type PerfDim = 'exch' | 'asset' | 'wallet' | 'none';
+export type PerfStatus = 'all' | 'open' | 'closed';
+export type Tab = 'overview' | 'performance' | 'positions' | 'activity' | 'plan' | 'accounts';

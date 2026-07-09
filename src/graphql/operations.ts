@@ -1,0 +1,486 @@
+import { gql } from '@apollo/client';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LIVE schema note (inc7): the app's logical names (`positions`, `portfolio`,
+// `resting_orders`) COLLIDE with real base tables in this Hasura. We hit the
+// MATERIALIZED roots (`mat_*`) and use GraphQL FIELD ALIASES so the response
+// shape the mappers receive stays `data.positions` / `data.portfolio` /
+// `data.resting_orders`. `activity_stream` and `order_levels` resolve by their
+// exact names already, so they need no alias.
+//
+// All selection sets match the mat_ columns 1:1; `apolloSource` does the
+// snake_case → domain mapping.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Live query: latest full set of open positions. Hasura re-pushes whole rows on
+// change (~1s cadence) — ideal for marks / unreal PnL.
+export const POSITIONS_SUB = gql`
+  subscription Positions {
+    positions: mat_positions(order_by: { liq_distance: asc }) {
+      id
+      exchange_account_id
+      asset
+      exch
+      wallet
+      side
+      units
+      entry
+      mark
+      liq
+      liq_distance
+      lev
+      type
+      unreal
+      realized
+      ts
+      # Per-user friendly WALLET label (user_wallets.label) via the relationship
+      # chain mat_positions -> exchange_account -> wallet -> user_wallets. RLS on
+      # user_wallets scopes this to X-Hasura-User-Id, so the array is at most the
+      # current users single association row. The flat wallet field above is the
+      # ACCOUNT label (exchange_accounts.label); this is the real per-user wallet
+      # name used to group/label Group-by-Wallet. apolloSource maps it to
+      # Position.walletLabel.
+      exchange_account {
+        wallet {
+          user_wallets {
+            label
+          }
+        }
+      }
+    }
+  }
+`;
+
+// Live query: per-exchange-account portfolio rows. The app's `Portfolio` is a
+// SINGLE aggregated object, so apolloSource folds these rows together (sum equity
+// / unrealized, net 24h change) and derives netLong/gross/risks from positions.
+export const PORTFOLIO_SUB = gql`
+  subscription Portfolio {
+    portfolio: mat_portfolio {
+      exchange_account_id
+      equity
+      unrealized
+      realized
+      net_flow
+      equity_24h_ago
+      change_24h
+      data_complete
+      ts
+    }
+  }
+`;
+
+// Per-position order ladder (writable TP/SL) + venue resting orders (read-only).
+// Hasura allows exactly ONE top-level field per subscription, so order_levels
+// and resting_orders are TWO separate subscriptions (a combined one fails with
+// "subscriptions must select one top level field").
+export const ORDER_LEVELS_SUB = gql`
+  subscription OrderLevels {
+    order_levels {
+      id
+      position_id
+      kind
+      price
+      size
+    }
+  }
+`;
+
+export const RESTING_ORDERS_SUB = gql`
+  subscription RestingOrders {
+    resting_orders: mat_resting_orders {
+      id
+      position_id
+      kind
+      action
+      price
+      size
+      color
+    }
+  }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STREAMING SUBSCRIPTION  (Hasura _stream: cursor-based, streams *new* rows in
+// batches from a starting cursor. Append-only activity / fills feed.)
+// `ts` is bigint in this schema → cursor var is bigint!.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const ACTIVITY_STREAM_SUB = gql`
+  subscription ActivityStream($cursor: bigint!) {
+    activity_stream(
+      cursor: { initial_value: { ts: $cursor }, ordering: ASC }
+      batch_size: 20
+    ) {
+      id
+      ts
+      act
+      text
+      pnl
+    }
+  }
+`;
+
+// Seed the feed with the NEWEST rows (ts DESC). The _stream above only moves
+// FORWARD from a cursor — with cursor=0 it crawls up from the oldest event through
+// all of history (mostly funding), which is why "Since you last checked" looked
+// random/stale and kept changing. We fetch the latest N once on load, then start
+// the stream from the newest ts so it only appends genuinely new events.
+export const ACTIVITY_RECENT_QUERY = gql`
+  query ActivityRecent($limit: Int!) {
+    activity_stream_query(order_by: { ts: desc }, limit: $limit) {
+      id
+      ts
+      act
+      text
+      pnl
+    }
+  }
+`;
+
+// Paginated history for the Activity tab's infinite scroll. Fetches a BOUNDED
+// page of events strictly OLDER than `before` (ts DESC = newest-first). Passing
+// a huge `before` (Number.MAX_SAFE_INTEGER) gets the first/newest page; the
+// oldest ts of that page becomes the cursor for the next page. Keeping each
+// fetch bounded is deliberate — this is the OOM-prone historical-query class,
+// so we never pull the whole stream in one shot.
+export const ACTIVITY_PAGE_QUERY = gql`
+  query ActivityPage($before: bigint!, $limit: Int!) {
+    activity_stream_query(
+      where: { ts: { _lt: $before } }
+      order_by: { ts: desc }
+      limit: $limit
+    ) {
+      id
+      ts
+      act
+      text
+      pnl
+    }
+  }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ACCOUNTS  (inc7b). The app subscribes as `accounts`; the bare name is a base
+// table here, so we hit `mat_accounts` via a FIELD ALIAS. The view is a FLAT
+// per-account list — apolloSource groups rows into the Wallet[] the UI wants,
+// keyed on wallet_id (the same fold-rows pattern the other mappers use).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const ACCOUNTS_SUB = gql`
+  subscription Accounts {
+    accounts: mat_accounts(order_by: { wallet_id: asc, type: asc }) {
+      id
+      wallet_id
+      name
+      exch
+      type
+      value
+      pnl
+      needs_api
+      api_provided
+      accuracy
+      tags
+      wallet_address
+      wallet_status
+      # Per-user friendly label (user_wallets.label). RLS on user_wallets already
+      # scopes this to X-Hasura-User-Id, so this array is at most the CURRENT user's
+      # one association row — apolloSource uses it as the SINGLE source of truth for
+      # the wallet label (the global wallets.label is being removed).
+      wallet {
+        user_wallets {
+          label
+        }
+      }
+    }
+  }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLOSED TRADES  (inc7b). Fetched (not streamed) for the Performance tab. The app
+// asks as `closed_trades`; we hit `mat_closed_trades` via a FIELD ALIAS. `since`
+// is an epoch-ms cutoff (closed_ts >= since); the caller passes sinceDays as a
+// day count, the mapper converts it to the ms cutoff. opened_ts/closed_ts are
+// bigint epoch-ms — the mapper derives the mock's relative endDays/dur from them.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const CLOSED_TRADES_QUERY = gql`
+  query ClosedTrades($since: bigint!) {
+    closed_trades: mat_closed_trades(
+      where: { closed_ts: { _gte: $since } }
+      order_by: { closed_ts: desc }
+    ) {
+      id
+      asset
+      exch
+      wallet
+      side
+      size
+      entry
+      exit
+      pnl
+      fees
+      funding
+      rewards
+      interest
+      hack
+      total
+      opened_ts
+      closed_ts
+      # Per-user friendly WALLET label (user_wallets.label) via the relationship
+      # chain mat_closed_trades -> exchange_account -> wallet -> user_wallets. RLS on
+      # user_wallets scopes this to X-Hasura-User-Id, so the array is at most the
+      # current user's single association row. The flat wallet field above is the
+      # ACCOUNT label (exchange_accounts.label); this is the real per-user wallet
+      # name used to group/label Group-by-Wallet. apolloSource maps it to
+      # ClosedTrade.walletLabel.
+      exchange_account {
+        wallet {
+          user_wallets {
+            label
+          }
+        }
+      }
+    }
+  }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLOSED TRADES — SERVER-SIDE aggregates + pagination (#184).
+//
+// The Performance page no longer downloads the whole closed-trades history to the
+// browser to sum it client-side (the OOM-prone all-rows fetch). Instead:
+//   1. AGGREGATES  — mat_closed_trades_aggregate drives the 6 summary cards + the
+//      per-group breakdown SUMs. The processor's per-trade fields are already
+//      reconciled, so we introduce NO new money math — we only push the SUM to the
+//      DB. Realized net = SUM(total); Trading P/L = SUM(pnl); etc.
+//   2. PAGINATION  — the closed LIST is fetched a page at a time (limit/offset,
+//      closed_ts DESC), load-more on scroll — never the whole set.
+//   3. #177 ANCHOR — the window is a real _gte/_lte bound on closed_ts computed
+//      from Date.now() at call time (see apolloSource.windowBounds), structurally
+//      killing the hardcoded 2026-06-25 anchor for the DB-sourced totals/list.
+//
+// `mat_closed_trades` has allow_aggregations: true for the user role (see
+// hasura metadata), so mat_closed_trades_aggregate is queryable RLS-scoped.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Grand-total aggregate over a window (no dimension filter): drives the summary
+// cards + the "Total" row. `_lte` upper bound is optional so 'all'/open-ended
+// windows can pass a null-ish (huge) until without changing shape.
+export const CLOSED_AGG_QUERY = gql`
+  query ClosedAgg($since: bigint!, $until: bigint!) {
+    mat_closed_trades_aggregate(
+      where: { closed_ts: { _gte: $since, _lte: $until } }
+    ) {
+      aggregate {
+        count
+        sum {
+          pnl
+          funding
+          fees
+          rewards
+          interest
+          hack
+          total
+        }
+      }
+    }
+  }
+`;
+
+// Distinct group values within a window, for a given dimension. We fetch the
+// distinct dimension column (exch | asset | wallet) plus the wallet-label chain
+// (for the wallet dim) so the client can build the same group keys/labels it did
+// before — then fire ONE CLOSED_GROUP_AGG per distinct value. `distinct_on`
+// requires the column to lead order_by.
+export const CLOSED_DISTINCT_EXCH_QUERY = gql`
+  query ClosedDistinctExch($since: bigint!, $until: bigint!) {
+    mat_closed_trades(
+      where: { closed_ts: { _gte: $since, _lte: $until } }
+      distinct_on: exch
+      order_by: { exch: asc }
+    ) {
+      exch
+    }
+  }
+`;
+
+export const CLOSED_DISTINCT_ASSET_QUERY = gql`
+  query ClosedDistinctAsset($since: bigint!, $until: bigint!) {
+    mat_closed_trades(
+      where: { closed_ts: { _gte: $since, _lte: $until } }
+      distinct_on: asset
+      order_by: { asset: asc }
+    ) {
+      asset
+    }
+  }
+`;
+
+// Wallet dim: the group key is the per-user wallet label (user_wallets.label) with
+// a fallback to the account label (`wallet`). Distinct on `wallet` (the account
+// label) is the finest stable key; we carry the label chain to reproduce
+// ctWalletGroupKey exactly on the client.
+export const CLOSED_DISTINCT_WALLET_QUERY = gql`
+  query ClosedDistinctWallet($since: bigint!, $until: bigint!) {
+    mat_closed_trades(
+      where: { closed_ts: { _gte: $since, _lte: $until } }
+      distinct_on: wallet
+      order_by: { wallet: asc }
+    ) {
+      wallet
+      exchange_account {
+        wallet {
+          user_wallets {
+            label
+          }
+        }
+      }
+    }
+  }
+`;
+
+// Per-group aggregate: same window PLUS one dimension-equality predicate. The
+// caller passes the dim column via one of the three variables (only one is
+// non-null per call). We keep three explicit predicates rather than a dynamic
+// column so the query stays a static, cacheable document.
+export const CLOSED_GROUP_AGG_EXCH_QUERY = gql`
+  query ClosedGroupAggExch($since: bigint!, $until: bigint!, $val: String!) {
+    mat_closed_trades_aggregate(
+      where: { closed_ts: { _gte: $since, _lte: $until }, exch: { _eq: $val } }
+    ) {
+      aggregate {
+        count
+        sum { pnl funding fees rewards interest hack total }
+      }
+    }
+  }
+`;
+
+export const CLOSED_GROUP_AGG_ASSET_QUERY = gql`
+  query ClosedGroupAggAsset($since: bigint!, $until: bigint!, $val: String!) {
+    mat_closed_trades_aggregate(
+      where: { closed_ts: { _gte: $since, _lte: $until }, asset: { _eq: $val } }
+    ) {
+      aggregate {
+        count
+        sum { pnl funding fees rewards interest hack total }
+      }
+    }
+  }
+`;
+
+export const CLOSED_GROUP_AGG_WALLET_QUERY = gql`
+  query ClosedGroupAggWallet($since: bigint!, $until: bigint!, $val: String!) {
+    mat_closed_trades_aggregate(
+      where: { closed_ts: { _gte: $since, _lte: $until }, wallet: { _eq: $val } }
+    ) {
+      aggregate {
+        count
+        sum { pnl funding fees rewards interest hack total }
+      }
+    }
+  }
+`;
+
+// Paginated closed LIST (closed_ts DESC = newest first) within a window, with an
+// optional dimension-equality predicate so an expanded group can page its own
+// rows. limit/offset pagination; the caller bumps offset for "load more". This is
+// the OOM-prone historical-query class, so it is ALWAYS bounded — never a full
+// pull. The selection set matches mapClosedTrade 1:1.
+export const CLOSED_PAGE_QUERY = gql`
+  query ClosedPage(
+    $since: bigint!
+    $until: bigint!
+    $limit: Int!
+    $offset: Int!
+    $where: mat_closed_trades_bool_exp!
+  ) {
+    closed_trades: mat_closed_trades(
+      where: { _and: [{ closed_ts: { _gte: $since, _lte: $until } }, $where] }
+      order_by: { closed_ts: desc }
+      limit: $limit
+      offset: $offset
+    ) {
+      id
+      asset
+      exch
+      wallet
+      side
+      size
+      entry
+      exit
+      pnl
+      fees
+      funding
+      rewards
+      interest
+      hack
+      total
+      opened_ts
+      closed_ts
+      exchange_account {
+        wallet {
+          user_wallets {
+            label
+          }
+        }
+      }
+    }
+  }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MUTATIONS — order_levels is the only writable surface in inc7 (RLS-scoped;
+// user_id is auto-set by the insert preset, so we MUST NOT send it).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const UPSERT_ORDER_LEVEL = gql`
+  mutation UpsertOrderLevel($id: uuid!, $price: numeric!, $size: numeric!) {
+    update_order_levels_by_pk(
+      pk_columns: { id: $id }
+      _set: { price: $price, size: $size }
+    ) {
+      id
+    }
+  }
+`;
+
+export const ADD_ORDER_LEVEL = gql`
+  mutation AddOrderLevel(
+    $positionId: uuid!
+    $kind: String!
+    $price: numeric!
+    $size: numeric!
+  ) {
+    insert_order_levels_one(
+      object: { position_id: $positionId, kind: $kind, price: $price, size: $size }
+    ) {
+      id
+    }
+  }
+`;
+
+export const REMOVE_ORDER_LEVEL = gql`
+  mutation RemoveOrderLevel($id: uuid!) {
+    delete_order_levels_by_pk(id: $id) {
+      id
+    }
+  }
+`;
+
+// Set/edit the CURRENT user's friendly label for a wallet (per-user user_wallets.label).
+// Updates user_wallets WHERE wallet_id = $walletId; Hasura's user-role UPDATE permission
+// already pins the row to user_id = X-Hasura-User-Id via its filter, so a user can ONLY
+// label their own association — never another user's. We update by wallet_id (not pk) so
+// the caller doesn't need the user_wallets row id; the RLS filter does the user scoping.
+export const SET_WALLET_LABEL = gql`
+  mutation SetWalletLabel($walletId: uuid!, $label: String!) {
+    update_user_wallets(
+      where: { wallet_id: { _eq: $walletId } }
+      _set: { label: $label }
+    ) {
+      affected_rows
+    }
+  }
+`;
