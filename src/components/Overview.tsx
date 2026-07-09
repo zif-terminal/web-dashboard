@@ -3,6 +3,7 @@ import { Card, Mono, StatCard } from '../ui/primitives';
 import { t } from '../ui/theme';
 import { k, kc, usd, col } from '../lib/format';
 import { useIsMobile } from '../lib/useIsMobile';
+import { PositionsSection } from './Positions';
 
 export function Overview() {
   const pf = useStore((s) => s.portfolio);
@@ -60,6 +61,10 @@ export function Overview() {
         </StatCard>
       </div>
 
+      {/* #208: the full Positions view now lives INLINE below the Overview
+          summary (standalone Positions tab/route removed). Reuses the same
+          PositionsSection component + mat_positions store subscription. */}
+      <PositionsSection />
     </div>
   );
 }

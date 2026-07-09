@@ -41,7 +41,7 @@ export function RiskPlan() {
       <h1 style={{ fontSize: 'clamp(24px,5vw,32px)', fontWeight: 600, letterSpacing: '-.02em', margin: '0 0 6px' }}>Risk &amp; plan</h1>
       <p style={{ fontSize: 15, color: t.textDim, margin: '0 0 24px', maxWidth: 680, lineHeight: 1.55 }}>
         What could go wrong across your book, and how a market-wide move would hit you. Open a single position under{' '}
-        <b style={{ color: '#cdd4da', cursor: 'pointer' }} onClick={() => setTab('positions')}>Positions</b> to plan its exit.
+        <b style={{ color: '#cdd4da', cursor: 'pointer' }} onClick={() => setTab('overview')}>Positions</b> to plan its exit.
       </p>
 
       <Card style={{ padding: 22, marginBottom: 14 }}>
@@ -72,7 +72,7 @@ export function RiskPlan() {
             <span style={{ fontSize: 12.5, color: t.mut, flex: 1, minWidth: isMobile ? 0 : 180 }}>
               Liquidation {dist.toFixed(0)}% away — {likelihood(dist).label.toLowerCase()} to reach this week.
             </span>
-            <button onClick={() => { setTab('positions'); useStore.getState().toggleExpand(p.id); }} style={{ fontFamily: t.sans, fontSize: 12, fontWeight: 600, cursor: 'pointer', background: 'none', color: t.acc, border: `1px solid #2c3550`, borderRadius: 8, padding: '6px 12px' }}>
+            <button onClick={() => { setTab('overview'); useStore.getState().toggleExpand(p.id); }} style={{ fontFamily: t.sans, fontSize: 12, fontWeight: 600, cursor: 'pointer', background: 'none', color: t.acc, border: `1px solid #2c3550`, borderRadius: 8, padding: '6px 12px' }}>
               Plan exit
             </button>
           </Card>

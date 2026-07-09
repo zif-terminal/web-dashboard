@@ -114,6 +114,18 @@ export interface ClosedGroupAgg extends ClosedAgg {
   wallet: string;      // account label (wallet dim only; '' otherwise)
 }
 
+// Single-query closed-window breakdown (perf: N→1 round-trips). One fetch pulls
+// every closed trade's grouping + reconciled money columns for the window; the
+// client computes the grand total AND all three dimension breakdowns in one pass.
+// Toggling group-by (exch/asset/wallet/none) selects a precomputed map — NO refetch.
+// The per-group sums equal `agg` by construction (they reconcile exactly).
+export interface ClosedWindow {
+  agg: ClosedAgg;                     // grand total over the whole window
+  byExch: ClosedGroupAgg[];           // breakdown grouped by exchange
+  byAsset: ClosedGroupAgg[];          // breakdown grouped by asset
+  byWallet: ClosedGroupAgg[];         // breakdown grouped by wallet group key
+}
+
 // Real-now window bounds (epoch-ms) for the server-side closed_ts _gte/_lte
 // filter. Computed from Date.now() at call time — the #177 anchor fix.
 export interface WinBounds {
@@ -142,8 +154,16 @@ export interface Wallet {
   id: string;
   address: string;
   label: string;
-  status: 'detecting' | 'ready';
+  // 'detecting' = just added, gateway discovery in flight (client-side optimistic
+  // "scanning…" row, keyed by address, held until this wallet's accounts land in
+  // ACCOUNTS_SUB); 'noaccts' = discovery timed out with zero accounts (graceful,
+  // non-error end state); 'ready' = real, persisted accounts from ACCOUNTS_SUB.
+  status: 'detecting' | 'noaccts' | 'ready';
   accounts: Account[];
+  // True for a client-side optimistic wallet (not yet in ACCOUNTS_SUB). The store's
+  // wallet merge drops the pending twin the moment a real wallet with the same
+  // address arrives, so this is only ever set on the scanning/no-accounts twin.
+  pending?: boolean;
 }
 
 // Short windows + calendar year strings ('2023', '2024', …). Year values are
@@ -151,4 +171,6 @@ export interface Wallet {
 export type Timeframe = 'hour' | 'day' | 'week' | 'month' | 'ytd' | 'all' | (string & {});
 export type PerfDim = 'exch' | 'asset' | 'wallet' | 'none';
 export type PerfStatus = 'all' | 'open' | 'closed';
-export type Tab = 'overview' | 'performance' | 'positions' | 'activity' | 'plan' | 'accounts';
+// #208: 'positions' removed as a top-level tab — the Positions view is now a
+// section rendered inline at the bottom of Overview.
+export type Tab = 'overview' | 'performance' | 'activity' | 'plan' | 'accounts';

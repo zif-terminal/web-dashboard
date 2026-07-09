@@ -8,10 +8,39 @@ import type {
 // UI state (tab, expanded, ladders being edited, scenario shocks) lives here too.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Normalise a wallet address for matching a pending (optimistic) wallet against
+// the authoritative ACCOUNTS_SUB wallet. Server returns the full checksummed/lower
+// address; the user's submitted address may differ in case — compare lower-cased.
+const addrKey = (s: string): string => (s ?? '').trim().toLowerCase();
+
+// Fold the client-side optimistic "scanning" wallets into the authoritative
+// server list. A pending wallet is DROPPED the instant a real wallet with the
+// same address lands in `server` (its accounts have been discovered + persisted),
+// so the scanning row cleanly gives way to the real grouped accounts. Surviving
+// pending wallets (detecting / timed-out noaccts) sort to the TOP so the user sees
+// the wallet they just added.
+function mergeWallets(server: Wallet[], pending: Wallet[]): Wallet[] {
+  if (pending.length === 0) return server;
+  const serverAddrs = new Set(server.map((w) => addrKey(w.address)));
+  const stillPending = pending.filter((p) => !serverAddrs.has(addrKey(p.address)));
+  return [...stillPending, ...server];
+}
+
 interface ServerState {
   positions: Position[];
   portfolio: Portfolio | null;
+  // `wallets` is the MERGED list the UI reads: the authoritative ACCOUNTS_SUB
+  // result (`_serverWallets`) with any client-side optimistic "scanning" wallets
+  // (`pendingWallets`) folded in. Keeping the merge in the store means every
+  // consumer (stat cards, Accounts, OMNI upload) sees the scanning wallet live.
   wallets: Wallet[];
+  // Authoritative wallets straight from ACCOUNTS_SUB (or the mock engine), before
+  // the pending merge. Never rendered directly — it's the merge base.
+  _serverWallets: Wallet[];
+  // Optimistic wallets added locally after a successful addWallet, keyed by
+  // lower-cased address. Held in 'detecting' (or 'noaccts' after timeout) until a
+  // real wallet with the same address appears in _serverWallets.
+  pendingWallets: Wallet[];
   levels: OrderLevel[];
   orders: RestingOrder[];
   activity: ActivityEvent[];
@@ -51,6 +80,13 @@ interface Actions {
   _ingestWallets: (w: Wallet[]) => void;
   _ingestLevels: (l: OrderLevel[], o: RestingOrder[]) => void;
   _ingestActivity: (rows: ActivityEvent[]) => void;
+  // ── optimistic add-wallet "scanning" flow (zif #202) ──
+  // Insert a client-side 'detecting' wallet immediately after addWallet succeeds,
+  // keyed by address. It shows the scanning spinner until real accounts arrive.
+  _addPendingWallet: (address: string, label: string) => void;
+  // Flip a still-pending wallet to its timed-out 'noaccts' end state (graceful,
+  // non-error). No-op if the wallet already resolved into _serverWallets.
+  _timeoutPendingWallet: (address: string) => void;
 }
 
 export type StoreState = ServerState & UiState & Actions;
@@ -59,7 +95,9 @@ export type StoreState = ServerState & UiState & Actions;
 // authStore). On startup read the stored tab and use it only if it's a valid Tab
 // value, else fall back to 'overview'.
 const TAB_LS_KEY = 'zif.tab';
-const VALID_TABS: readonly Tab[] = ['overview', 'performance', 'positions', 'plan', 'accounts'];
+// #208: 'positions' removed — a stale persisted `zif.tab === 'positions'` now
+// falls back to 'overview' (which shows the Positions section inline).
+const VALID_TABS: readonly Tab[] = ['overview', 'performance', 'plan', 'accounts'];
 
 function getInitialTab(): Tab {
   if (typeof localStorage === 'undefined') return 'overview';
@@ -135,6 +173,8 @@ export const useStore = create<StoreState>((set) => ({
   positions: [],
   portfolio: null,
   wallets: [],
+  _serverWallets: [],
+  pendingWallets: [],
   levels: [],
   orders: [],
   activity: [],
@@ -186,7 +226,44 @@ export const useStore = create<StoreState>((set) => ({
   // detect a stalled feed.
   _ingestPositions: (positions) => set({ positions, lastUpdate: Date.now() }),
   _ingestPortfolio: (portfolio) => set({ portfolio, lastUpdate: Date.now() }),
-  _ingestWallets: (wallets) => set({ wallets }),
+  // ACCOUNTS_SUB push → authoritative base; re-fold the optimistic pending wallets
+  // and drop any whose accounts have now arrived (matched by address).
+  _ingestWallets: (server) => set((s) => {
+    const survivingAddrs = new Set(server.map((w) => addrKey(w.address)));
+    const pendingWallets = s.pendingWallets.filter((p) => !survivingAddrs.has(addrKey(p.address)));
+    return { _serverWallets: server, pendingWallets, wallets: mergeWallets(server, pendingWallets) };
+  }),
+  // Optimistic add: show a 'detecting' scanning row immediately, keyed by address.
+  // Idempotent — if a pending twin (or a real wallet) for this address already
+  // exists we don't duplicate it.
+  _addPendingWallet: (address, label) => set((s) => {
+    const key = addrKey(address);
+    if (!key) return {};
+    if (s.pendingWallets.some((p) => addrKey(p.address) === key)) return {};
+    if (s._serverWallets.some((w) => addrKey(w.address) === key)) return {};
+    const pending: Wallet = {
+      id: `pending:${key}`,
+      address: address.trim(),
+      label: label.trim() || address.trim(),
+      status: 'detecting',
+      accounts: [],
+      pending: true,
+    };
+    const pendingWallets = [pending, ...s.pendingWallets];
+    return { pendingWallets, wallets: mergeWallets(s._serverWallets, pendingWallets) };
+  }),
+  // Discovery-timeout fallback: if the wallet is still pending (never resolved into
+  // _serverWallets), flip it to the graceful 'noaccts' end state.
+  _timeoutPendingWallet: (address) => set((s) => {
+    const key = addrKey(address);
+    let changed = false;
+    const pendingWallets = s.pendingWallets.map((p) => {
+      if (addrKey(p.address) === key && p.status === 'detecting') { changed = true; return { ...p, status: 'noaccts' as const }; }
+      return p;
+    });
+    if (!changed) return {};
+    return { pendingWallets, wallets: mergeWallets(s._serverWallets, pendingWallets) };
+  }),
   _ingestLevels: (levels, orders) => set({ levels, orders }),
   // Merge incoming activity by id (the stream can re-deliver a row), sort ASC by
   // ts, keep the newest 200. Storing ASC means Overview's reverse().slice(0,6) is

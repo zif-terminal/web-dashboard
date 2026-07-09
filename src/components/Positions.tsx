@@ -189,7 +189,17 @@ function accountLabel(p: Position): string {
   return w;
 }
 
-export function Positions() {
+/**
+ * The full positions view — controls (sort / group-by) + grouped, sorted,
+ * dust-filtered position cards with expandable detail. Lifted out of the old
+ * standalone Positions *page* (#208) so it can be rendered as a SECTION at the
+ * bottom of Overview. All logic (fixed venue-priority group ordering [#132],
+ * stable id-tiebroken sort [#131], status/group-by filters [#169/#187],
+ * size/liq/orders + expanded open/closed detail [#103], mobile responsive
+ * [#126], dust hiding) is preserved verbatim. The mat_positions store
+ * subscription (`s.positions`) is untouched.
+ */
+export function PositionsSection() {
   const positions = useStore((s) => s.positions);
   const posGroup = useStore((s) => s.posGroup);
   const setPosGroup = useStore((s) => s.setPosGroup);
@@ -283,9 +293,12 @@ export function Positions() {
   const isMobile = useIsMobile();
 
   return (
-    <div>
+    // #208: rendered as a SECTION at the bottom of Overview (no longer a
+    // standalone page/route). A top border + heading separate it from the
+    // Overview summary above.
+    <section style={{ marginTop: 34, paddingTop: 26, borderTop: `1px solid ${t.border2}` }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 20 }}>
-        <h1 style={{ fontSize: 'clamp(24px,5vw,32px)', fontWeight: 600, letterSpacing: '-.02em', margin: 0 }}>Positions</h1>
+        <h2 style={{ fontSize: 'clamp(20px,4vw,26px)', fontWeight: 600, letterSpacing: '-.02em', margin: 0 }}>Positions</h2>
         <Mono style={{ fontSize: 14, color: t.mut }}>{positions.length} open · {longCount} long · {positions.length - longCount} short</Mono>
       </div>
 
@@ -315,7 +328,7 @@ export function Positions() {
           <HiddenGroups groups={hiddenGroups} value={hiddenGroupsValue} />
         )}
       </div>
-    </div>
+    </section>
   );
 }
 

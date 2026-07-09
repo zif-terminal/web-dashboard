@@ -7,16 +7,27 @@ export const MUT = '#8b95a0';
 export const TXT = '#e7ebee';
 export const ACC = '#8aa2ff';
 
-export const col = (n: number): string => (n > 0 ? GREEN : n < 0 ? RED : TXT);
+// Coloring is driven by the DISPLAYED (rounded) magnitude, not the raw sign: a
+// value that the compact currency formatters (k / kc) render as a flat "$0"
+// (|n| < 0.5) reads as NEUTRAL, so "dust" closes don't show misleading
+// green/red on a "$0" cell. Every col() caller is paired with k()/kc(), so this
+// keeps the color in lock-step with the rendered figure.
+export const col = (n: number): string =>
+  Math.abs(n) < 0.5 ? TXT : n > 0 ? GREEN : RED;
 
 export function n0(n: number): string {
   return Math.round(n).toLocaleString('en-US');
 }
 
-/** Compact signed currency: +$23.8K, -$1.2M */
+/** Compact signed currency: +$23.8K, -$1.2M.
+ * Values that round to zero (|n| < 0.5) render as a NEUTRAL, unsigned "$0" so
+ * "dust" closes don't show a misleading colored "-$0" / "+$0" (the col() helper
+ * matches this threshold and returns a neutral color for the same range). A tiny
+ * nonzero value renders "<$1" so the row still reads as "not exactly zero". */
 export function k(n: number): string {
-  const s = n < 0 ? '-' : '+';
   const a = Math.abs(n);
+  if (a < 0.5) return a === 0 ? '$0' : '<$1';
+  const s = n < 0 ? '-' : '+';
   if (a >= 1e6) return `${s}$${(a / 1e6).toFixed(2)}M`;
   if (a >= 1e3) return `${s}$${(a / 1e3).toFixed(1)}K`;
   return `${s}$${a.toFixed(0)}`;

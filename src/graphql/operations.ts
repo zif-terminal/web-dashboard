@@ -383,11 +383,20 @@ export const CLOSED_GROUP_AGG_WALLET_QUERY = gql`
   }
 `;
 
-// Paginated closed LIST (closed_ts DESC = newest first) within a window, with an
-// optional dimension-equality predicate so an expanded group can page its own
-// rows. limit/offset pagination; the caller bumps offset for "load more". This is
-// the OOM-prone historical-query class, so it is ALWAYS bounded — never a full
-// pull. The selection set matches mapClosedTrade 1:1.
+// Paginated closed LIST within a window, with an optional dimension-equality
+// predicate so an expanded group can page its own rows. limit/offset pagination;
+// the caller bumps offset for "load more". This is the OOM-prone historical-query
+// class, so it is ALWAYS bounded — never a full pull. The selection set matches
+// mapClosedTrade 1:1.
+//
+// ORDERING (magnitude-first, #208-followup): previously ordered strictly by
+// `closed_ts: desc` (newest first), which buried the real movers (HYPE +$34K,
+// LIT +$33K, XLM +$4.8K, MEGA +$3.3K) below dozens of ~$0 "dust" closes. We now
+// order by `total: desc` so the biggest winners surface at the very top and the
+// ~$0 dust sinks into the middle of the list; `closed_ts: desc` is the tiebreak
+// so same-P/L rows still read newest-first. This is fully offset-pagination-safe
+// (a monotonic column order — no client-side filtering, so no page holes/dupes)
+// and changes NOTHING about the aggregate/TOTAL math (that is CLOSED_WINDOW_QUERY).
 export const CLOSED_PAGE_QUERY = gql`
   query ClosedPage(
     $since: bigint!
@@ -398,7 +407,7 @@ export const CLOSED_PAGE_QUERY = gql`
   ) {
     closed_trades: mat_closed_trades(
       where: { _and: [{ closed_ts: { _gte: $since, _lte: $until } }, $where] }
-      order_by: { closed_ts: desc }
+      order_by: [{ total: desc }, { closed_ts: desc }]
       limit: $limit
       offset: $offset
     ) {
@@ -419,6 +428,58 @@ export const CLOSED_PAGE_QUERY = gql`
       total
       opened_ts
       closed_ts
+      exchange_account {
+        wallet {
+          user_wallets {
+            label
+          }
+        }
+      }
+    }
+  }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLOSED TRADES — SINGLE-QUERY window breakdown (perf: N→1 round-trips).
+//
+// Supersedes the old CLOSED_AGG + CLOSED_DISTINCT_* + N× CLOSED_GROUP_AGG_* fan-out
+// (1 grand-total + 1 distinct + N per-value aggregates). With 233 distinct assets
+// that was 235 round-trips PER group-by-asset load, and — under the #197 shm
+// mitigation (max_parallel_workers_per_gather=0) — each aggregate is a serial
+// seq-scan (~0.8s), so the fan-out was ~3 min of DB work AND collided in the Apollo
+// normalized cache (every mat_closed_trades_aggregate document normalises to the
+// SAME cache entity → #196 stale/empty buckets).
+//
+// Instead we pull the LIGHTWEIGHT grouping + reconciled money columns for every
+// closed trade in the window in ONE query (~4k small rows ≈ one seq-scan, the same
+// ~0.8s a single aggregate cost) and compute the grand-total AND all three
+// dimension breakdowns client-side in a single pass. The per-trade columns are the
+// same already-reconciled fields the SUMs used — NO new money math, and the
+// per-group sums equal the grand total by construction (they reconcile exactly).
+//
+// This is bounded (~4k rows), not the OOM-prone unbounded historical-list class
+// (that is CLOSED_PAGE_QUERY, which stays paginated). We carry the per-user wallet
+// label so the client can build the same wallet group key it already uses
+// (rowWalletGroupKey) without a separate distinct-wallet round-trip.
+// ─────────────────────────────────────────────────────────────────────────────
+export const CLOSED_WINDOW_QUERY = gql`
+  query ClosedWindow($since: bigint!, $until: bigint!) {
+    mat_closed_trades(
+      where: { closed_ts: { _gte: $since, _lte: $until } }
+    ) {
+      asset
+      exch
+      wallet
+      pnl
+      fees
+      funding
+      rewards
+      interest
+      hack
+      total
+      # Per-user friendly WALLET label for the wallet-dimension group key. RLS on
+      # user_wallets scopes this to X-Hasura-User-Id (≤1 row). Only used to build
+      # the same group key the client already uses (rowWalletGroupKey).
       exchange_account {
         wallet {
           user_wallets {
@@ -465,6 +526,59 @@ export const REMOVE_ORDER_LEVEL = gql`
   mutation RemoveOrderLevel($id: uuid!) {
     delete_order_levels_by_pk(id: $id) {
       id
+    }
+  }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OMNI CSV UPLOAD  (zif #199). Browser-side bulk insert: parse CSV in-browser,
+// send the array of rows via this mutation. The on_conflict clause deduplicates
+// by (exchange_account_id, omni_id) — same upsert the old Next.js route used.
+// RLS on omni_raw_events scopes the insert to the authenticated user's accounts.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const INSERT_OMNI_RAW_EVENTS = gql`
+  mutation InsertOmniRawEvents($objects: [omni_raw_events_insert_input!]!) {
+    insert_omni_raw_events(
+      objects: $objects
+      on_conflict: {
+        constraint: omni_raw_events_exchange_account_id_omni_id_key
+        update_columns: []
+      }
+    ) {
+      affected_rows
+    }
+  }
+`;
+
+// Update the CURRENT user's editable fields on an exchange_account (#205 wire-all).
+// The user role has UPDATE on exchange_accounts columns [label, tags, sync_enabled,
+// processing_enabled, sync_reset_requested, processor_reset_requested,
+// account_type_metadata, status] with the RLS filter
+//   wallet.user_wallets.user_id = X-Hasura-User-Id
+// so a user can ONLY edit their OWN accounts. We surface only the two the UI edits:
+//   - Account rename  → exchange_accounts.label  (mat_accounts.name = label)
+//   - Account tags    → exchange_accounts.tags   (jsonb string[])
+// Both round-trip through ACCOUNTS_SUB (which selects name+tags) so they PERSIST
+// across reload. Only the changed field is sent (see apolloSource.updateAccount).
+export const UPDATE_ACCOUNT_LABEL = gql`
+  mutation UpdateAccountLabel($id: uuid!, $label: String!) {
+    update_exchange_accounts(
+      where: { id: { _eq: $id } }
+      _set: { label: $label }
+    ) {
+      affected_rows
+    }
+  }
+`;
+
+export const UPDATE_ACCOUNT_TAGS = gql`
+  mutation UpdateAccountTags($id: uuid!, $tags: jsonb!) {
+    update_exchange_accounts(
+      where: { id: { _eq: $id } }
+      _set: { tags: $tags }
+    ) {
+      affected_rows
     }
   }
 `;

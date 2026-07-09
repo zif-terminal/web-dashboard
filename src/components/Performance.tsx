@@ -7,7 +7,7 @@ import { k, col, px, shortAddr } from '../lib/format';
 import { useIsMobile } from '../lib/useIsMobile';
 import { windowBounds, isYearWin } from '../data/perfWindow';
 import type {
-  ClosedTrade, Position, PerfDim, PerfStatus, ClosedAgg, ClosedGroupAgg,
+  ClosedTrade, Position, PerfDim, PerfStatus, ClosedAgg, ClosedGroupAgg, ClosedWindow,
 } from '../types';
 
 const SHORT_WINS: { k: string; label: string }[] = [
@@ -29,6 +29,46 @@ const PAGE_SIZE = 50;
 // Empty aggregate — used before the first fetch lands and when the closed side is
 // filtered out (status = 'open'), so the cards/total show zeros cleanly.
 const EMPTY_AGG: ClosedAgg = { count: 0, pnl: 0, funding: 0, fees: 0, rewards: 0, interest: 0, hack: 0, total: 0 };
+const EMPTY_WINDOW: ClosedWindow = { agg: EMPTY_AGG, byExch: [], byAsset: [], byWallet: [] };
+
+// ── window cache (perf: instant revisits + group-by toggles) ─────────────────
+// The single-query window breakdown (grand total + all 3 dimension breakdowns) is
+// PURE for a given [sinceMs, untilMs] window — it does NOT depend on the group-by
+// dimension. Cache the in-flight/resolved PROMISE keyed on the window so that:
+//   • switching group-by (exch/asset/wallet/none) NEVER refetches — same window
+//     promise, we just select the right precomputed breakdown array; and
+//   • re-selecting a previously-viewed timeframe chip resolves instantly from cache.
+// Module-level (survives unmount/remount of the page). Bounded LRU so a long session
+// hopping windows can't grow it unbounded. Keyed on the exact ms bounds; 'all'/'ytd'
+// carry a Date.now() upper bound so each visit is a fresh key (correct: the window
+// literally moved) — the short/year windows are stable keys and hit the cache.
+const WINDOW_CACHE = new Map<string, Promise<ClosedWindow>>();
+const WINDOW_CACHE_MAX = 16;
+const winCacheKey = (sinceMs: number, untilMs: number) => `${sinceMs}|${untilMs}`;
+
+function fetchClosedWindowCached(sinceMs: number, untilMs: number): Promise<ClosedWindow> {
+  const key = winCacheKey(sinceMs, untilMs);
+  const hit = WINDOW_CACHE.get(key);
+  if (hit) {
+    // LRU touch: re-insert so it counts as most-recently-used.
+    WINDOW_CACHE.delete(key);
+    WINDOW_CACHE.set(key, hit);
+    return hit;
+  }
+  const p = dataSource.fetchClosedWindow(sinceMs, untilMs).catch((e) => {
+    // Never cache a rejection — a transient failure (e.g. token expiry) must be
+    // retryable on the next render, not pinned as a permanent empty.
+    WINDOW_CACHE.delete(key);
+    throw e;
+  });
+  WINDOW_CACHE.set(key, p);
+  while (WINDOW_CACHE.size > WINDOW_CACHE_MAX) {
+    const oldest = WINDOW_CACHE.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    WINDOW_CACHE.delete(oldest);
+  }
+  return p;
+}
 
 // Real-now anchor for the relative Opened/Closed date labels on trade rows. #184
 // (supersedes #177): derived from Date.now() at render time, NOT a frozen 2026-06-25
@@ -71,9 +111,11 @@ export function Performance() {
   // truth for the aggregate, the breakdown, and the paginated list.
   const bounds = useMemo(() => windowBounds(win), [win]);
 
-  // ── server-side aggregate (summary cards + Total row) ───────────────────────
-  const [agg, setAgg] = useState<ClosedAgg | null>(null);
-  const [groups, setGroups] = useState<ClosedGroupAgg[]>([]);
+  // ── single-query window breakdown (summary cards + Total + all breakdowns) ──
+  // ONE fetch per window (+status) yields the grand total AND every dimension
+  // breakdown; the group-by selector below just picks the right precomputed array,
+  // so toggling group-by does NOT refetch (the #196 fan-out + collision is gone).
+  const [windowData, setWindowData] = useState<ClosedWindow | null>(null);
   const [aggLoading, setAggLoading] = useState(true);
 
   // ── paginated closed list (dim = 'none' flat view) ──────────────────────────
@@ -82,34 +124,50 @@ export function Performance() {
   const [pageHasMore, setPageHasMore] = useState(false);
   const [pageLoading, setPageLoading] = useState(false);
 
-  // Separate counters per fetch domain so each effect only invalidates its own in-flight requests.
-  const aggReqRef = useRef(0);  // aggregate effect only
+  // Separate counters per fetch domain so each effect only invalidates its OWN
+  // in-flight requests. A single shared counter was the #187/#194 race: the window
+  // effect and the page effect bumped the same ref, so one could invalidate the
+  // other's result (group-by "None" hung on loading). Split = no cross-cancellation.
+  const aggReqRef = useRef(0);  // window-breakdown effect only
   const pageReqRef = useRef(0); // page effect + loadMore only
 
   // closed side is excluded entirely when the status filter is 'open'.
   const closedExcluded = perfStatus === 'open';
   const openExcluded = perfStatus === 'closed';
 
-  // Fetch the grand-total aggregate + (when grouping) the per-group aggregates.
+  // Fetch the whole window breakdown in ONE round-trip (grand total + all 3
+  // dimension breakdowns). Depends ONLY on the window + whether the closed side is
+  // shown — NOT on perfDim — so changing the group-by never re-runs this effect
+  // (that was the #187/#194 shared-reqRef race source). Stale-guarded by aggReqRef,
+  // and cancellation-safe: a superseded window's late resolve is dropped. Served
+  // from WINDOW_CACHE so a re-selected timeframe is instant.
   useEffect(() => {
     const my = ++aggReqRef.current;
     if (closedExcluded) {
-      setAgg(EMPTY_AGG); setGroups([]); setAggLoading(false);
+      setWindowData(EMPTY_WINDOW); setAggLoading(false);
       return;
     }
     setAggLoading(true);
-    const aggP = dataSource.fetchClosedAggregate(bounds.sinceMs, bounds.untilMs);
-    const grpP = perfDim === 'none'
-      ? Promise.resolve([] as ClosedGroupAgg[])
-      : dataSource.fetchClosedGroups(bounds.sinceMs, bounds.untilMs, perfDim);
-    Promise.all([aggP, grpP]).then(([a, g]) => {
-      if (my !== aggReqRef.current) return; // stale
-      setAgg(a); setGroups(g); setAggLoading(false);
+    fetchClosedWindowCached(bounds.sinceMs, bounds.untilMs).then((w) => {
+      if (my !== aggReqRef.current) return; // stale — a newer window superseded us
+      setWindowData(w); setAggLoading(false);
     }).catch(() => {
       if (my !== aggReqRef.current) return;
-      setAgg(EMPTY_AGG); setGroups([]); setAggLoading(false);
+      setWindowData(EMPTY_WINDOW); setAggLoading(false);
     });
-  }, [bounds, perfDim, closedExcluded]);
+  }, [bounds, closedExcluded]);
+
+  // Select the current dimension's breakdown from the single-fetch window data.
+  // Pure client-side pick — switching group-by is INSTANT (zero network).
+  const groups: ClosedGroupAgg[] = useMemo(() => {
+    if (!windowData || perfDim === 'none') return [];
+    return perfDim === 'exch' ? windowData.byExch
+      : perfDim === 'asset' ? windowData.byAsset
+      : windowData.byWallet;
+  }, [windowData, perfDim]);
+
+  // Grand total for the cards + Total row (single source of truth: the window agg).
+  const agg: ClosedAgg | null = windowData ? windowData.agg : null;
 
   // Fetch the FIRST page of the closed list (flat 'none' view only — grouped view
   // pages inside each expanded group). Resets on window/status change.
@@ -336,7 +394,7 @@ export function Performance() {
   );
 }
 
-const GRID = '2.3fr 1fr 1fr 1fr 1fr 1fr 1fr 1.2fr 1.1fr';
+const GRID = '1.7fr 1fr 1fr 1fr 1fr 1fr 1fr 1.2fr 1.1fr';
 
 const Num: React.FC<{ v: number; bold?: boolean }> = ({ v, bold }) => (
   <Mono style={{ fontSize: bold ? 14 : 13, fontWeight: bold ? 600 : 400, textAlign: 'right', color: col(v) }}>{k(v)}</Mono>
@@ -440,12 +498,12 @@ const FlatOpenRow: React.FC<{ p: Position }> = ({ p }) => (
 
 const FlatClosedRow: React.FC<{ t: ClosedTrade }> = ({ t: tr }) => (
   <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 8, padding: 14, borderBottom: '1px solid #161c21', alignItems: 'center' }}>
-    <span style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0, overflow: 'hidden', whiteSpace: 'nowrap' }}>
+    <span style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
       <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: '.04em', color: '#9aa3ab', background: 'rgba(139,149,160,.13)', borderRadius: 4, padding: '2px 6px', flexShrink: 0 }}>CLOSED</span>
-      <Mono style={{ fontSize: 13, fontWeight: 600, flexShrink: 0 }}>{tr.asset}</Mono>
-      <span style={{ fontSize: 9, fontWeight: 600, color: tr.side === 'LONG' ? t.green : t.red, flexShrink: 0 }}>{tr.side}</span>
-      <span style={{ fontSize: 10.5, color: t.mut2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 1 }}>{tr.exch}</span>
-      <Mono style={{ fontSize: 10.5, color: t.mut2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 2 }}>{closedLabel(tr)}</Mono>
+      <Mono style={{ fontSize: 13, fontWeight: 600 }}>{tr.asset}</Mono>
+      <span style={{ fontSize: 9, fontWeight: 600, color: tr.side === 'LONG' ? t.green : t.red }}>{tr.side}</span>
+      <span style={{ fontSize: 10.5, color: t.mut2 }}>{tr.exch}</span>
+      <Mono style={{ fontSize: 10.5, color: t.mut2 }}>{closedLabel(tr)}</Mono>
     </span>
     <Num v={tr.pnl} /><Num v={tr.funding} /><Num v={tr.fees} />
     <Num v={tr.interest} /><Num v={tr.rewards} /><Num v={tr.hack} />

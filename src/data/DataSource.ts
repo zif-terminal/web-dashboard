@@ -1,7 +1,8 @@
 import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ClosedTrade, Account,
-  ClosedAgg, ClosedGroupAgg, PerfDim,
+  ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim,
 } from '../types';
+import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 
 export type Unsub = () => void;
 
@@ -41,6 +42,14 @@ export interface DataSource {
   // the same exch/asset/wallet group key the UI already uses.
   fetchClosedGroups(sinceMs: number, untilMs: number, dim: PerfDim): Promise<ClosedGroupAgg[]>;
 
+  // SINGLE-QUERY window breakdown (perf: N→1 round-trips). ONE fetch returns the
+  // grand total AND all three dimension breakdowns for [sinceMs, untilMs]. The
+  // Performance page uses THIS instead of fetchClosedAggregate + fetchClosedGroups
+  // so a group-by-asset load is 1 round-trip (not 235) and toggling the group-by
+  // dimension needs NO refetch (it selects a precomputed map). Reconciles exactly:
+  // every per-group sum adds up to `agg`. Supersedes the fan-out that caused #196.
+  fetchClosedWindow(sinceMs: number, untilMs: number): Promise<ClosedWindow>;
+
   // One bounded PAGE of the closed LIST (closed_ts DESC = newest-first) within the
   // window, optionally restricted to a single group value (for an expanded group).
   // The caller bumps `offset` to load more. NEVER pulls the whole set.
@@ -54,7 +63,26 @@ export interface DataSource {
   addOrderLevel(positionId: string, kind: 'tp' | 'sl', price: number, size: number): void;
   removeOrderLevel(id: string): void;
   updateAccount(id: string, set: Partial<Account>): void;
-  addWallet(address: string, label: string): void;
+  addWallet(address: string, label: string): Promise<void>;
+  /**
+   * Validate + store a read-only exchange API key for an account (#203). POSTs to
+   * the Bearer-authed auth endpoint, which validates the key, stores it in
+   * account_type_metadata.api_key, and flips status=active + sync/processing
+   * enabled. On success the live ACCOUNTS_SUB re-broadcasts (api_provided flips),
+   * so NO local fabrication is needed. Rejects with an Error on 4xx/5xx.
+   */
+  saveApiKey(accountId: string, apiKey: string): Promise<{ status: string; activated: boolean }>;
   /** Set/edit the current user's friendly label for a wallet (per-user user_wallets.label). */
   setWalletLabel(walletId: string, label: string): void;
+
+  /**
+   * Bulk-upsert OMNI raw events (zif #199). Browser-side insert via the user's
+   * JWT — RLS scopes the insert to the authenticated user's accounts. Deduplicates
+   * by (exchange_account_id, omni_id) via on_conflict.
+   *
+   * Returns { affected_rows } on success, { error } on failure.
+   */
+  insertOmniRawEvents(
+    objects: OmniRawEventInsert[],
+  ): Promise<{ affected_rows: number } | { error: string }>;
 }

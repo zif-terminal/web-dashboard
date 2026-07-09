@@ -3,9 +3,10 @@ import { useStore } from '../store/store';
 import { useMutations } from '../store/useMutations';
 import { Card, Mono, StatCard } from '../ui/primitives';
 import { t, exchMeta } from '../ui/theme';
-import { usd, usd0, k, col } from '../lib/format';
+import { usd, usd0, k, col, shortAddr } from '../lib/format';
 import { useIsMobile } from '../lib/useIsMobile';
 import type { Account, Wallet, Accuracy } from '../types';
+import { OmniCsvUpload } from './OmniCsvUpload';
 
 const TAGS = ['core', 'hedge', 'long-term', 'degen'];
 
@@ -30,6 +31,8 @@ export function Accounts() {
   const m = useMutations();
   const [addr, setAddr] = useState('');
   const [label, setLabel] = useState('');
+  const [addErr, setAddErr] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
   const isMobile = useIsMobile();
 
   const summary = useMemo(() => {
@@ -40,12 +43,20 @@ export function Accounts() {
     const value = all.reduce((s, a) => s + a.value, 0);
     const txt = mism ? `${mism} mismatch${mism > 1 ? 'es' : ''}` : gaps ? `${gaps} minor gap${gaps > 1 ? 's' : ''}` : 'All reconciled';
     const color = mism ? t.red : gaps ? t.amber : t.green;
-    return { wallets: wallets.length, accounts: vis.length, value, txt, color };
+    // Accounts awaiting a read-only API key to sync (CEX / needs-key, key not yet
+    // provided and not explicitly skipped) — drives the amber banner below. Any
+    // 'detecting' wallet (Wallets +1 while scanning) is already counted via
+    // wallets.length so the stat card ticks up immediately on add.
+    const awaitingKey = vis.filter((a) => a.needsApi && !a.apiProvided && !a.apiSkipped).length;
+    return { wallets: wallets.length, accounts: vis.length, value, txt, color, awaitingKey };
   }, [wallets]);
 
   return (
     <div>
-      <h1 style={{ fontSize: 'clamp(24px,5vw,34px)', fontWeight: 600, letterSpacing: '-.02em', margin: '0 0 6px' }}>Accounts</h1>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
+        <h1 style={{ fontSize: 'clamp(24px,5vw,34px)', fontWeight: 600, letterSpacing: '-.02em', margin: 0 }}>Accounts</h1>
+        <OmniCsvUpload />
+      </div>
       <p style={{ fontSize: 15, color: t.textDim, margin: '0 0 24px', maxWidth: 640, lineHeight: 1.55 }}>
         Add a wallet — we'll auto-detect its exchange accounts. Label, tag, hide, or connect a read-only API key.
       </p>
@@ -61,16 +72,43 @@ export function Accounts() {
         <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 3 }}>Add a wallet</div>
         <div style={{ fontSize: 12.5, color: t.mut, marginBottom: 15 }}>Paste an address — we detect main &amp; sub accounts automatically.</div>
         <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 10, flexWrap: 'wrap' }}>
-          <input value={addr} onChange={(e) => setAddr(e.target.value)} placeholder="0x… wallet address" style={{ ...inputStyle, flex: 2, minWidth: isMobile ? 0 : 200, width: isMobile ? '100%' : undefined, fontFamily: t.mono }} />
+          <input value={addr} onChange={(e) => { setAddr(e.target.value); setAddErr(null); }} placeholder="0x… wallet address" style={{ ...inputStyle, flex: 2, minWidth: isMobile ? 0 : 200, width: isMobile ? '100%' : undefined, fontFamily: t.mono }} />
           <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Label (optional)" style={{ ...inputStyle, flex: 1, minWidth: isMobile ? 0 : 140, width: isMobile ? '100%' : undefined }} />
           <button
-            onClick={() => { if (addr.trim()) { m.addWallet(addr.trim(), label.trim()); setAddr(''); setLabel(''); } }}
-            style={{ fontFamily: t.sans, fontSize: 14, fontWeight: 600, cursor: 'pointer', background: t.acc, color: '#0e1114', border: 'none', borderRadius: 10, padding: '12px 20px', whiteSpace: 'nowrap', width: isMobile ? '100%' : undefined }}
+            disabled={adding}
+            onClick={async () => {
+              const a = addr.trim();
+              if (!a) { setAddErr('Please enter a wallet address'); return; }
+              setAddErr(null);
+              setAdding(true);
+              try {
+                await m.addWallet(a, label.trim());
+                setAddr('');
+                setLabel('');
+              } catch (e: any) {
+                setAddErr(e?.message ?? 'Failed to add wallet');
+              } finally {
+                setAdding(false);
+              }
+            }}
+            style={{ fontFamily: t.sans, fontSize: 14, fontWeight: 600, cursor: adding ? 'not-allowed' : 'pointer', opacity: adding ? 0.6 : 1, background: t.acc, color: '#0e1114', border: 'none', borderRadius: 10, padding: '12px 20px', whiteSpace: 'nowrap', width: isMobile ? '100%' : undefined }}
           >
-            Add wallet
+            {adding ? 'Adding…' : 'Add wallet'}
           </button>
         </div>
+        {addErr && (
+          <div style={{ marginTop: 8, fontSize: 13, color: '#f87171', fontWeight: 500 }}>{addErr}</div>
+        )}
       </Card>
+
+      {summary.awaitingKey > 0 && (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: 'rgba(251,191,36,.09)', border: `1px solid #4a3f1e`, borderRadius: 12, padding: '13px 16px', marginBottom: 14 }}>
+          <span style={{ color: t.amber, fontSize: 15, lineHeight: 1.4, flexShrink: 0 }}>⚠</span>
+          <div style={{ fontSize: 13, color: '#e7d9b0', lineHeight: 1.5 }}>
+            <b>{summary.awaitingKey}</b> account{summary.awaitingKey === 1 ? '' : 's'} need{summary.awaitingKey === 1 ? 's' : ''} a read-only API key to sync balances and PnL. Add the key on each below, or skip to track on-chain data only.
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {wallets.map((w) => <WalletCard key={w.id} w={w} />)}
@@ -91,6 +129,12 @@ function WalletCard({ w }: { w: Wallet }) {
   const pnl = w.accounts.reduce((s, a) => s + a.pnl, 0);
   const dot = exchMeta[w.accounts[0]?.exch]?.dot ?? t.acc;
   const isMobile = useIsMobile();
+  // Pending (optimistic) wallets have a synthetic `pending:<addr>` id with no DB
+  // row yet, so label-edit (setWalletLabel keys on w.id) is disabled until the
+  // real wallet arrives. `shortAddr` keeps the scanning row's address compact.
+  const scanning = w.status === 'detecting';
+  const noAccts = w.status === 'noaccts';
+  const shortAddress = shortAddr(w.address);
 
   const startEdit = () => { setLabelVal(w.label); setLabelEditing(true); };
   const cancelEdit = () => { setLabelEditing(false); setLabelVal(w.label); };
@@ -120,7 +164,10 @@ function WalletCard({ w }: { w: Wallet }) {
     ) : (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
         <span style={{ fontSize: size, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.label}</span>
-        <button onClick={(e) => { e.stopPropagation(); startEdit(); }} style={iconBtn(t.mut2, '#2a323a')} title="Edit label"><PencilIcon /></button>
+        {/* No DB row for a pending wallet yet → label-edit only once it's ready. */}
+        {!w.pending && (
+          <button onClick={(e) => { e.stopPropagation(); startEdit(); }} style={iconBtn(t.mut2, '#2a323a')} title="Edit label"><PencilIcon /></button>
+        )}
       </span>
     );
 
@@ -150,10 +197,10 @@ function WalletCard({ w }: { w: Wallet }) {
             )}
           </div>
           {/* Address on its own line, truncated */}
-          <Mono style={{ fontSize: 10, color: t.mut2, marginTop: 4, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.address}</Mono>
-          {/* Account count */}
-          <Mono style={{ fontSize: 11, color: t.mut, marginTop: 3, display: 'block' }}>
-            {w.status === 'ready' ? `${vis.length} account${vis.length === 1 ? '' : 's'}${hid.length ? ` · ${hid.length} hidden` : ''}` : 'scanning…'}
+          <Mono style={{ fontSize: 10, color: t.mut2, marginTop: 4, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shortAddress}</Mono>
+          {/* Account count / scanning / no-accounts */}
+          <Mono style={{ fontSize: 11, color: noAccts ? t.amber : t.mut, marginTop: 3, display: 'block' }}>
+            {scanning ? 'scanning…' : noAccts ? 'no accounts detected yet' : `${vis.length} account${vis.length === 1 ? '' : 's'}${hid.length ? ` · ${hid.length} hidden` : ''}`}
           </Mono>
         </div>
       ) : (
@@ -163,10 +210,10 @@ function WalletCard({ w }: { w: Wallet }) {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
               {labelEditor(16)}
-              <Mono style={{ fontSize: 11, color: t.mut2 }}>{w.address}</Mono>
+              <Mono style={{ fontSize: 11, color: t.mut2 }}>{shortAddress}</Mono>
             </div>
-            <Mono style={{ fontSize: 11.5, color: t.mut, marginTop: 3 }}>
-              {w.status === 'ready' ? `${vis.length} account${vis.length === 1 ? '' : 's'}${hid.length ? ` · ${hid.length} hidden` : ''}` : 'scanning…'}
+            <Mono style={{ fontSize: 11.5, color: noAccts ? t.amber : t.mut, marginTop: 3 }}>
+              {scanning ? 'scanning…' : noAccts ? 'no accounts detected yet' : `${vis.length} account${vis.length === 1 ? '' : 's'}${hid.length ? ` · ${hid.length} hidden` : ''}`}
             </Mono>
           </div>
           <span style={{ flex: 1 }} />
@@ -179,11 +226,17 @@ function WalletCard({ w }: { w: Wallet }) {
         </div>
       )}
 
-      {w.status === 'detecting' && (
+      {scanning && (
         <div style={{ padding: '18px 19px', display: 'flex', alignItems: 'center', gap: 11, color: '#cdd4da', fontSize: 13.5 }}>
-          <span style={{ width: 16, height: 16, border: '2px solid #2c3550', borderTopColor: t.acc, borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-          Detecting accounts on <Mono style={{ color: t.acc }}>{w.address}</Mono>…
+          <span style={{ width: 16, height: 16, border: '2px solid #2c3550', borderTopColor: t.acc, borderRadius: '50%', animation: 'spin 0.8s linear infinite', flexShrink: 0 }} />
+          Detecting accounts on <Mono style={{ color: t.acc }}>{shortAddress}</Mono>…
           <style>{'@keyframes spin{to{transform:rotate(360deg)}}'}</style>
+        </div>
+      )}
+
+      {noAccts && (
+        <div style={{ padding: '16px 19px', fontSize: 13, color: t.mut, lineHeight: 1.5 }}>
+          No accounts detected yet — they'll appear here automatically when discovery completes.
         </div>
       )}
 
@@ -227,16 +280,30 @@ function AccountRow({ a, walletLabel }: { a: Account; walletLabel: string }) {
   const [tagOpen, setTagOpen] = useState(false);
   const [keyEditing, setKeyEditing] = useState(false);
   const [keyVal, setKeyVal] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [keyErr, setKeyErr] = useState('');
 
   const showKeyInput = (a.needsApi && !a.apiProvided && !a.apiSkipped) || keyEditing;
   const keyConnected = a.needsApi && a.apiProvided && !keyEditing;
   const skipped = a.needsApi && !a.apiProvided && a.apiSkipped;
 
-  const saveKey = () => {
-    if (!keyVal.trim()) return;
-    const mask = '••••' + keyVal.trim().slice(-4);
-    m.updateAccount(a.id, { apiProvided: true, apiSkipped: false, accuracy: 'synced', keyMask: mask, ...(a.value === 0 ? { value: 64200, pnl: 8400 } : {}) });
-    setKeyEditing(false); setKeyVal('');
+  // #203: POST the key to the auth endpoint (real validate + store). On success the
+  // live ACCOUNTS_SUB re-broadcasts api_provided=true → the "connected" strip shows.
+  // NO fabricated value/pnl. On failure, surface the error inline.
+  const saveKey = async () => {
+    const keyValue = keyVal.trim();
+    if (!keyValue) return;
+    setSaving(true);
+    setKeyErr('');
+    try {
+      await m.saveApiKey(a.id, keyValue);
+      setKeyEditing(false);
+      setKeyVal('');
+    } catch (e: any) {
+      setKeyErr(String(e?.message || e));
+    } finally {
+      setSaving(false);
+    }
   };
 
   // ── Shared sub-components (used in both layouts) ──
@@ -347,10 +414,13 @@ function AccountRow({ a, walletLabel }: { a: Account; walletLabel: string }) {
         <div style={{ marginTop: 13, background: 'rgba(251,191,36,.06)', border: `1px solid #4a3f1e`, borderRadius: 11, padding: '13px 14px' }}>
           <div style={{ fontSize: 12.5, color: '#e7d9b0', marginBottom: 10, lineHeight: 1.45 }}>Centralized exchange — paste a <b>read-only</b> API key to sync balances &amp; PnL.</div>
           <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 9 }}>
-            <input value={keyVal} onChange={(e) => setKeyVal(e.target.value)} placeholder="Paste API key" style={{ ...inputStyle, flex: 1, fontFamily: t.mono, fontSize: 13, padding: '10px 12px', width: isMobile ? '100%' : undefined, boxSizing: 'border-box' as const }} />
-            <button onClick={saveKey} style={{ fontFamily: t.sans, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: t.green, color: '#0e1114', border: 'none', borderRadius: 9, padding: '10px 16px', width: isMobile ? '100%' : undefined }}>Save key</button>
-            <button onClick={() => { keyEditing ? setKeyEditing(false) : m.updateAccount(a.id, { apiSkipped: true }); }} style={{ fontFamily: t.sans, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: 'none', color: t.mut, border: `1px solid #2a323a`, borderRadius: 9, padding: '10px 16px', width: isMobile ? '100%' : undefined }}>{keyEditing ? 'Cancel' : 'Skip'}</button>
+            <input value={keyVal} onChange={(e) => setKeyVal(e.target.value)} placeholder="Paste API key" disabled={saving} style={{ ...inputStyle, flex: 1, fontFamily: t.mono, fontSize: 13, padding: '10px 12px', width: isMobile ? '100%' : undefined, boxSizing: 'border-box' as const }} />
+            <button onClick={saveKey} disabled={saving} style={{ fontFamily: t.sans, fontSize: 13, fontWeight: 600, cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1, background: t.green, color: '#0e1114', border: 'none', borderRadius: 9, padding: '10px 16px', width: isMobile ? '100%' : undefined }}>{saving ? 'Saving…' : 'Save key'}</button>
+            <button onClick={() => { setKeyErr(''); keyEditing ? setKeyEditing(false) : m.updateAccount(a.id, { apiSkipped: true }); }} disabled={saving} style={{ fontFamily: t.sans, fontSize: 13, fontWeight: 600, cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1, background: 'none', color: t.mut, border: `1px solid #2a323a`, borderRadius: 9, padding: '10px 16px', width: isMobile ? '100%' : undefined }}>{keyEditing ? 'Cancel' : 'Skip'}</button>
           </div>
+          {keyErr && (
+            <div style={{ marginTop: 9, fontSize: 12, color: t.red, lineHeight: 1.4 }}>{keyErr}</div>
+          )}
         </div>
       )}
       {keyConnected && (

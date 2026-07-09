@@ -3,16 +3,33 @@ import type { DataSource, Unsub } from './DataSource';
 import {
   POSITIONS_SUB, PORTFOLIO_SUB, ORDER_LEVELS_SUB, RESTING_ORDERS_SUB, ACTIVITY_STREAM_SUB, ACTIVITY_RECENT_QUERY,
   ACTIVITY_PAGE_QUERY, ACCOUNTS_SUB, CLOSED_TRADES_QUERY,
-  CLOSED_AGG_QUERY, CLOSED_PAGE_QUERY,
+  CLOSED_AGG_QUERY, CLOSED_PAGE_QUERY, CLOSED_WINDOW_QUERY,
   CLOSED_DISTINCT_EXCH_QUERY, CLOSED_DISTINCT_ASSET_QUERY, CLOSED_DISTINCT_WALLET_QUERY,
   CLOSED_GROUP_AGG_EXCH_QUERY, CLOSED_GROUP_AGG_ASSET_QUERY, CLOSED_GROUP_AGG_WALLET_QUERY,
   UPSERT_ORDER_LEVEL, ADD_ORDER_LEVEL, REMOVE_ORDER_LEVEL, SET_WALLET_LABEL,
+  UPDATE_ACCOUNT_LABEL, UPDATE_ACCOUNT_TAGS,
+  INSERT_OMNI_RAW_EVENTS,
 } from '../graphql/operations';
 import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ClosedTrade, Account, Exchange, Accuracy, Side,
-  ClosedAgg, ClosedGroupAgg, PerfDim,
+  ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim,
 } from '../types';
+import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 import { shortAddr } from '../lib/format';
+import { getToken } from './authStore';
+import { pushError } from '../lib/errorBus';
+
+// Fire-and-forget mutation guard (#204): these mutations were `void client.mutate(...)`
+// with NO .catch, so a failure vanished silently (the add-wallet / TP-SL no-op). The
+// Apollo onError link surfaces GraphQL/network errors AND the errorBus dedupes, so this
+// .catch mainly (a) prevents an unhandled promise rejection and (b) guarantees a toast
+// even for a rejection that never reached the link (e.g. a thrown pre-flight error).
+const guardMutation = (p: Promise<any>, label: string): void => {
+  p.catch((err: any) => {
+    console.error(`[mutation:${label}] failed`, err);
+    pushError(err?.message ?? `${label} failed`, label);
+  });
+};
 
 // ── coercion helpers ─────────────────────────────────────────────────────────
 // Hasura `numeric` / `bigint` arrive as JS numbers here (small magnitudes), but
@@ -379,6 +396,79 @@ export function makeApolloDataSource(client: ApolloClient<any>): DataSource {
       return [...byKey.values()];
     },
 
+    // ── SINGLE-QUERY window breakdown (perf: N→1 round-trips) ─────────────────
+    // ONE fetch of every closed trade's grouping + reconciled money columns for the
+    // window; the client folds them into the grand total AND all three dimension
+    // breakdowns in a single pass. Replaces the fetchClosedAggregate + per-value
+    // fan-out (up to 235 round-trips for group-by-asset) with 1 round-trip. Toggling
+    // the group-by dimension needs NO refetch — the Performance page selects the
+    // precomputed map. fetchPolicy 'no-cache' (NOT 'network-only') so the payload is
+    // NOT written into the normalized cache → the #196 _aggregate cache collision is
+    // structurally impossible (there is no shared aggregate entity anymore).
+    fetchClosedWindow: async (sinceMs, untilMs): Promise<ClosedWindow> => {
+      const { data } = await client.query({
+        query: CLOSED_WINDOW_QUERY,
+        variables: { since: Math.floor(sinceMs), until: Math.floor(untilMs) },
+        fetchPolicy: 'no-cache',
+      });
+      const rows = (data?.mat_closed_trades as any[]) ?? [];
+
+      // Grand total + three breakdown maps, folded in ONE pass. The per-trade
+      // components are the SAME already-reconciled fields the SQL SUMs used, so the
+      // grand total equals Σ(group sums) by construction (reconciles exactly) — NO
+      // new money math here (mirrors mapAgg's field set).
+      const total: ClosedAgg = { count: 0, pnl: 0, funding: 0, fees: 0, rewards: 0, interest: 0, hack: 0, total: 0 };
+      const byExch = new Map<string, ClosedGroupAgg>();
+      const byAsset = new Map<string, ClosedGroupAgg>();
+      const byWallet = new Map<string, ClosedGroupAgg>();
+
+      // Accumulate one row's components into a bucket (creating it on first sight).
+      const add = (
+        map: Map<string, ClosedGroupAgg>,
+        key: string,
+        groupValue: string,
+        walletLabel: string,
+        wallet: string,
+        r: any,
+      ) => {
+        let g = map.get(key);
+        if (!g) {
+          g = { count: 0, pnl: 0, funding: 0, fees: 0, rewards: 0, interest: 0, hack: 0, total: 0,
+                key, groupValue, walletLabel, wallet };
+          map.set(key, g);
+        }
+        g.count += 1;
+        g.pnl += num(r.pnl); g.funding += num(r.funding); g.fees += num(r.fees);
+        g.rewards += num(r.rewards); g.interest += num(r.interest); g.hack += num(r.hack); g.total += num(r.total);
+      };
+
+      for (const r of rows) {
+        // grand total
+        total.count += 1;
+        total.pnl += num(r.pnl); total.funding += num(r.funding); total.fees += num(r.fees);
+        total.rewards += num(r.rewards); total.interest += num(r.interest); total.hack += num(r.hack); total.total += num(r.total);
+
+        const ex = (r.exch as string) ?? '';
+        const as = (r.asset as string) ?? '';
+        add(byExch, ex, ex, '', '', r);
+        add(byAsset, as, as, '', '', r);
+
+        // Wallet dim: group by the SAME display key the UI already uses
+        // (rowWalletGroupKey: per-user label → "Unlabeled · <shortAddr>" → "Unlabeled").
+        // groupValue = the account-label `wallet` column the paginated `where`
+        // predicate keys on (matches the old distinct-on(wallet) fan-out).
+        const wkey = rowWalletGroupKey(r);
+        add(byWallet, wkey, (r.wallet as string | undefined) ?? '', rowWalletLabel(r), (r.wallet as string | undefined) ?? '', r);
+      }
+
+      return {
+        agg: total,
+        byExch: [...byExch.values()],
+        byAsset: [...byAsset.values()],
+        byWallet: [...byWallet.values()],
+      };
+    },
+
     // One bounded page of the closed LIST (newest-first) within the window,
     // optionally restricted to one group value for an expanded group.
     fetchClosedPage: async (sinceMs, untilMs, opts) => {
@@ -398,20 +488,124 @@ export function makeApolloDataSource(client: ApolloClient<any>): DataSource {
     },
 
     upsertOrderLevel: (id, price, size) =>
-      void client.mutate({ mutation: UPSERT_ORDER_LEVEL, variables: { id, price, size } }),
+      guardMutation(client.mutate({ mutation: UPSERT_ORDER_LEVEL, variables: { id, price, size } }), 'setLevel'),
     addOrderLevel: (positionId, kind, price, size) =>
-      void client.mutate({ mutation: ADD_ORDER_LEVEL, variables: { positionId, kind, price, size } }),
+      guardMutation(client.mutate({ mutation: ADD_ORDER_LEVEL, variables: { positionId, kind, price, size } }), 'addLevel'),
     removeOrderLevel: (id) =>
-      void client.mutate({ mutation: REMOVE_ORDER_LEVEL, variables: { id } }),
+      guardMutation(client.mutate({ mutation: REMOVE_ORDER_LEVEL, variables: { id } }), 'removeLevel'),
 
-    // No writable account surface in inc7 — no-op (see note above).
-    updateAccount: (_id: string, _set: Partial<Account>) => {},
-    addWallet: (_address: string, _label: string) => {},
+    // Persist the editable exchange_account fields (#205 wire-all). The store has
+    // already applied the change optimistically (useMutations.updateAccount); here we
+    // push only the DB-backed fields to Hasura, RLS-scoped to the user's own accounts:
+    //   - name  → exchange_accounts.label  (mat_accounts.name = label)
+    //   - tags  → exchange_accounts.tags   (jsonb)
+    // Both round-trip via ACCOUNTS_SUB (selects name+tags) so they persist on reload.
+    // Fields with NO durable DB source (hidden / apiSkipped / keyMask / apiProvided /
+    // accuracy) are intentionally CLIENT-ONLY — there is no column to write, so we do
+    // not fabricate one. Only the changed field is _set (partial update). Failures
+    // route through the #204 error bus via guardMutation.
+    updateAccount: (id: string, set: Partial<Account>) => {
+      if ('name' in set && set.name !== undefined) {
+        guardMutation(
+          client.mutate({ mutation: UPDATE_ACCOUNT_LABEL, variables: { id, label: set.name } }),
+          'renameAccount',
+        );
+      }
+      if ('tags' in set && set.tags !== undefined) {
+        guardMutation(
+          client.mutate({ mutation: UPDATE_ACCOUNT_TAGS, variables: { id, tags: set.tags } }),
+          'updateTags',
+        );
+      }
+      // hidden / apiSkipped / keyMask / apiProvided / accuracy: no server column → the
+      // optimistic store write is the only effect (does not survive reload — flagged).
+    },
+
+    // Link a new watch-wallet. The user role cannot insert into `wallets` directly
+    // (no user-role insert permission on the table — only admin can). We delegate to
+    // the auth service's /auth/wallet/link endpoint which does the privileged two-step:
+    //   1. Admin: upsert the canonical wallets row (address+chain, on_conflict DO NOTHING)
+    //   2. Admin: insert the user_wallets link (on_conflict DO NOTHING → idempotent)
+    //   3. If label provided: set user_wallets.label
+    // The ACCOUNTS_SUB live subscription auto-broadcasts the updated wallet list so no
+    // manual reconcile is needed after success.
+    addWallet: async (address: string, label: string): Promise<void> => {
+      const trimmed = address.trim();
+      if (!trimmed) throw new Error('Wallet address is required');
+      const token = getToken();
+      if (!token) throw new Error('Not authenticated');
+
+      // Resolve the auth service URL from the same env var the login form uses.
+      const authBase = (import.meta.env.VITE_AUTH_URL as string | undefined) ?? '';
+
+      const res = await fetch(`${authBase}/auth/wallet/link`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ address: trimmed, label: label.trim() }),
+      });
+
+      if (!res.ok) {
+        let errMsg = `Server error (${res.status})`;
+        try {
+          const body = await res.json() as { error?: string };
+          if (body.error) errMsg = body.error;
+        } catch { /* ignore parse failure */ }
+        throw new Error(errMsg);
+      }
+      // Success — ACCOUNTS_SUB live query will re-broadcast the updated wallet list.
+    },
+
+    // Save a read-only exchange API key (#203). POSTs to the Bearer-authed auth
+    // endpoint; on success the live ACCOUNTS_SUB re-broadcasts api_provided=true,
+    // so there is NOTHING to reconcile locally here. Throws on non-2xx.
+    saveApiKey: async (accountId, apiKey) => {
+      const res = await fetch(`${import.meta.env.VITE_AUTH_URL}/auth/accounts/api-key`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + getToken(),
+        },
+        body: JSON.stringify({ account_id: accountId, api_key: apiKey }),
+      });
+      if (!res.ok) {
+        let error = '';
+        try { error = (await res.json())?.error ?? ''; } catch { /* non-JSON body */ }
+        throw new Error(error || 'Failed to save key');
+      }
+      const data = await res.json();
+      return { status: data.status, activated: data.activated };
+    },
 
     // Per-user wallet label: writes user_wallets.label for the current user's
     // association (RLS pins the row to X-Hasura-User-Id). The ACCOUNTS_SUB live
     // query re-broadcasts the new label, so no local reconcile is needed here.
     setWalletLabel: (walletId, label) =>
-      void client.mutate({ mutation: SET_WALLET_LABEL, variables: { walletId, label } }),
+      guardMutation(client.mutate({ mutation: SET_WALLET_LABEL, variables: { walletId, label } }), 'setWalletLabel'),
+
+    // OMNI CSV bulk upsert (zif #199). Inserts rows with on_conflict dedup by
+    // (exchange_account_id, omni_id). RLS on omni_raw_events scopes inserts to
+    // the user's own accounts (via exchange_account → wallet → user_id).
+    insertOmniRawEvents: async (objects: OmniRawEventInsert[]) => {
+      try {
+        const result = await client.mutate({
+          mutation: INSERT_OMNI_RAW_EVENTS,
+          variables: { objects },
+        });
+        if (result.errors && result.errors.length > 0) {
+          const msgs = result.errors.map((e: any) => e.message ?? 'unknown error').join('; ');
+          console.error('[omni-upload] Hasura insert failed:', result.errors);
+          return { error: `Database error: ${msgs}` };
+        }
+        const affected_rows: number =
+          result.data?.insert_omni_raw_events?.affected_rows ?? 0;
+        return { affected_rows };
+      } catch (err: any) {
+        console.error('[omni-upload] Mutation threw:', err);
+        return { error: err?.message ?? 'Failed to connect to database' };
+      }
+    },
   };
 }

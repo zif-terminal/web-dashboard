@@ -26,13 +26,6 @@ const TabIcons: Record<Tab, React.FC<{ size?: number }>> = {
       <circle cx="18" cy="4" r="1" fill="currentColor" />
     </svg>
   ),
-  positions: ({ size = 20 }) => (
-    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}>
-      <line x1="3" y1="4" x2="17" y2="4" />
-      <line x1="3" y1="10" x2="17" y2="10" />
-      <line x1="3" y1="16" x2="17" y2="16" />
-    </svg>
-  ),
   activity: ({ size = 20 }) => (
     <svg width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}>
       <polyline points="2,10 6,10 8,4 12,16 14,10 18,10" />
@@ -64,12 +57,13 @@ function useStale(): boolean {
   return lastUpdate > 0 && now - lastUpdate > STALE_MS;
 }
 
-// `short` is the compact label used only in the mobile bottom bar, where 6 tabs
-// must share a ~390px row without wrapping or overflowing.
+// `short` is the compact label used only in the mobile bottom bar, where the
+// tabs must share a ~390px row without wrapping or overflowing.
+// #208: the standalone "Positions" tab was removed — the Positions section now
+// lives inline at the bottom of Overview.
 const TABS: { k: Tab; label: string; short?: string }[] = [
   { k: 'overview', label: 'Overview' },
   { k: 'performance', label: 'Performance', short: 'Perf' },
-  { k: 'positions', label: 'Positions', short: 'Pos' },
   { k: 'activity', label: 'Activity' },
   { k: 'plan', label: 'Risk & plan', short: 'Risk' },
   { k: 'accounts', label: 'Accounts', short: 'Accts' },

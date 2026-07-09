@@ -5,6 +5,7 @@ import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ClosedTrade, Account,
   ClosedAgg, ClosedGroupAgg, PerfDim,
 } from '../types';
+import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 import { pnlAt } from '../lib/pnl';
 import {
   seedPositions, seedLevels, seedOrders, seedWallets, seedClosedTrades, seedActivity,
@@ -177,6 +178,36 @@ export class MockEngine {
         }));
       },
 
+      // SINGLE-QUERY window breakdown (perf: N→1), mock parity. Filter to the window
+      // ONCE, then build the grand total + all three dimension breakdowns with the
+      // SAME reduceAgg / mockGroupKey the fan-out used — so mock and live agree and
+      // the per-group sums reconcile to the grand total.
+      fetchClosedWindow: async (sinceMs, untilMs) => {
+        const inWin = seedClosedTrades.filter((t) => t.closedMs >= sinceMs && t.closedMs <= untilMs);
+        const groupsFor = (dim: PerfDim): ClosedGroupAgg[] => {
+          const byKey = new Map<string, ClosedTrade[]>();
+          for (const t of inWin) {
+            const key = mockGroupKey(t, dim);
+            const arr = byKey.get(key) ?? [];
+            arr.push(t);
+            byKey.set(key, arr);
+          }
+          return [...byKey.entries()].map(([key, arr]) => ({
+            ...reduceAgg(arr),
+            key,
+            groupValue: key,
+            walletLabel: dim === 'wallet' ? (arr[0].walletLabel ?? '') : '',
+            wallet: dim === 'wallet' ? (arr[0].wallet ?? '') : '',
+          }));
+        };
+        return {
+          agg: reduceAgg(inWin),
+          byExch: groupsFor('exch'),
+          byAsset: groupsFor('asset'),
+          byWallet: groupsFor('wallet'),
+        };
+      },
+
       fetchClosedPage: async (sinceMs, untilMs, opts) => {
         const { limit, offset, dim, groupValue } = opts;
         let inWin = seedClosedTrades.filter((t) => t.closedMs >= sinceMs && t.closedMs <= untilMs);
@@ -205,26 +236,46 @@ export class MockEngine {
           if (a) { Object.assign(a, set); this.pushAccounts(); return; }
         }
       },
+      // Mock #203: mark the account connected (NO fake value/pnl fabrication).
+      saveApiKey: async (accountId, apiKey) => {
+        for (const w of this.wallets) {
+          const a = w.accounts.find((x) => x.id === accountId);
+          if (a) {
+            const mask = '••••' + apiKey.trim().slice(-4);
+            Object.assign(a, { apiProvided: true, apiSkipped: false, accuracy: 'synced', keyMask: mask });
+            this.pushAccounts();
+            break;
+          }
+        }
+        return { status: 'active', activated: true };
+      },
       setWalletLabel: (walletId, label) => {
         const w = this.wallets.find((x) => x.id === walletId);
         if (w) { w.label = label; this.pushAccounts(); }
       },
-      addWallet: (address, label) => {
+      // OMNI CSV upload is a no-op in mock mode — no DB to write to.
+      insertOmniRawEvents: async (_objects) => {
+        return { affected_rows: 0 };
+      },
+      addWallet: async (address, label): Promise<void> => {
+        // The "scanning…" placeholder is now owned by the store's optimistic
+        // pending-wallet flow (zif #202) — keyed by the FULL address so the twin
+        // dedupes when this ready wallet lands. The engine only simulates the
+        // discovery LATENCY, then pushes the populated wallet through
+        // subscribeAccounts (mirrors ACCOUNTS_SUB re-broadcasting real accounts).
         const id = 'w' + Date.now();
-        const short = address.length > 14 ? address.slice(0, 6) + '…' + address.slice(-4) : address;
-        this.wallets.unshift({ id, address: short, label: label || 'New wallet', status: 'detecting', accounts: [] });
-        this.pushAccounts();
-        // simulate detection latency, then a populated wallet
+        const full = address.trim();
         setTimeout(() => {
-          const w = this.wallets.find((x) => x.id === id);
-          if (!w) return;
-          w.status = 'ready';
-          w.accounts = [
-            { id: id + 'm', walletId: id, name: label || 'Main account', exch: 'Lighter', type: 'main', value: 128450, pnl: 12300, accuracy: 'synced', needsApi: false, apiProvided: true, apiSkipped: false, hidden: false, tags: [] },
-            { id: id + 'b', walletId: id, name: 'Binance', exch: 'Binance', type: 'main', value: 0, pnl: 0, accuracy: 'pending', needsApi: true, apiProvided: false, apiSkipped: false, hidden: false, tags: [] },
-          ] as Account[];
+          if (this.wallets.some((w) => w.address.toLowerCase() === full.toLowerCase())) return;
+          this.wallets.unshift({
+            id, address: full, label: label || 'New wallet', status: 'ready',
+            accounts: [
+              { id: id + 'm', walletId: id, name: label || 'Main account', exch: 'Lighter', type: 'main', value: 128450, pnl: 12300, accuracy: 'synced', needsApi: false, apiProvided: true, apiSkipped: false, hidden: false, tags: [] },
+              { id: id + 'b', walletId: id, name: 'Binance', exch: 'Binance', type: 'main', value: 0, pnl: 0, accuracy: 'pending', needsApi: true, apiProvided: false, apiSkipped: false, hidden: false, tags: [] },
+            ] as Account[],
+          });
           this.pushAccounts();
-        }, 1900);
+        }, 2600);
       },
     };
   }

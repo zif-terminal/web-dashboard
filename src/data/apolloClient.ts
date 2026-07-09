@@ -7,6 +7,7 @@ import { GraphQLWsLink } from '@apollo/client/link/subscriptions';
 import { getMainDefinition } from '@apollo/client/utilities';
 import { createClient } from 'graphql-ws';
 import { getToken, clearSession } from './authStore';
+import { pushError } from '../lib/errorBus';
 
 /**
  * Apollo + Hasura wiring for LIVE (webhook-auth) mode.
@@ -65,13 +66,33 @@ export function makeApolloClient() {
     return code === 'validation-failed' && ANON_MSG_RE.test(msg);
   };
 
-  const errorLink = onError(({ networkError, graphQLErrors }) => {
+  const errorLink = onError(({ networkError, graphQLErrors, operation }) => {
     const gql = graphQLErrors ?? [];
     const is401 =
       (networkError as any)?.statusCode === 401 ||
       gql.some((e) => AUTH_GQL_CODES.includes((e.extensions?.code as string) ?? '')) ||
       gql.some(isAnonFieldError);
-    if (is401) clearSession();
+    if (is401) {
+      clearSession();
+      // Auth failures drop to <Login/> — the redirect IS the surface, so no toast.
+      return;
+    }
+
+    // Global error surface (#204): every OTHER query/mutation failure becomes a
+    // visible toast (with the operation name) instead of silently vanishing.
+    // The errorBus dedupes, so a retrying op won't flood.
+    const opName = operation?.operationName || undefined;
+    for (const e of gql) {
+      pushError(e.message || 'Request failed', opName);
+    }
+    if (networkError && gql.length === 0) {
+      // A bare network failure (server unreachable, CORS, dropped connection) with
+      // no GraphQL errors — surface it once with a clear, non-technical message.
+      pushError(
+        (networkError as any)?.message || 'Network error — could not reach the server',
+        opName ?? 'network',
+      );
+    }
   });
 
   // Auth-failure signals that can arrive on the WS subscription channel.
