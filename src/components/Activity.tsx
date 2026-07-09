@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store/store';
 import { dataSource } from '../store/useLiveData';
@@ -8,19 +9,28 @@ import { useIsMobile } from '../lib/useIsMobile';
 import { IdentityTags, ColorChip, MARKET_CHIP } from '../lib/tags';
 import type { ActivityEvent, ActivityFilter } from '../types';
 
-const actMeta: Record<string, { color: string; bd: string }> = {
-  CLOSE: { color: '#34d399', bd: '#1f4a3a' },
-  FILL: { color: '#8aa2ff', bd: '#2c3550' },
-  FUNDING: { color: '#fbbf24', bd: '#4a3f1e' },
-  INTEREST: { color: '#5ec9bd', bd: '#244a45' },
-  REWARD: { color: '#a78bfa', bd: '#34305a' },
-  SETTLE: { color: '#8faab8', bd: '#2c3d4a' },
-  TRANSFER: { color: '#cdd4da', bd: '#2a323a' },
-  LIQ: { color: '#f87171', bd: '#4a2a2c' },
+// Per-type visual accent (task #213). Each event type carries a distinct color +
+// chip border + chip fill + a subtle left-border accent on the row, so the type is
+// scannable at a glance — same visual language as the Positions TYPE_BADGE
+// (small pill, per-type tint, cool of the P&L green/red). `bg` is the chip fill;
+// `accent` is the row's left-border tint (a quieter version of the same hue).
+const actMeta: Record<string, { color: string; bd: string; bg: string; accent: string }> = {
+  // CLOSE — a fill that closes/reduces a position: green, echoes a realized close.
+  CLOSE: { color: '#34d399', bd: '#1f4a3a', bg: 'rgba(52,211,153,0.09)', accent: 'rgba(52,211,153,0.45)' },
+  // FILL — an ordinary (opening/adding) fill: indigo, the app's primary accent.
+  FILL: { color: '#aab8ff', bd: '#2f3866', bg: 'rgba(138,162,255,0.10)', accent: 'rgba(138,162,255,0.40)' },
+  FUNDING: { color: '#fbbf24', bd: '#4a3f1e', bg: 'rgba(251,191,36,0.09)', accent: 'rgba(251,191,36,0.40)' },
+  INTEREST: { color: '#5ec9bd', bd: '#244a45', bg: 'rgba(94,201,189,0.09)', accent: 'rgba(94,201,189,0.40)' },
+  REWARD: { color: '#a78bfa', bd: '#34305a', bg: 'rgba(167,139,250,0.10)', accent: 'rgba(167,139,250,0.40)' },
+  SETTLE: { color: '#8faab8', bd: '#2c3d4a', bg: 'rgba(143,170,184,0.08)', accent: 'rgba(143,170,184,0.35)' },
+  TRANSFER: { color: '#cdd4da', bd: '#2a323a', bg: 'rgba(205,212,218,0.07)', accent: 'rgba(205,212,218,0.30)' },
+  LIQ: { color: '#f87171', bd: '#4a2a2c', bg: 'rgba(248,113,113,0.10)', accent: 'rgba(248,113,113,0.45)' },
   // HACK: a hard, saturated crimson on a filled dark-red chip — distinct from
   // LIQ's softer red so an exploit loss reads as its own severe event (task #174).
-  HACK: { color: '#fca5a5', bd: '#7f1d1d' },
+  HACK: { color: '#fca5a5', bd: '#7f1d1d', bg: 'rgba(127,29,29,0.28)', accent: 'rgba(248,113,113,0.65)' },
 };
+
+type ActMeta = (typeof actMeta)[keyof typeof actMeta];
 
 // One page = a bounded slice. Small on purpose — this is the OOM-prone
 // historical-query class, so we page lazily instead of pulling all history.
@@ -60,37 +70,97 @@ function showMarketChip(r: ActivityEvent): boolean {
   return !r.text?.includes(m);
 }
 
-// ── Row (individual event) ───────────────────────────────────────────────────
-function Row({ r, isMobile }: { r: ActivityEvent; isMobile: boolean }) {
-  const m = actMeta[r.act] ?? actMeta.FILL;
+// ── Shared row shell (task #213) ─────────────────────────────────────────────
+// Rich two-column row matching the Positions cards + Performance closed rows:
+//   LEFT  — a per-type ACT badge + the event time on top; the exchange/wallet/
+//           account/market chips STACKED as a sub-row beneath (same chip cluster
+//           the position cards use), then the event text as a quiet third line.
+//   RIGHT — the value, right-aligned, sign-colored via col()/k() so a dust close
+//           reads as a neutral $0 (never a misleading -$0 / +$0). A thin left-
+//           border accent tints the whole row by event type for at-a-glance scan.
+function RowShell({
+  m, act, time, tags, text, value, isMobile,
+}: {
+  m: ActMeta;
+  act: string;
+  time: string;
+  tags: ReactNode;
+  text: ReactNode;
+  value: number;
+  isMobile: boolean;
+}) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, padding: '2px 0', flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
-      <ActChip act={r.act} m={m} />
-      <span
+    <div
+      style={{
+        display: 'flex', alignItems: 'flex-start', gap: isMobile ? 10 : 12,
+        padding: isMobile ? '9px 10px 9px 11px' : '9px 12px 9px 13px',
+        borderRadius: 9, borderLeft: `2px solid ${m.accent}`, background: 'rgba(255,255,255,0.012)',
+      }}
+    >
+      {/* Main column: time-top, then the identity/market chip sub-row, then text. */}
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {/* L1: type badge + time. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <ActChip act={act} m={m} />
+          <Mono style={{ fontSize: 11.5, color: t.mut2 }}>{time}</Mono>
+        </div>
+        {/* L2: exchange + wallet + account + market chips, stacked beneath (#209). */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          {tags}
+        </div>
+        {/* L3: event text — quiet, wraps on mobile, ellipsizes on desktop. */}
+        {text && (
+          <span
+            style={{
+              fontSize: 12.5, color: t.mut, minWidth: 0,
+              overflow: 'hidden', textOverflow: 'ellipsis',
+              whiteSpace: isMobile ? 'normal' : 'nowrap',
+            }}
+          >
+            {text}
+          </span>
+        )}
+      </div>
+      {/* RIGHT: value, right-aligned + sign-colored (dust → neutral $0). */}
+      <Mono
         style={{
-          color: '#cdd4da', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis',
-          whiteSpace: isMobile ? 'nowrap' : undefined,
+          fontSize: 15, fontWeight: 600, color: col(value),
+          textAlign: 'right', whiteSpace: 'nowrap', paddingTop: 1,
         }}
       >
-        {r.text}
-      </span>
-      {/* Identity + market tags — same styling as the position cards (#166/#209). */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-        {showMarketChip(r) && <ColorChip {...MARKET_CHIP}>{r.market}</ColorChip>}
-        <IdentityTags p={r} />
-      </div>
-      {r.pnl !== 0 && <Mono style={{ color: col(r.pnl), fontWeight: 600 }}>{k(r.pnl)}</Mono>}
-      <Mono style={{ color: t.mut2, fontSize: 11, minWidth: 64, textAlign: 'right' }}>{fmtTime(r.ts)}</Mono>
+        {k(value)}
+      </Mono>
     </div>
   );
 }
 
-function ActChip({ act, m }: { act: string; m: { color: string; bd: string } }) {
+// ── Row (individual event) ───────────────────────────────────────────────────
+function Row({ r, isMobile }: { r: ActivityEvent; isMobile: boolean }) {
+  const m = actMeta[r.act] ?? actMeta.FILL;
+  return (
+    <RowShell
+      m={m}
+      act={r.act}
+      time={fmtTime(r.ts)}
+      value={r.pnl}
+      isMobile={isMobile}
+      tags={
+        <>
+          <IdentityTags p={r} />
+          {showMarketChip(r) && <ColorChip {...MARKET_CHIP}>{r.market}</ColorChip>}
+        </>
+      }
+      text={r.text}
+    />
+  );
+}
+
+function ActChip({ act, m }: { act: string; m: ActMeta }) {
   return (
     <span
       style={{
-        fontSize: 10, fontWeight: 600, letterSpacing: '.04em', color: m.color,
-        border: `1px solid ${m.bd}`, borderRadius: 5, padding: '2px 6px',
+        fontSize: 9.5, fontWeight: 600, letterSpacing: '.05em', color: m.color,
+        border: `1px solid ${m.bd}`, background: m.bg, borderRadius: 5, padding: '2px 7px',
         minWidth: 54, textAlign: 'center', whiteSpace: 'nowrap',
       }}
     >
@@ -145,20 +215,27 @@ function combine(rows: ActivityEvent[]): CombinedRow[] {
 function CombinedRowView({ g, isMobile }: { g: CombinedRow; isMobile: boolean }) {
   const m = actMeta[g.act] ?? actMeta.FILL;
   const span = g.minTs === g.maxTs ? fmtDate(g.maxTs) : `${fmtDate(g.minTs)} – ${fmtDate(g.maxTs)}`;
-  const title = `${g.market ? g.market + ' ' : ''}${g.act.toLowerCase()} · ${g.count} event${g.count === 1 ? '' : 's'}`;
+  // Grouped rows render in the SAME richer layout: a count "× N events" pill sits
+  // beside the type badge, the date-span replaces the single timestamp, and the
+  // net value is the right-aligned figure — same layout language as the list rows.
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, padding: '2px 0', flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
-      <ActChip act={g.act} m={m} />
-      <span style={{ color: '#cdd4da', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        {title}
-      </span>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-        {g.market && <ColorChip {...MARKET_CHIP}>{g.market}</ColorChip>}
-        <IdentityTags p={g.sample} />
-      </div>
-      {g.netPnl !== 0 && <Mono style={{ color: col(g.netPnl), fontWeight: 600 }}>{k(g.netPnl)}</Mono>}
-      <Mono style={{ color: t.mut2, fontSize: 11, minWidth: 96, textAlign: 'right' }}>{span}</Mono>
-    </div>
+    <RowShell
+      m={m}
+      act={g.act}
+      time={span}
+      value={g.netPnl}
+      isMobile={isMobile}
+      tags={
+        <>
+          <IdentityTags p={g.sample} />
+          {g.market && <ColorChip {...MARKET_CHIP}>{g.market}</ColorChip>}
+          <span style={{ fontSize: 10.5, fontWeight: 600, color: t.mut, border: `1px solid ${t.border}`, borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>
+            ×{g.count} event{g.count === 1 ? '' : 's'}
+          </span>
+        </>
+      }
+      text={`${g.market ? g.market + ' ' : ''}${g.act.toLowerCase()} · net over ${g.count} event${g.count === 1 ? '' : 's'}`}
+    />
   );
 }
 
