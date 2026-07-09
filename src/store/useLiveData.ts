@@ -39,6 +39,9 @@ export function useLiveData() {
       // low-frequency streams write straight through
       dataSource.subscribeAccounts((w) => st._ingestWallets(w)),
       dataSource.subscribeOrderLevels(({ levels, orders }) => st._ingestLevels(levels, orders)),
+      // Open-lifecycle enrichment (Stream B, zif #212): exchange-style per-open
+      // fields for the Positions detail. Slow-moving → straight through.
+      dataSource.subscribeLifecycle((m) => st._ingestLifecycle(m)),
     ];
 
     // Activity: seed with the NEWEST rows, then stream only events newer than the

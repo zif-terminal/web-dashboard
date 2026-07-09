@@ -9,6 +9,11 @@ export type Accuracy = 'synced' | 'gap' | 'mismatch' | 'pending' | 'nokey';
 
 export interface Position {
   id: string;
+  // exchange_account_id (mat_positions column). Part of the lifecycleKey() used to
+  // attach the exchange-style mat_open_lifecycle enrichment (Stream B, zif #212).
+  // Optional so mock seeds (no lifecycle data) can omit it — the detail then just
+  // omits the exchange-style fields.
+  exchangeAccountId?: string;
   asset: string;
   exch: Exchange;
   wallet: string;       // account label (exchange_accounts.label — e.g. "main", "ARB")
@@ -26,6 +31,36 @@ export interface Position {
   // rendered with a STAKED badge and grouped under the base asset (zif #189). Optional
   // so mock seeds (which never stake) omit it; the live apolloSource always sets it.
 }
+
+// ── Open-lifecycle (Stream B, zif #212) ──────────────────────────────────────
+// One row of `mat_open_lifecycle`: the exchange-style, PER-OPEN-LIFECYCLE view of
+// a live position — the numbers "as the exchange shows them". Crucially `realized`
+// is scoped to the CURRENT open instance (if the asset went flat and reopened, it
+// is ONLY this lifecycle's realized, NOT the all-time figure that Position.realized
+// carries). Merged onto the matching Position (by exchange_account_id + market_type
+// + base asset) to enrich the expanded position detail.
+//
+// avg_entry / mark / unrealized are NULL for DB-only venues (Variational / Drift)
+// that have no live price — hence nullable — so the UI shows realized/fees/funding
+// and gracefully omits unrealized there.
+export interface Lifecycle {
+  exchangeAccountId: string;
+  market: string;         // exchange market symbol, e.g. "HYPE-PERP" / "LIT-POOL"
+  marketType: string;     // 'perp' | 'spot' — matches Position.type
+  side: Side;
+  size: number;           // lifecycle size (units)
+  startTime: number;      // epoch-ms the current lifecycle opened
+  avgEntry: number | null;// null for no-live-price venues
+  mark: number | null;    // null for no-live-price venues
+  unrealized: number | null; // null for no-live-price venues
+  fees: number;           // total fees this lifecycle
+  funding: number;        // net funding this lifecycle
+  realized: number;       // realized PnL SCOPED TO THIS LIFECYCLE (fresh, not all-time)
+}
+
+// Lifecycle rows keyed by the join key `lifecycleKey(eaid, marketType, baseAsset)`
+// so a Position can O(1) look up its exchange-style enrichment.
+export type LifecycleMap = Record<string, Lifecycle>;
 
 export interface OrderLevel {
   id: string;

@@ -1,6 +1,8 @@
 import type { ApolloClient } from '@apollo/client';
 import type { DataSource, Unsub } from './DataSource';
+import { lifecycleKey, stripPerpSuffix } from './DataSource';
 import {
+  LIFECYCLE_SUB,
   POSITIONS_SUB, PORTFOLIO_SUB, ORDER_LEVELS_SUB, RESTING_ORDERS_SUB, ACTIVITY_STREAM_SUB, ACTIVITY_RECENT_QUERY,
   ACTIVITY_PAGE_QUERY, ACCOUNTS_SUB, CLOSED_TRADES_QUERY,
   CLOSED_AGG_QUERY, CLOSED_PAGE_QUERY, CLOSED_WINDOW_QUERY,
@@ -12,7 +14,7 @@ import {
 } from '../graphql/operations';
 import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account, Exchange, Accuracy, Side,
-  ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim,
+  ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim, Lifecycle, LifecycleMap,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 import { shortAddr } from '../lib/format';
@@ -36,6 +38,11 @@ const guardMutation = (p: Promise<any>, label: string): void => {
 // can surface as strings for very large values — coerce defensively.
 const num = (v: any): number => (typeof v === 'number' ? v : Number(v ?? 0)) || 0;
 
+// Like num() but PRESERVES null/undefined as null (does not coerce to 0). Used for
+// the lifecycle avg_entry/mark/unrealized, which are genuinely NULL for no-live-
+// price venues (Variational/Drift) — coercing to 0 would render a false "$0".
+const nnum = (v: any): number | null => (v === null || v === undefined ? null : num(v));
+
 // `exch` is a free-form string on mat_positions ('Hyperliquid'|'Lighter'|'Drift'|
 // 'Variational'|...). The Exchange union is advisory in the UI; pass through.
 const exch = (v: any): Exchange => (v as Exchange);
@@ -50,6 +57,7 @@ const mapPosition = (p: any): Position => {
   const asset = staked ? p.asset.slice(0, -'-POOL'.length) : p.asset;
   return {
   id: p.id,
+  exchangeAccountId: p.exchange_account_id ?? undefined,
   asset,
   exch: exch(p.exch),
   wallet: p.wallet ?? '',
@@ -68,6 +76,38 @@ const mapPosition = (p: any): Position => {
   realized: num(p.realized),
   staked,
   };
+};
+
+// mat_open_lifecycle row → domain Lifecycle. `realized` maps from
+// realized_lifecycle (the lifecycle-scoped realized). avg_entry/mark/unrealized
+// stay nullable (null for no-live-price venues). No money math — pass-through.
+const mapLifecycle = (r: any): Lifecycle => ({
+  exchangeAccountId: r.exchange_account_id,
+  market: r.market ?? '',
+  marketType: r.market_type ?? '',
+  side: (r.side as Side) ?? 'LONG',
+  size: num(r.size),
+  startTime: num(r.start_time),
+  avgEntry: nnum(r.avg_entry),
+  mark: nnum(r.mark),
+  unrealized: nnum(r.unrealized),
+  fees: num(r.fees),
+  funding: num(r.funding),
+  realized: num(r.realized_lifecycle),
+});
+
+// Fold lifecycle rows into a map keyed by lifecycleKey(). The lifecycle `market`
+// is normalized to the base asset (strip "-PERP" for perps) so it lines up with
+// mat_positions.asset. A (eaid, market_type, base-asset) natural key is unique in
+// the view, so last-write-wins is a no-op in practice.
+const lifecycleMap = (rows: any[]): LifecycleMap => {
+  const m: LifecycleMap = {};
+  for (const raw of rows) {
+    const lc = mapLifecycle(raw);
+    const base = stripPerpSuffix(lc.market, lc.marketType);
+    m[lifecycleKey(lc.exchangeAccountId, lc.marketType, base)] = lc;
+  }
+  return m;
 };
 
 /**
@@ -292,6 +332,12 @@ export function makeApolloDataSource(client: ApolloClient<any>): DataSource {
         reemitPortfolio();
       });
     },
+
+    // Open-lifecycle enrichment (Stream B, zif #212): live-query the exchange-style
+    // per-open fields, folded into a lifecycleKey()-keyed map the store hands to the
+    // Positions detail. RLS scopes rows to the user (view filter). No money math.
+    subscribeLifecycle: (cb) =>
+      sub(LIFECYCLE_SUB, {}, (d) => lifecycleMap(d.lifecycle as any[]), cb),
 
     // Two separate WS subscriptions (Hasura = one root field each), merged here.
     subscribeOrderLevels: (cb) => {

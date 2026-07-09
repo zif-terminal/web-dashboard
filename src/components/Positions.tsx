@@ -5,9 +5,10 @@ import { t, exchMeta } from '../ui/theme';
 import { k, kc, col, px, usd, shortAddr } from '../lib/format';
 import { exchChipStyle, WALLET_CHIP, ACCOUNT_CHIP, ColorChip, walletLabelOf, accountLabelOf } from '../lib/tags';
 import { distToLiq } from '../lib/pnl';
+import { lifecycleKey } from '../data/DataSource';
 import { ExitPlanner } from './ExitPlanner';
 import { useIsMobile } from '../lib/useIsMobile';
-import type { Position, RestingOrder } from '../types';
+import type { Position, RestingOrder, Lifecycle } from '../types';
 
 const GROUPS = [
   { k: 'exch', label: 'Exchange' },
@@ -62,6 +63,20 @@ const TYPE_BADGE = {
 /** |units × mark| — absolute mark-priced notional of a position. */
 function notional(p: Position): number {
   return Math.abs(p.units * p.mark);
+}
+
+/**
+ * The lifecycleKey() for a Position — mirrors the key apolloSource builds from a
+ * mat_open_lifecycle row. mapPosition() strips the "-POOL" suffix off staked bags
+ * into `staked`, so we reconstruct the RAW asset (adding "-POOL" back) to match
+ * mat_positions.asset, which is the base-asset the lifecycle key normalizes to
+ * (perp "-PERP" suffixes are already stripped on that side). Returns '' when the
+ * position has no exchange_account_id (mock mode) → no lifecycle lookup.
+ */
+function posLifecycleKey(p: Position): string {
+  if (!p.exchangeAccountId) return '';
+  const rawAsset = p.staked ? `${p.asset}-POOL` : p.asset;
+  return lifecycleKey(p.exchangeAccountId, p.type, rawAsset);
 }
 
 /** Dust = any position (spot OR perp) worth less than DUST_USD at mark. */
@@ -384,6 +399,10 @@ function PositionRow({ p, groupNegPL }: { p: Position; groupNegPL: number }) {
   // Pull resting orders for this position — used for the order-count chip,
   // the "No stop set" warning, and the expanded TP/SL list.
   const orders = useStore((s) => s.orders.filter((o) => o.positionId === p.id));
+  // Exchange-style per-open-lifecycle enrichment (Stream B, zif #212): the numbers
+  // "as the exchange shows them" for THIS open instance. Keyed by
+  // exchange_account_id · market_type · base-asset; '' key (mock mode) → undefined.
+  const lc = useStore((s) => { const key = posLifecycleKey(p); return key ? s.lifecycle[key] : undefined; });
   const isMobile = useIsMobile();
   const dist = distToLiq(p);
   const perp = isPerp(p);
@@ -482,6 +501,11 @@ function PositionRow({ p, groupNegPL }: { p: Position; groupNegPL: number }) {
             <Meta label="Wallet" v={walletLabel(p) || '—'} />
           </div>
 
+          {/* Exchange-style lifecycle block (Stream B, zif #212): the position "as
+              the exchange shows it" for THIS open instance. Realized is scoped to the
+              current lifecycle (fresh on a reopen), NOT the all-time Realized above. */}
+          {lc && <LifecycleDetail p={p} lc={lc} isMobile={isMobile} />}
+
           {/* Resting orders section */}
           {orders.length > 0 && (
             <div style={{ marginBottom: 16 }}>
@@ -549,6 +573,37 @@ const Meta: React.FC<{ label: string; v: string; color?: string }> = ({ label, v
   <div>
     <div style={{ fontSize: 10.5, letterSpacing: '.05em', color: t.mut2, textTransform: 'uppercase' }}>{label}</div>
     <Mono style={{ fontSize: 14, fontWeight: 600, marginTop: 4, color: color ?? t.text }}>{v}</Mono>
+  </div>
+);
+
+/**
+ * Exchange-style lifecycle detail (Stream B, zif #212): the open position "as the
+ * exchange shows it" for THIS open instance (`mat_open_lifecycle`). Renders:
+ *   Size · Avg entry · Unrealized · Realized (this position) · Fees · Funding.
+ *
+ * "Realized (this position)" is LABELLED explicitly because it is scoped to the
+ * CURRENT lifecycle — if the asset went flat and reopened, this is only the current
+ * instance's realized, NOT the all-time figure the "Realized" cell above carries.
+ *
+ * Avg entry / Unrealized are NULL for DB-only venues (Variational / Drift) that
+ * have no live price — those cells are gracefully OMITTED there (Realized / Fees /
+ * Funding / Size still show). Money formatting reuses format.ts (k = signed compact
+ * with neutral-$0 dust; col = matching sign color).
+ */
+const LifecycleDetail: React.FC<{ p: Position; lc: Lifecycle; isMobile: boolean }> = ({ p, lc, isMobile }) => (
+  <div style={{ marginBottom: 16 }}>
+    <div style={{ fontSize: 10.5, letterSpacing: '.05em', color: t.mut2, textTransform: 'uppercase', marginBottom: 8 }}>
+      As the exchange shows it
+    </div>
+    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(auto-fit,minmax(120px,1fr))', gap: 12 }}>
+      <Meta label="Size" v={fmtUnits(lc.size, p.asset)} />
+      {lc.avgEntry != null && <Meta label="Avg entry" v={px(lc.avgEntry)} />}
+      {lc.unrealized != null && <Meta label="Unrealized" v={k(lc.unrealized)} color={col(lc.unrealized)} />}
+      {/* Explicitly labelled: scoped to THIS open position (fresh on a reopen). */}
+      <Meta label="Realized (this position)" v={k(lc.realized)} color={col(lc.realized)} />
+      <Meta label="Fees (this position)" v={kc(lc.fees)} />
+      <Meta label="Funding (this position)" v={k(lc.funding)} color={col(lc.funding)} />
+    </div>
   </div>
 );
 

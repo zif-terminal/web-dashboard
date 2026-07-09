@@ -51,6 +51,34 @@ export const POSITIONS_SUB = gql`
   }
 `;
 
+// ── Open-lifecycle (Stream B, zif #212) ──────────────────────────────────────
+// Live query: the exchange-style, PER-OPEN-LIFECYCLE view of each open position —
+// the numbers "as the exchange shows them". `realized_lifecycle` is the per-fill
+// realized SCOPED TO THE CURRENT OPEN INSTANCE (fresh if the asset went flat and
+// reopened — NOT all-time). RLS-scoped to the user (view filter chains
+// exchange_account → wallet → user_wallets → user_id). apolloSource keys each row
+// by (exchange_account_id + market_type + base-asset) and merges it onto the
+// matching Position to enrich the expanded detail. avg_entry/mark/unrealized are
+// NULL for no-live-price venues (Variational/Drift).
+export const LIFECYCLE_SUB = gql`
+  subscription OpenLifecycle {
+    lifecycle: mat_open_lifecycle {
+      exchange_account_id
+      market
+      market_type
+      side
+      size
+      start_time
+      avg_entry
+      mark
+      unrealized
+      fees
+      funding
+      realized_lifecycle
+    }
+  }
+`;
+
 // Live query: per-exchange-account portfolio rows. The app's `Portfolio` is a
 // SINGLE aggregated object, so apolloSource folds these rows together (sum equity
 // / unrealized, net 24h change) and derives netLong/gross/risks from positions.

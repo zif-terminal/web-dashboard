@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type {
-  Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, Tab, Timeframe, PerfDim, PerfStatus,
+  Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, Tab, Timeframe, PerfDim, PerfStatus, LifecycleMap,
 } from '../types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -29,6 +29,11 @@ function mergeWallets(server: Wallet[], pending: Wallet[]): Wallet[] {
 interface ServerState {
   positions: Position[];
   portfolio: Portfolio | null;
+  // Open-lifecycle enrichment (Stream B, zif #212): the exchange-style per-open
+  // fields keyed by lifecycleKey(). The Positions detail looks up its Position's
+  // key here to show avg entry / this-lifecycle realized-fees-funding / unrealized.
+  // Empty {} in mock mode (no lifecycle data) → the detail omits those fields.
+  lifecycle: LifecycleMap;
   // `wallets` is the MERGED list the UI reads: the authoritative ACCOUNTS_SUB
   // result (`_serverWallets`) with any client-side optimistic "scanning" wallets
   // (`pendingWallets`) folded in. Keeping the merge in the store means every
@@ -77,6 +82,7 @@ interface Actions {
   // server ingest (called by useLiveData / the rAF batcher)
   _ingestPositions: (p: Position[]) => void;
   _ingestPortfolio: (p: Portfolio) => void;
+  _ingestLifecycle: (m: LifecycleMap) => void;
   _ingestWallets: (w: Wallet[]) => void;
   _ingestLevels: (l: OrderLevel[], o: RestingOrder[]) => void;
   _ingestActivity: (rows: ActivityEvent[]) => void;
@@ -172,6 +178,7 @@ export const useStore = create<StoreState>((set) => ({
   // server
   positions: [],
   portfolio: null,
+  lifecycle: {},
   wallets: [],
   _serverWallets: [],
   pendingWallets: [],
@@ -226,6 +233,9 @@ export const useStore = create<StoreState>((set) => ({
   // detect a stalled feed.
   _ingestPositions: (positions) => set({ positions, lastUpdate: Date.now() }),
   _ingestPortfolio: (portfolio) => set({ portfolio, lastUpdate: Date.now() }),
+  // Lifecycle is a slow-moving enrichment map (not a hot per-tick stream), so it
+  // writes straight through — no rAF batching, no lastUpdate stamp.
+  _ingestLifecycle: (lifecycle) => set({ lifecycle }),
   // ACCOUNTS_SUB push → authoritative base; re-fold the optimistic pending wallets
   // and drop any whose accounts have now arrived (matched by address).
   _ingestWallets: (server) => set((s) => {

@@ -1,10 +1,25 @@
 import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account,
-  ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim,
+  ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim, LifecycleMap,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 
 export type Unsub = () => void;
+
+// ── Open-lifecycle join key (Stream B, zif #212) ─────────────────────────────
+// Stable key linking a `mat_open_lifecycle` row to its `mat_positions` row. Both
+// carry exchange_account_id + market_type; the market SYMBOL differs by venue
+// convention — for perps the lifecycle market is "<ASSET>-PERP" while
+// mat_positions.asset is the bare "<ASSET>". So we normalize to the BASE asset:
+// strip a trailing "-PERP" from perp markets (spot bags, incl "<ASSET>-POOL",
+// pass through unchanged). Verified 1:1 unique across all 95 live positions.
+export const stripPerpSuffix = (market: string, marketType: string): string =>
+  marketType === 'perp' && market.endsWith('-PERP') ? market.slice(0, -'-PERP'.length) : market;
+
+/** Join key: exchange_account_id · market_type · base asset. Lower-cased type so
+ *  'PERP'/'perp' (mock vs live) collapse to one key. */
+export const lifecycleKey = (exchangeAccountId: string, marketType: string, baseAsset: string): string =>
+  `${exchangeAccountId}|${(marketType ?? '').toLowerCase()}|${baseAsset}`;
 
 /**
  * The single seam between UI and data. The store talks ONLY to this interface,
@@ -16,6 +31,11 @@ export type Unsub = () => void;
 export interface DataSource {
   subscribePositions(cb: (rows: Position[]) => void): Unsub;
   subscribePortfolio(cb: (p: Portfolio) => void): Unsub;
+  // Open-lifecycle enrichment (Stream B, zif #212): the exchange-style per-open
+  // fields (avg entry, this-lifecycle realized/fees/funding, unrealized, size),
+  // keyed by lifecycleKey() so a Position can O(1) attach its row. Mock mode has
+  // no lifecycle data → emits an empty map (the detail simply omits the fields).
+  subscribeLifecycle(cb: (m: LifecycleMap) => void): Unsub;
   subscribeAccounts(cb: (rows: Wallet[]) => void): Unsub;
   subscribeOrderLevels(cb: (d: { levels: OrderLevel[]; orders: RestingOrder[] }) => void): Unsub;
   subscribeActivity(sinceTs: number, cb: (rows: ActivityEvent[]) => void): Unsub;

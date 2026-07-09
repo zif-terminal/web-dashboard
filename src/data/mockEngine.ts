@@ -158,6 +158,10 @@ export class MockEngine {
     return {
       subscribePositions: (cb) => reg(this.posL, cb, () => cb(this.positions.map((p) => ({ ...p })))),
       subscribePortfolio: (cb) => reg(this.pfL, cb, () => cb(this.computePortfolio())),
+      // Open-lifecycle (Stream B, zif #212): the mock engine has no lifecycle data,
+      // so emit an empty map once. The Positions detail simply omits the exchange-
+      // style fields in mock mode (they only appear against the live view).
+      subscribeLifecycle: (cb) => { cb({}); return () => {}; },
       subscribeAccounts: (cb) => reg(this.accL, cb, () => cb(structuredClone(this.wallets))),
       subscribeOrderLevels: (cb) => reg(this.lvlL, cb, () => this.pushLevels()),
       subscribeActivity: (sinceTs, cb) =>
