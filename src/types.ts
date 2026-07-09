@@ -219,6 +219,44 @@ export interface Wallet {
   pending?: boolean;
 }
 
+// ── Income over time (EPIC #212, Stream C) ────────────────────────────────────
+// One row of `mat_income_periods`: the server-side pre-bucketed rollup of one
+// category's signed USD amount for one (period_type, period_start) bucket, scoped
+// to one exchange_account. The view is RLS-scoped; the FE groups rows by
+// period_start then category (NO client re-bucketing — the server pre-bucketed).
+//
+// category taxonomy (matches mat_ledger):
+//   realized_trade | funding | fee | reward | interest | hack | transfer
+// tax_category:
+//   capital | ordinary_income | expense | casualty_loss | non_taxable
+// Income surfaces MUST exclude the non-income categories (transfer/hack) from the
+// "income" total — follow tax_category (non_taxable / casualty_loss are not income).
+export type IncomeCategory =
+  | 'realized_trade' | 'funding' | 'fee' | 'reward' | 'interest' | 'hack' | 'transfer';
+export type IncomeGrain = 'day' | 'week' | 'month';
+
+export interface IncomePeriodRow {
+  exchangeAccountId: string;
+  exch: string;            // venue (exchanges.name)
+  periodType: IncomeGrain; // 'day' | 'week' | 'month'
+  periodStart: number;     // epoch-ms UTC bucket start (server-computed)
+  category: IncomeCategory;
+  taxCategory: string;     // capital | ordinary_income | expense | casualty_loss | non_taxable
+  amount: number;          // signed USD, SUM over the bucket
+  eventCount: number;
+}
+
+// Server-side filter for the income query (#211 parity with Activity). Each set
+// field pushes a `where` clause so the filter applies across the whole rollup
+// (RLS-scoped). '' / undefined = no constraint. `wallet` matches the per-user
+// user_wallets.label via the nested exchange_account chain; `account` matches the
+// exchange_accounts.label (the account name in the store's account list).
+export interface IncomeFilter {
+  exch?: string;     // exchanges.name / display
+  wallet?: string;   // user_wallets.label (nested path)
+  account?: string;  // exchange_accounts.label (nested path)
+}
+
 // Short windows + calendar year strings ('2023', '2024', …). Year values are
 // validated at store-init by checking they're 4-digit numeric strings.
 export type Timeframe = 'hour' | 'day' | 'week' | 'month' | 'ytd' | 'all' | (string & {});
@@ -226,4 +264,5 @@ export type PerfDim = 'exch' | 'asset' | 'wallet' | 'none';
 export type PerfStatus = 'all' | 'open' | 'closed';
 // #208: 'positions' removed as a top-level tab — the Positions view is now a
 // section rendered inline at the bottom of Overview.
-export type Tab = 'overview' | 'performance' | 'activity' | 'plan' | 'accounts';
+// #212 Stream C: 'income' added — the "Income over time" period rollup view.
+export type Tab = 'overview' | 'performance' | 'activity' | 'income' | 'plan' | 'accounts';

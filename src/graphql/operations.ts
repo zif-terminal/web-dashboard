@@ -531,6 +531,44 @@ export const CLOSED_WINDOW_QUERY = gql`
 `;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// INCOME OVER TIME  (EPIC #212, Stream C — Jaison need #2).
+//
+// `mat_income_periods` is a READ-ONLY VIEW: the server pre-buckets every money
+// event into (period_type ∈ day/week/month, period_start epoch-ms UTC) × category
+// × exchange_account, with amount = SUM(signed USD) + event_count. RLS scopes rows
+// to the user via exchange_account.wallet.user_wallets.user_id (allow_aggregations
+// is on, but the FE only needs the raw bucketed rows — it groups by period_start
+// then category client-side; NO client RE-bucketing since the server pre-bucketed).
+//
+// The Income page fetches ONE grain at a time within a real-now window (period_start
+// _gte/_lte, epoch-ms). An optional filter (exch / wallet / account) pushes a `where`
+// so it applies across the whole rollup (mirrors the Activity #211/#209 filter path):
+//   exch    → exch { _eq }
+//   wallet  → exchange_account.wallet.user_wallets.label { _eq }   (per-user label)
+//   account → exchange_account.label { _eq }                       (account name)
+// The selection set matches mapIncomePeriod 1:1.
+// ─────────────────────────────────────────────────────────────────────────────
+export const INCOME_PERIODS_QUERY = gql`
+  query IncomePeriods(
+    $where: mat_income_periods_bool_exp!
+  ) {
+    mat_income_periods(
+      where: $where
+      order_by: [{ period_start: desc }, { category: asc }]
+    ) {
+      exchange_account_id
+      exch
+      period_type
+      period_start
+      category
+      tax_category
+      amount
+      event_count
+    }
+  }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MUTATIONS — order_levels is the only writable surface in inc7 (RLS-scoped;
 // user_id is auto-set by the insert preset, so we MUST NOT send it).
 // ─────────────────────────────────────────────────────────────────────────────

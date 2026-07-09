@@ -103,7 +103,10 @@ export type StoreState = ServerState & UiState & Actions;
 const TAB_LS_KEY = 'zif.tab';
 // #208: 'positions' removed — a stale persisted `zif.tab === 'positions'` now
 // falls back to 'overview' (which shows the Positions section inline).
-const VALID_TABS: readonly Tab[] = ['overview', 'performance', 'plan', 'accounts'];
+// #212 Stream C: 'income' added (the "Income over time" view). 'activity' is also
+// listed so a persisted `zif.tab === 'activity'` restores correctly (it is rendered
+// by the App router but was previously absent from this validation list).
+const VALID_TABS: readonly Tab[] = ['overview', 'performance', 'activity', 'income', 'plan', 'accounts'];
 
 function getInitialTab(): Tab {
   if (typeof localStorage === 'undefined') return 'overview';

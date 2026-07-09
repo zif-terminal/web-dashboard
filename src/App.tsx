@@ -5,6 +5,7 @@ import { Layout } from './components/Layout';
 import { Overview } from './components/Overview';
 import { Performance } from './components/Performance';
 import { Activity } from './components/Activity';
+import { Income } from './components/Income';
 import { RiskPlan } from './components/RiskPlan';
 import { Accounts } from './components/Accounts';
 import { Login } from './components/Login';
@@ -25,6 +26,7 @@ function Dashboard() {
         {tab === 'overview' && <Overview />}
         {tab === 'performance' && <Performance />}
         {tab === 'activity' && <Activity />}
+        {tab === 'income' && <Income />}
         {tab === 'plan' && <RiskPlan />}
         {tab === 'accounts' && <Accounts />}
       </Layout>

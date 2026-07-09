@@ -31,6 +31,15 @@ const TabIcons: Record<Tab, React.FC<{ size?: number }>> = {
       <polyline points="2,10 6,10 8,4 12,16 14,10 18,10" />
     </svg>
   ),
+  // Income (#212): stacked bars — the period-rollup income view.
+  income: ({ size = 20 }) => (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}>
+      <line x1="2" y1="18" x2="18" y2="18" />
+      <rect x="3" y="11" width="3" height="6" />
+      <rect x="8.5" y="7" width="3" height="10" />
+      <rect x="14" y="3" width="3" height="14" />
+    </svg>
+  ),
   plan: ({ size = 20 }) => (
     <svg width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}>
       <path d="M10 2L15 6V14C15 15.1 14.1 16 13 16H7C5.9 16 5 15.1 5 14V6L10 2Z" />
@@ -64,7 +73,9 @@ function useStale(): boolean {
 const TABS: { k: Tab; label: string; short?: string }[] = [
   { k: 'overview', label: 'Overview' },
   { k: 'performance', label: 'Performance', short: 'Perf' },
-  { k: 'activity', label: 'Activity' },
+  { k: 'activity', label: 'Activity', short: 'Actv' },
+  // #212 Stream C: the "Income over time" period-rollup view (Jaison need #2).
+  { k: 'income', label: 'Income' },
   { k: 'plan', label: 'Risk & plan', short: 'Risk' },
   { k: 'accounts', label: 'Accounts', short: 'Accts' },
 ];

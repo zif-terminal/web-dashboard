@@ -8,6 +8,7 @@ import {
   CLOSED_AGG_QUERY, CLOSED_PAGE_QUERY, CLOSED_WINDOW_QUERY,
   CLOSED_DISTINCT_EXCH_QUERY, CLOSED_DISTINCT_ASSET_QUERY, CLOSED_DISTINCT_WALLET_QUERY,
   CLOSED_GROUP_AGG_EXCH_QUERY, CLOSED_GROUP_AGG_ASSET_QUERY, CLOSED_GROUP_AGG_WALLET_QUERY,
+  INCOME_PERIODS_QUERY,
   UPSERT_ORDER_LEVEL, ADD_ORDER_LEVEL, REMOVE_ORDER_LEVEL, SET_WALLET_LABEL,
   UPDATE_ACCOUNT_LABEL, UPDATE_ACCOUNT_TAGS,
   INSERT_OMNI_RAW_EVENTS,
@@ -15,6 +16,7 @@ import {
 import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account, Exchange, Accuracy, Side,
   ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim, Lifecycle, LifecycleMap,
+  IncomePeriodRow, IncomeFilter, IncomeGrain, IncomeCategory,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 import { shortAddr } from '../lib/format';
@@ -298,6 +300,39 @@ const activityWhere = (filter?: ActivityFilter, cursorLt?: number): any => {
   return { _and: and };
 };
 
+// ── income over time (EPIC #212, Stream C) ───────────────────────────────────
+// mat_income_periods row → domain IncomePeriodRow. Pure pass-through + numeric
+// coercion — the amounts are the already-reconciled SUMs the view computed (no new
+// client money math). period_start is the server-computed epoch-ms UTC bucket start.
+const mapIncomePeriod = (r: any): IncomePeriodRow => ({
+  exchangeAccountId: r.exchange_account_id,
+  exch: (r.exch as string | undefined)?.trim() ?? '',
+  periodType: r.period_type as IncomeGrain,
+  periodStart: num(r.period_start),
+  category: r.category as IncomeCategory,
+  taxCategory: (r.tax_category as string | undefined) ?? '',
+  amount: num(r.amount),
+  eventCount: num(r.event_count),
+});
+
+// Build the mat_income_periods `where` from the grain + window + optional filter
+// (#211 parity with the Activity filter). period_type pins the grain; period_start
+// _gte/_lte bounds the real-now window. exch/wallet/account push equality predicates
+// that apply across the whole rollup (RLS-scoped). `wallet` matches the nested
+// per-user user_wallets.label; `account` matches exchange_accounts.label.
+const incomeWhere = (grain: IncomeGrain, sinceMs: number, untilMs: number, filter?: IncomeFilter): any => {
+  const and: any[] = [
+    { period_type: { _eq: grain } },
+    { period_start: { _gte: Math.floor(sinceMs), _lte: Math.floor(untilMs) } },
+  ];
+  if (filter?.exch) and.push({ exch: { _eq: filter.exch } });
+  if (filter?.account) and.push({ exchange_account: { label: { _eq: filter.account } } });
+  if (filter?.wallet) {
+    and.push({ exchange_account: { wallet: { user_wallets: { label: { _eq: filter.wallet } } } } });
+  }
+  return { _and: and };
+};
+
 /** Real Hasura adapter. Every subscribe* maps onto a graphql-ws subscription. */
 export function makeApolloDataSource(client: ApolloClient<any>): DataSource {
   const sub = <T>(query: any, variables: any, pick: (d: any) => T, cb: (v: T) => void): Unsub => {
@@ -565,6 +600,21 @@ export function makeApolloDataSource(client: ApolloClient<any>): DataSource {
         fetchPolicy: 'network-only',
       });
       return ((data?.closed_trades as any[]) ?? []).map(mapClosedTrade);
+    },
+
+    // ── Income over time (EPIC #212, Stream C) ────────────────────────────────
+    // One-shot fetch of the pre-bucketed rollup for the selected grain + window,
+    // RLS-scoped, optional exch/wallet/account filter folded into the `where`. The
+    // Income page groups the returned rows by period_start then category. 'no-cache'
+    // so re-selecting a grain/window always reflects the latest refresh (and never
+    // collides in the normalized cache — mirrors CLOSED_WINDOW_QUERY's policy).
+    fetchIncomePeriods: async (grain, sinceMs, untilMs, filter) => {
+      const { data } = await client.query({
+        query: INCOME_PERIODS_QUERY,
+        variables: { where: incomeWhere(grain, sinceMs, untilMs, filter) },
+        fetchPolicy: 'no-cache',
+      });
+      return ((data?.mat_income_periods as any[]) ?? []).map(mapIncomePeriod);
     },
 
     upsertOrderLevel: (id, price, size) =>

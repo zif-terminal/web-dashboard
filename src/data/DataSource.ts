@@ -1,6 +1,7 @@
 import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account,
   ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim, LifecycleMap,
+  IncomePeriodRow, IncomeFilter, IncomeGrain,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 
@@ -81,6 +82,21 @@ export interface DataSource {
     untilMs: number,
     opts: { limit: number; offset: number; dim?: PerfDim; groupValue?: string },
   ): Promise<ClosedTrade[]>;
+
+  // ── Income over time (EPIC #212, Stream C) ──────────────────────────────────
+  // Server-pre-bucketed income rollup for ONE grain within a real-now window
+  // [sinceMs, untilMs] (epoch-ms bounds on period_start). Returns the raw
+  // mat_income_periods rows (one per period × category × account); the Income page
+  // groups them by period_start then category — NO client re-bucketing (the server
+  // pre-bucketed). The optional filter (exch/wallet/account) is folded into the
+  // `where` so it applies across the whole rollup (RLS-scoped). Reconciles by
+  // construction (pure GROUP BY over mat_ledger).
+  fetchIncomePeriods(
+    grain: IncomeGrain,
+    sinceMs: number,
+    untilMs: number,
+    filter?: IncomeFilter,
+  ): Promise<IncomePeriodRow[]>;
 
   upsertOrderLevel(id: string, price: number, size: number): void;
   addOrderLevel(positionId: string, kind: 'tp' | 'sl', price: number, size: number): void;

@@ -4,6 +4,7 @@ import type {
 import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account,
   ClosedAgg, ClosedGroupAgg, PerfDim,
+  IncomePeriodRow, IncomeFilter, IncomeGrain, IncomeCategory,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 import { pnlAt } from '../lib/pnl';
@@ -148,6 +149,81 @@ export class MockEngine {
     return [...this.activity, ...this.synthActivity];
   }
 
+  // ── Income over time (EPIC #212, Stream C) mock parity ──────────────────────
+  // The mock engine has no ledger, so we synthesize a deterministic set of
+  // pre-bucketed mat_income_periods-shaped rows spanning ~14 months back from now.
+  // Each grain (day/week/month) gets its own buckets so the period-selector renders
+  // real data locally. Categories mirror the live taxonomy; amounts are seeded (no
+  // real math — this is mock). Two venues/accounts so the filter bar has options.
+  private synthIncome?: IncomePeriodRow[];
+  private incomeHistory(): IncomePeriodRow[] {
+    if (this.synthIncome) return this.synthIncome;
+    const DAY = 86_400_000;
+    // Deterministic pseudo-random from an integer seed (stable across reloads).
+    const rand = (n: number) => {
+      const x = Math.sin(n * 12.9898) * 43758.5453;
+      return x - Math.floor(x);
+    };
+    // Two accounts pinned to REAL seed accounts (a2 "Main"/Hyperliquid, b1 "Dad
+    // Trading"/Lighter) so the exch/wallet/account filter bar — sourced from the
+    // store's account list — actually matches rows (fetchIncomePeriods resolves the
+    // wallet/account labels from this.wallets by exchangeAccountId).
+    const accts = [
+      { id: 'a2', exch: 'Hyperliquid' },
+      { id: 'b1', exch: 'Lighter' },
+    ];
+    // Income categories get realistic signs; transfer/hack are the non-income lines.
+    const cats: { c: IncomeCategory; tax: string; base: number }[] = [
+      { c: 'realized_trade', tax: 'capital', base: 4200 },
+      { c: 'funding', tax: 'ordinary_income', base: 180 },
+      { c: 'fee', tax: 'expense', base: -240 },
+      { c: 'reward', tax: 'ordinary_income', base: 90 },
+      { c: 'interest', tax: 'ordinary_income', base: 35 },
+      { c: 'transfer', tax: 'non_taxable', base: 5000 },
+    ];
+    // Bucket a timestamp to the start of its day/week(Mon, UTC)/month (UTC).
+    const bucketStart = (ts: number, grain: IncomeGrain): number => {
+      const d = new Date(ts);
+      if (grain === 'day') return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+      if (grain === 'month') return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
+      // week: back up to Monday (date_trunc('week') is ISO Monday-start).
+      const dayStart = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+      const dow = (new Date(dayStart).getUTCDay() + 6) % 7; // 0 = Monday
+      return dayStart - dow * DAY;
+    };
+    const now = Date.now();
+    // Walk ~430 days back so day (~430 buckets), week (~62) and month (~15) all
+    // populate; accumulate into a keyed map so each (acct,grain,bucket,cat) is one row.
+    const byKey = new Map<string, IncomePeriodRow>();
+    for (let dayBack = 0; dayBack < 430; dayBack++) {
+      const ts = now - dayBack * DAY;
+      for (const a of accts) {
+        for (const grain of ['day', 'week', 'month'] as IncomeGrain[]) {
+          const ps = bucketStart(ts, grain);
+          for (const cat of cats) {
+            const seed = ps / DAY + cat.base + (a.id === 'ea-mock-1' ? 1 : 2) + grain.length;
+            const amt = cat.base * (0.4 + rand(seed) * 1.4) * (cat.c === 'realized_trade' && rand(seed + 1) > 0.6 ? -1 : 1);
+            const key = `${a.id}|${grain}|${ps}|${cat.c}`;
+            const ex = byKey.get(key);
+            if (ex) { ex.amount += amt / 30; ex.eventCount += 1; continue; }
+            byKey.set(key, {
+              exchangeAccountId: a.id,
+              exch: a.exch,
+              periodType: grain,
+              periodStart: ps,
+              category: cat.c,
+              taxCategory: cat.tax,
+              amount: Math.round(amt),
+              eventCount: 1 + Math.floor(rand(seed + 2) * 40),
+            });
+          }
+        }
+      }
+    }
+    this.synthIncome = [...byKey.values()];
+    return this.synthIncome;
+  }
+
   // ── DataSource surface ──
   asDataSource(): DataSource {
     const reg = <T>(set: Set<Listener<T>>, cb: Listener<T>, prime?: () => void): Unsub => {
@@ -257,6 +333,32 @@ export class MockEngine {
           .sort((a, b) => b.closedMs - a.closedMs)
           .slice(offset, offset + limit)
           .map((t) => ({ ...t }));
+      },
+
+      // ── Income over time (EPIC #212, Stream C) mock parity ────────────────────
+      // Filter the synthetic buckets to the grain + window, then apply the optional
+      // exch/wallet/account filter. The mock accounts (ea-mock-1/2) map to exchanges
+      // Hyperliquid/Lighter; wallet/account filters match the mock wallet/account
+      // labels so the filter bar exercises the same code path as live.
+      fetchIncomePeriods: async (grain: IncomeGrain, sinceMs: number, untilMs: number, filter?: IncomeFilter) => {
+        // Map a synthetic exchangeAccountId → its mock wallet label + account name,
+        // so wallet/account filters (which come from the store's account list) work.
+        const acctMeta: Record<string, { walletLabel: string; account: string }> = {};
+        for (const w of this.wallets) {
+          for (const a of w.accounts) {
+            acctMeta[a.id] = { walletLabel: w.label, account: a.name };
+          }
+        }
+        return this.incomeHistory()
+          .filter((r) => r.periodType === grain && r.periodStart >= sinceMs && r.periodStart <= untilMs)
+          .filter((r) => {
+            if (filter?.exch && r.exch !== filter.exch) return false;
+            const meta = acctMeta[r.exchangeAccountId];
+            if (filter?.wallet && (meta?.walletLabel ?? '') !== filter.wallet) return false;
+            if (filter?.account && (meta?.account ?? '') !== filter.account) return false;
+            return true;
+          })
+          .map((r) => ({ ...r }));
       },
 
       upsertOrderLevel: (id, price, size) => {
