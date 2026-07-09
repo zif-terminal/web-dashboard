@@ -169,11 +169,22 @@ function ActChip({ act, m }: { act: string; m: ActMeta }) {
   );
 }
 
-// ── Combined-row grouping (#209 ask 4) ───────────────────────────────────────
+// ── Combined-row grouping (#214: sequential run-length) ──────────────────────
 // Group key: act + exchange_account_id + (market ?? asset-ish). We fall back to
-// the row text-tail when neither market nor exchange_account_id is present so
-// unrelated events don't collapse together. Sum uses the SAME pnl field the
-// individual rows show → no double count.
+// the exch|wallet pair when exchange_account_id is absent so unrelated events
+// don't collapse together. Sum uses the SAME pnl field the individual rows show
+// → no double count.
+//
+// Grouping is SEQUENTIAL RUN-LENGTH, not global (task #214). We walk the feed in
+// its displayed (newest-first) order and merge ONLY runs of consecutive events
+// that share the same key. The moment a different-key event intervenes the run
+// closes; if that same key reappears later it opens a NEW row. So e.g.
+//   SOL buy ×10 · funding ×5 · SOL buy ×2 · HYPE sell ×1 · SOL sell ×2
+// yields FIVE rows — the two SOL-buy bursts stay separate because funding broke
+// the run. Adjacency is symmetric, so grouping the newest-first stream gives the
+// same runs as the time-ascending stream would; we do NOT re-sort or merge
+// non-adjacent runs. Each run-row aggregates ITS run only (count, net pnl, and
+// the min…max ts SPAN of just that run).
 interface CombinedRow {
   key: string;
   act: string;
@@ -182,7 +193,7 @@ interface CombinedRow {
   netPnl: number;
   minTs: number;
   maxTs: number;
-  sample: ActivityEvent; // for the identity tags (constant within a group)
+  sample: ActivityEvent; // for the identity tags (constant within a run)
 }
 
 function groupKey(r: ActivityEvent): string {
@@ -192,24 +203,37 @@ function groupKey(r: ActivityEvent): string {
 }
 
 function combine(rows: ActivityEvent[]): CombinedRow[] {
-  const byKey = new Map<string, CombinedRow>();
+  const runs: CombinedRow[] = [];
+  let prevKey: string | null = null;
+  let seq = 0; // monotonically-increasing run index → stable, unique row keys
   for (const r of rows) {
     const key = groupKey(r);
-    const g = byKey.get(key);
-    if (!g) {
-      byKey.set(key, {
-        key, act: r.act, market: r.market?.trim() || '',
-        count: 1, netPnl: r.pnl, minTs: r.ts, maxTs: r.ts, sample: r,
+    const cur = runs[runs.length - 1];
+    // A new run starts whenever the key differs from the IMMEDIATELY preceding
+    // event in the ordered stream (not from any earlier occurrence of the key).
+    if (!cur || key !== prevKey) {
+      runs.push({
+        key: `${key}#${seq++}`,
+        act: r.act,
+        market: r.market?.trim() || '',
+        count: 1,
+        netPnl: r.pnl,
+        minTs: r.ts,
+        maxTs: r.ts,
+        sample: r,
       });
     } else {
-      g.count += 1;
-      g.netPnl += r.pnl;
-      g.minTs = Math.min(g.minTs, r.ts);
-      g.maxTs = Math.max(g.maxTs, r.ts);
+      cur.count += 1;
+      cur.netPnl += r.pnl;
+      cur.minTs = Math.min(cur.minTs, r.ts);
+      cur.maxTs = Math.max(cur.maxTs, r.ts);
     }
+    prevKey = key;
   }
-  // Most-recently-active group first.
-  return [...byKey.values()].sort((a, b) => b.maxTs - a.maxTs);
+  // Runs are already in displayed (newest-first) order — preserve it, do NOT
+  // re-sort (re-sorting by ts could reorder equal-span runs and defeats the
+  // whole point of keeping adjacent runs distinct).
+  return runs;
 }
 
 function CombinedRowView({ g, isMobile }: { g: CombinedRow; isMobile: boolean }) {
