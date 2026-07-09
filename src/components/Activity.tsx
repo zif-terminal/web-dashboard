@@ -193,6 +193,12 @@ export function Activity() {
   const isMobile = useIsMobile();
   // Live events arriving via the store subscription (newest at the end, ASC).
   const liveActivity = useStore((s) => s.activity);
+  // Authoritative account list (ACCOUNTS_SUB) — the COMPLETE, RLS-scoped set of the
+  // user's wallets/accounts/exchanges. Filter option lists derive from THIS, not
+  // from the loaded activity window, so an option (e.g. "Drift") appears even when
+  // no Drift event is in the currently-paged rows (#211). Cheap + stable (no scan
+  // of the ~300k-row activity table, no flicker as more pages load).
+  const wallets = useStore((s) => s.wallets);
 
   // ── Filters (server-side where the query can express them) ──
   const [fExch, setFExch] = useState('');
@@ -302,10 +308,24 @@ export function Activity() {
     .sort((a, b) => b.ts - a.ts);
   const all = mergeDesc(liveDesc, pages);
 
-  // Option lists from the currently-loaded rows (distinct values).
-  const exchOpts = useMemo(() => distinct(all.map((r) => r.exch)), [all]);
-  const walletOpts = useMemo(() => distinct(all.map((r) => r.walletLabel)), [all]);
-  const accountOpts = useMemo(() => distinct(all.map((r) => r.wallet)), [all]);
+  // Option lists from the user's FULL account list (#211), NOT the loaded window.
+  //   Exchange → account.exch  (== ActivityEvent.exch, exchanges.display_name)
+  //   Account  → account.name  (== ActivityEvent.wallet, exchange_accounts.label)
+  //   Wallet   → wallet.label  (== ActivityEvent.walletLabel, user_wallets.label)
+  // Pending "scanning" wallets (no label / no accounts yet) contribute nothing
+  // until they resolve — distinct() drops empties. Stable across pagination.
+  const exchOpts = useMemo(
+    () => distinct(wallets.flatMap((w) => w.accounts.map((a) => a.exch))),
+    [wallets],
+  );
+  const walletOpts = useMemo(
+    () => distinct(wallets.map((w) => w.label)),
+    [wallets],
+  );
+  const accountOpts = useMemo(
+    () => distinct(wallets.flatMap((w) => w.accounts.map((a) => a.name))),
+    [wallets],
+  );
 
   // Split at the boundary so we can render a "Since you last checked" divider.
   const fresh = boundary === null || combined ? [] : all.filter((r) => r.ts > boundary);
@@ -327,7 +347,7 @@ export function Activity() {
         <FilterSelect label="Exchange" value={fExch} options={exchOpts} onChange={setFExch} />
         <FilterSelect label="Wallet" value={fWallet} options={walletOpts} onChange={setFWallet} />
         <FilterSelect label="Account" value={fAccount} options={accountOpts} onChange={setFAccount} />
-        <FilterSelect label="Type" value={fAct} options={mergeOpts(ACT_OPTIONS, all.map((r) => r.act))} onChange={setFAct} />
+        <FilterSelect label="Type" value={fAct} options={ACT_OPTIONS} onChange={setFAct} />
         {filterActive && (
           <button
             onClick={() => { setFExch(''); setFWallet(''); setFAccount(''); setFAct(''); }}
@@ -393,10 +413,4 @@ export function Activity() {
 // Distinct non-empty values, sorted, for a filter dropdown.
 function distinct(vals: (string | undefined)[]): string[] {
   return [...new Set(vals.map((v) => (v ?? '').trim()).filter(Boolean))].sort();
-}
-// The known event types, augmented with any distinct act values actually loaded.
-function mergeOpts(known: string[], loaded: (string | undefined)[]): string[] {
-  const set = new Set(known);
-  for (const v of loaded) { const s = (v ?? '').trim(); if (s) set.add(s); }
-  return [...set];
 }
