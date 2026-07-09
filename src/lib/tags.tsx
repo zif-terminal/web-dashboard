@@ -81,3 +81,19 @@ export const IdentityTags: React.FC<{ p: Taggable }> = ({ p }) => {
     </>
   );
 };
+
+/**
+ * Exchange + wallet chips ONLY — no account chip. Used by the Performance
+ * closed-trades breakdown (#216 partial): mat_closed_trades doesn't yet expose an
+ * account column, so we render just exch + wallet with the SAME chip styling as
+ * IdentityTags. A follow-up adds the account chip once the backend column exists.
+ */
+export const IdentityTagsNoAccount: React.FC<{ p: Taggable }> = ({ p }) => {
+  const wl = walletLabelOf(p);
+  return (
+    <>
+      {p.exch && <ColorChip {...exchChipStyle(p.exch)}>{p.exch}</ColorChip>}
+      {wl && <ColorChip {...WALLET_CHIP}>{wl}</ColorChip>}
+    </>
+  );
+};

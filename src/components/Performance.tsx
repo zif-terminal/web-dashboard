@@ -6,6 +6,7 @@ import { t, exchMeta } from '../ui/theme';
 import { k, col, px, shortAddr } from '../lib/format';
 import { useIsMobile } from '../lib/useIsMobile';
 import { windowBounds, isYearWin } from '../data/perfWindow';
+import { IdentityTagsNoAccount } from '../lib/tags';
 import type {
   ClosedTrade, Position, PerfDim, PerfStatus, ClosedAgg, ClosedGroupAgg, ClosedWindow,
 } from '../types';
@@ -327,7 +328,9 @@ export function Performance() {
         </div>
       </div>
 
-      <Card style={{ padding: '4px 6px', overflowX: 'auto' }}>
+      {/* #215: outer border/frame removed — keep the table's inner row separators
+          for readability; only the faint outer container border is dropped. */}
+      <Card style={{ padding: '4px 6px', overflowX: 'auto', border: 'none', background: 'transparent', borderRadius: 0 }}>
         <div style={{ minWidth: 880 }}>
           <Row header cols={['', 'Trading', 'Funding', 'Fees', 'Interest', 'Rewards', 'Hack', 'Net', 'Unreal.']} />
           {loading ? (
@@ -485,11 +488,12 @@ interface FlatItem {
 
 const FlatOpenRow: React.FC<{ p: Position }> = ({ p }) => (
   <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 8, padding: 14, borderBottom: '1px solid #161c21', alignItems: 'center' }}>
-    <span style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+    <span style={{ display: 'flex', alignItems: 'center', gap: 7, rowGap: 5, minWidth: 0, flexWrap: 'wrap' }}>
       <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: '.04em', color: '#8aa2ff', background: 'rgba(138,162,255,.13)', borderRadius: 4, padding: '2px 6px', flexShrink: 0 }}>OPEN</span>
       <Mono style={{ fontSize: 13, fontWeight: 600 }}>{p.asset}</Mono>
       <span style={{ fontSize: 9, fontWeight: 600, color: p.side === 'LONG' ? t.green : t.red }}>{p.side}</span>
-      <span style={{ fontSize: 10.5, color: t.mut2 }}>{p.exch}</span>
+      {/* #216: identity chip tags (exchange + wallet) — shared with Activity rows. */}
+      <IdentityTagsNoAccount p={p} />
     </span>
     <Num v={0} /><Num v={0} /><Num v={0} /><Num v={0} /><Num v={0} /><Num v={0} />
     <Num v={0} bold /><Num v={p.unreal} />
@@ -498,11 +502,13 @@ const FlatOpenRow: React.FC<{ p: Position }> = ({ p }) => (
 
 const FlatClosedRow: React.FC<{ t: ClosedTrade }> = ({ t: tr }) => (
   <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 8, padding: 14, borderBottom: '1px solid #161c21', alignItems: 'center' }}>
-    <span style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+    <span style={{ display: 'flex', alignItems: 'center', gap: 7, rowGap: 5, minWidth: 0, flexWrap: 'wrap' }}>
       <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: '.04em', color: '#9aa3ab', background: 'rgba(139,149,160,.13)', borderRadius: 4, padding: '2px 6px', flexShrink: 0 }}>CLOSED</span>
       <Mono style={{ fontSize: 13, fontWeight: 600 }}>{tr.asset}</Mono>
       <span style={{ fontSize: 9, fontWeight: 600, color: tr.side === 'LONG' ? t.green : t.red }}>{tr.side}</span>
-      <span style={{ fontSize: 10.5, color: t.mut2 }}>{tr.exch}</span>
+      {/* #216: identity chip tags (exchange + wallet from mat_closed_trades) —
+          shared with Activity rows (#213). Account chip is a follow-up. */}
+      <IdentityTagsNoAccount p={tr} />
       <Mono style={{ fontSize: 10.5, color: t.mut2 }}>{closedLabel(tr)}</Mono>
     </span>
     <Num v={tr.pnl} /><Num v={tr.funding} /><Num v={tr.fees} />
