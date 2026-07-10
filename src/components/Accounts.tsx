@@ -291,7 +291,9 @@ function WalletCard({ w }: { w: Wallet }) {
             <span style={{ flex: 1, minWidth: 0 }}>{labelEditor(15)}</span>
             {w.status === 'ready' && (
               <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
+                <div style={{ fontSize: 9, color: t.mut, marginBottom: 1 }}>Value</div>
                 <Mono style={{ fontSize: 15, fontWeight: 600, display: 'block' }}>{usd0(value)}</Mono>
+                <div style={{ fontSize: 9, color: t.mut, marginTop: 3, marginBottom: 1 }}>PnL</div>
                 <Mono style={{ fontSize: 11, fontWeight: 600, color: col(pnl) }}>{k(pnl)}</Mono>
               </div>
             )}
@@ -324,7 +326,9 @@ function WalletCard({ w }: { w: Wallet }) {
           <span style={{ flex: 1 }} />
           {w.status === 'ready' && (
             <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 9.5, color: t.mut, marginBottom: 1 }}>Value</div>
               <Mono style={{ fontSize: 17, fontWeight: 600, display: 'block' }}>{usd0(value)}</Mono>
+              <div style={{ fontSize: 9.5, color: t.mut, marginTop: 4, marginBottom: 1 }}>PnL</div>
               <Mono style={{ fontSize: 12, fontWeight: 600, color: col(pnl) }}>{k(pnl)}</Mono>
             </div>
           )}
@@ -377,12 +381,16 @@ function WalletCard({ w }: { w: Wallet }) {
             const em = exchMeta[exch];
             return (
               <div key={exch}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 19px 6px', borderBottom: `1px solid ${t.border2}`, background: 'rgba(255,255,255,.018)' }}>
+                {/* Exchange sub-group header — distinct band so wallet→exchange→account reads clearly */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 19px 7px', borderBottom: `1px solid ${t.border2}`, borderTop: `1px solid rgba(255,255,255,.04)`, background: 'rgba(255,255,255,.028)' }}>
                   {em && <span style={{ width: 7, height: 7, borderRadius: 2, background: em.dot, flexShrink: 0 }} />}
-                  <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: em?.color ?? t.mut, textTransform: 'uppercase' }}>{exch}</span>
-                  <span style={{ fontSize: 10.5, color: t.mut2, marginLeft: 2 }}>({accounts.length})</span>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em', color: em?.color ?? t.mut, textTransform: 'uppercase' }}>{exch}</span>
+                  <span style={{ fontSize: 10, color: t.mut2, marginLeft: 1 }}>({accounts.length})</span>
                 </div>
-                {accounts.map((a) => <AccountRow key={a.id} a={a} walletLabel={w.label} />)}
+                {/* Account rows indented to reinforce the hierarchy */}
+                <div style={{ paddingLeft: 12 }}>
+                  {accounts.map((a) => <AccountRow key={a.id} a={a} walletLabel={w.label} />)}
+                </div>
               </div>
             );
           })}
@@ -429,9 +437,8 @@ function GapExplainer({ a, align = 'left' }: { a: Account; align?: 'left' | 'rig
   );
 }
 
-function AccountRow({ a, walletLabel }: { a: Account; walletLabel: string }) {
+function AccountRow({ a, walletLabel: _walletLabel }: { a: Account; walletLabel: string }) {
   const m = useMutations();
-  const ex = exchMeta[a.exch] ?? { color: t.acc, bd: '#2c3550' };
   const info = metaFor(a);
   const isMobile = useIsMobile();
   const [renaming, setRenaming] = useState(false);
@@ -476,11 +483,8 @@ function AccountRow({ a, walletLabel }: { a: Account; walletLabel: string }) {
       ) : (
         <span style={{ fontSize: 14.5, fontWeight: 600 }}>{a.name}</span>
       )}
-      <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.04em', color: ex.color, border: `1px solid ${ex.bd}`, borderRadius: 5, padding: '1px 6px' }}>{a.exch}</span>
+      {/* Exchange badge + wallet-label tag removed — redundant under grouped headers */}
       <span style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: '.05em', color: t.mut, border: `1px solid #2a323a`, borderRadius: 5, padding: '1px 6px' }}>{a.type === 'main' ? 'Main' : 'Sub'}</span>
-      {walletLabel && (
-        <span style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: '.05em', color: WALLET_CHIP.fg, background: WALLET_CHIP.bg, border: `1px solid ${WALLET_CHIP.bd}`, borderRadius: 5, padding: '1px 6px', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={walletLabel}>{walletLabel}</span>
-      )}
       {isIncomplete(a) && (
         <span
           title="Missing history — balances &amp; positions may be inaccurate."
@@ -530,9 +534,15 @@ function AccountRow({ a, walletLabel }: { a: Account; walletLabel: string }) {
           </div>
 
           {/* Band 2: value + PnL — own row, no collision */}
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-            <Mono style={{ fontSize: 15, fontWeight: 600 }}>{usd(a.value)}</Mono>
-            <Mono style={{ fontSize: 11.5, fontWeight: 600, color: col(a.pnl) }}>{k(a.pnl)}</Mono>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16 }}>
+            <div>
+              <div style={{ fontSize: 9.5, color: t.mut, marginBottom: 1 }}>Value</div>
+              <Mono style={{ fontSize: 15, fontWeight: 600 }}>{usd(a.value)}</Mono>
+            </div>
+            <div>
+              <div style={{ fontSize: 9.5, color: t.mut, marginBottom: 1 }}>PnL</div>
+              <Mono style={{ fontSize: 11.5, fontWeight: 600, color: col(a.pnl) }}>{k(a.pnl)}</Mono>
+            </div>
           </div>
 
           {/* Band 3: status badge + detail */}
@@ -562,7 +572,9 @@ function AccountRow({ a, walletLabel }: { a: Account; walletLabel: string }) {
           </div>
 
           <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 9.5, color: t.mut, marginBottom: 1 }}>Value</div>
             <Mono style={{ fontSize: 15, fontWeight: 600, display: 'block' }}>{usd(a.value)}</Mono>
+            <div style={{ fontSize: 9.5, color: t.mut, marginTop: 5, marginBottom: 1 }}>PnL</div>
             <Mono style={{ fontSize: 11.5, fontWeight: 600, color: col(a.pnl) }}>{k(a.pnl)}</Mono>
           </div>
 
