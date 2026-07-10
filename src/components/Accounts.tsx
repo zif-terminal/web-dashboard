@@ -131,7 +131,7 @@ export function Accounts() {
 function WalletCard({ w }: { w: Wallet }) {
   const m = useMutations();
   const [showHidden, setShowHidden] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [labelEditing, setLabelEditing] = useState(false);
   const [labelVal, setLabelVal] = useState(w.label);
   const vis = w.accounts.filter((a) => !a.hidden);
@@ -236,6 +236,29 @@ function WalletCard({ w }: { w: Wallet }) {
           )}
         </div>
       )}
+
+      {/* ── Issue cards: always visible even when collapsed ── */}
+      {w.status === 'ready' && (() => {
+        const issueAccts = w.accounts.filter((a) => !a.hidden && (!a.dataComplete || a.accuracy === 'gap' || a.accuracy === 'mismatch'));
+        if (issueAccts.length === 0) return null;
+        return (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '10px 16px', borderBottom: `1px solid ${t.border2}`, background: 'rgba(255,255,255,.015)' }}>
+            {issueAccts.map((a) => {
+              const isIncomplete = !a.dataComplete;
+              const accMeta = metaFor(a);
+              const isGap = a.accuracy === 'gap' || a.accuracy === 'mismatch';
+              return (
+                <div key={a.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 7, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', ...(isIncomplete ? { color: '#f87171', background: 'rgba(248,113,113,.10)', border: '1px solid #5a2a2c' } : { color: accMeta.color, background: accMeta.bg, border: `1px solid ${a.accuracy === 'mismatch' ? 'rgba(248,113,113,.3)' : 'rgba(251,191,36,.25)'}` }) }}>
+                  <span>{isIncomplete ? '⚠' : accMeta.dot}</span>
+                  <span>{a.name}</span>
+                  <span style={{ opacity: 0.7 }}>·</span>
+                  <span>{isIncomplete ? 'Incomplete data' : accMeta.label}</span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {scanning && (
         <div style={{ padding: '18px 19px', display: 'flex', alignItems: 'center', gap: 11, color: '#cdd4da', fontSize: 13.5 }}>
