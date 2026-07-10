@@ -48,7 +48,9 @@ export function Accounts() {
     // 'detecting' wallet (Wallets +1 while scanning) is already counted via
     // wallets.length so the stat card ticks up immediately on add.
     const awaitingKey = vis.filter((a) => a.needsApi && !a.apiProvided && !a.apiSkipped).length;
-    return { wallets: wallets.length, accounts: vis.length, value, txt, color, awaitingKey };
+    // Accounts with incomplete source history (data_complete=false, #186).
+    const incompleteData = all.filter((a) => !a.dataComplete).length;
+    return { wallets: wallets.length, accounts: vis.length, value, txt, color, awaitingKey, incompleteData };
   }, [wallets]);
 
   return (
@@ -106,6 +108,15 @@ export function Accounts() {
           <span style={{ color: t.amber, fontSize: 15, lineHeight: 1.4, flexShrink: 0 }}>⚠</span>
           <div style={{ fontSize: 13, color: '#e7d9b0', lineHeight: 1.5 }}>
             <b>{summary.awaitingKey}</b> account{summary.awaitingKey === 1 ? '' : 's'} need{summary.awaitingKey === 1 ? 's' : ''} a read-only API key to sync balances and PnL. Add the key on each below, or skip to track on-chain data only.
+          </div>
+        </div>
+      )}
+
+      {summary.incompleteData > 0 && (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: 'rgba(248,113,113,.08)', border: `1px solid #5a2a2c`, borderRadius: 12, padding: '13px 16px', marginBottom: 14 }}>
+          <span style={{ color: '#f87171', fontSize: 15, lineHeight: 1.4, flexShrink: 0 }}>⚠</span>
+          <div style={{ fontSize: 13, color: '#f5c5c5', lineHeight: 1.5 }}>
+            <b>{summary.incompleteData}</b> account{summary.incompleteData === 1 ? '' : 's'} {summary.incompleteData === 1 ? 'has' : 'have'} incomplete source history — balances &amp; positions may be inaccurate. These accounts are flagged below.
           </div>
         </div>
       )}
@@ -321,6 +332,14 @@ function AccountRow({ a, walletLabel }: { a: Account; walletLabel: string }) {
       <span style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: '.05em', color: t.mut, border: `1px solid #2a323a`, borderRadius: 5, padding: '1px 6px' }}>{a.type === 'main' ? 'Main' : 'Sub'}</span>
       {walletLabel && (
         <span style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: '.05em', color: WALLET_CHIP.fg, background: WALLET_CHIP.bg, border: `1px solid ${WALLET_CHIP.bd}`, borderRadius: 5, padding: '1px 6px', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={walletLabel}>{walletLabel}</span>
+      )}
+      {!a.dataComplete && (
+        <span
+          title="Missing history — balances &amp; positions may be inaccurate."
+          style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.04em', color: '#f87171', background: 'rgba(248,113,113,.10)', border: `1px solid #5a2a2c`, borderRadius: 5, padding: '1px 7px', whiteSpace: 'nowrap' }}
+        >
+          ⚠ Incomplete data
+        </span>
       )}
     </>
   );

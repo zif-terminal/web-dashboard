@@ -219,6 +219,7 @@ export const ACCOUNTS_SUB = gql`
       needs_api
       api_provided
       accuracy
+      data_complete
       tags
       wallet_address
       wallet_status

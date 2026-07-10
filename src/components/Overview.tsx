@@ -8,8 +8,11 @@ import { PositionsSection } from './Positions';
 export function Overview() {
   const pf = useStore((s) => s.portfolio);
   const positions = useStore((s) => s.positions);
+  const wallets = useStore((s) => s.wallets);
   const setTab = useStore((s) => s.setTab);
   const isMobile = useIsMobile();
+
+  const incompleteAccounts = wallets.flatMap((w) => w.accounts).filter((a) => !a.dataComplete).length;
 
   if (!pf) return <div style={{ color: t.mut }}>Connecting…</div>;
 
@@ -18,6 +21,20 @@ export function Overview() {
 
   return (
     <div>
+      {incompleteAccounts > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(248,113,113,.08)', border: `1px solid #5a2a2c`, borderRadius: 11, padding: '10px 15px', marginBottom: 18, flexWrap: 'wrap' }}>
+          <span style={{ color: '#f87171', fontSize: 14, flexShrink: 0 }}>⚠</span>
+          <span style={{ fontSize: 13, color: '#f5c5c5', flex: 1, minWidth: 200 }}>
+            <b>{incompleteAccounts}</b> account{incompleteAccounts === 1 ? '' : 's'} {incompleteAccounts === 1 ? 'has' : 'have'} incomplete data — figures may be inaccurate.
+          </span>
+          <button
+            onClick={() => setTab('accounts')}
+            style={{ fontFamily: t.sans, fontSize: 12, fontWeight: 600, cursor: 'pointer', background: 'none', color: '#f87171', border: `1px solid #5a2a2c`, borderRadius: 7, padding: '5px 11px', whiteSpace: 'nowrap', flexShrink: 0 }}
+          >
+            See Accounts
+          </button>
+        </div>
+      )}
       <div style={{ fontSize: 14, color: t.mut }}>Total portfolio value</div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, flexWrap: 'wrap', margin: '4px 0 22px' }}>
         <Mono style={{ fontSize: 'clamp(34px,7vw,52px)', fontWeight: 600, letterSpacing: '-.02em' }}>

@@ -195,6 +195,7 @@ export interface Account {
   value: number;
   pnl: number;
   accuracy: Accuracy;
+  dataComplete: boolean;
   needsApi: boolean;
   apiProvided: boolean;
   apiSkipped: boolean;

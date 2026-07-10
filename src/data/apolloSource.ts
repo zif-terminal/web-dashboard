@@ -179,6 +179,7 @@ const groupAccounts = (rows: any[]): Wallet[] => {
       value: num(r.value),
       pnl: num(r.pnl),
       accuracy: accuracyOf(r.accuracy),
+      dataComplete: r.data_complete !== false,
       needsApi,
       apiProvided,
       // No durable DB source — local UI/edit state in the prototype. Default sensibly.
