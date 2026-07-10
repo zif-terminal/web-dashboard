@@ -205,6 +205,9 @@ const groupAccounts = (rows: any[]): Wallet[] => {
       apiSkipped: false,
       hidden: false,
       tags: Array.isArray(r.tags) ? r.tags.map(String) : [],
+      // #224 identifiers for copy-to-clipboard in expanded account detail.
+      walletAddress: r.wallet_address ?? '',
+      accountIdentifier: r.account_identifier ?? '',
     };
     w.accounts.push(account);
   }

@@ -228,6 +228,8 @@ export const ACCOUNTS_SUB = gql`
       tags
       wallet_address
       wallet_status
+      # #224 exchange-given address/id (e.g. 0xAdA3… for HL, account_index for Lighter).
+      account_identifier
       # Per-user friendly label (user_wallets.label). RLS on user_wallets already
       # scopes this to X-Hasura-User-Id, so this array is at most the CURRENT user's
       # one association row — apolloSource uses it as the SINGLE source of truth for

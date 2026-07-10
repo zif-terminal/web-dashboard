@@ -222,6 +222,11 @@ export interface Account {
   keyMask?: string;
   hidden: boolean;
   tags: string[];
+  // #224 identifiers for copy-to-clipboard in expanded account detail.
+  // walletAddress: full wallet address (wallets.address).
+  // accountIdentifier: exchange-given address/id (exchange_accounts.account_identifier).
+  walletAddress: string;
+  accountIdentifier: string;
 }
 
 export interface Wallet {

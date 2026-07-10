@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { useStore } from '../store/store';
 import { useMutations } from '../store/useMutations';
 import { Card, Mono, StatCard } from '../ui/primitives';
@@ -19,9 +19,9 @@ type BadgeMeta = { label: string; color: string; bg: string; dot: string; detail
 // mapping, no ad-hoc thresholds. reconciled = computed == exchange-reported;
 // gap = complete data, real drift ($X off); incomplete = missing fills ($X off).
 const RECONCILE_META: Record<ReconcileStatus, BadgeMeta> = {
-  reconciled:  { label: 'Reconciled', color: t.green, bg: 'rgba(52,211,153,.12)', dot: '✓', detail: 'computed = exchange' },
-  gap:         { label: 'Gap',        color: t.amber, bg: 'rgba(251,191,36,.12)', dot: '⚠', detail: 'complete data · off exchange' },
-  incomplete:  { label: 'Incomplete', color: t.red,   bg: 'rgba(248,113,113,.12)', dot: '⚠', detail: 'missing fills · off exchange' },
+  reconciled:  { label: 'Reconciled', color: t.green, bg: 'rgba(52,211,153,.12)', dot: '✓', detail: 'Matches the exchange' },
+  gap:         { label: 'Gap',        color: t.amber, bg: 'rgba(251,191,36,.12)', dot: '⚠', detail: 'All trades present, value off' },
+  incomplete:  { label: 'Incomplete', color: t.red,   bg: 'rgba(248,113,113,.12)', dot: '⚠', detail: 'Missing trades, value off' },
 };
 
 // The API-key state is ORTHOGONAL to reconciliation (no data yet vs. how well
@@ -64,12 +64,44 @@ const gapDir = (a: Account) => ((a.gapAmount ?? 0) >= 0 ? 'higher' : 'lower');
 function gapExplain(a: Account): string {
   switch (a.reconcileStatus) {
     case 'reconciled':
-      return 'Reconciled — your computed positions & PnL match the exchange’s reported balance.';
+      return 'Reconciled — your computed positions & PnL match what the exchange reports for this account.';
     case 'incomplete':
-      return `Incomplete data — we’re missing some fills, so the dashboard value is ${gapMag(a)} ${gapDir(a)} than the exchange balance (may correct once fills land).`;
+      return `Missing some trades — our value is ${gapMag(a)} ${gapDir(a)} than the exchange shows (may correct once the trades land).`;
     default:
-      return `Gap — data is complete but the dashboard value is ${gapMag(a)} ${gapDir(a)} than the exchange balance.`;
+      return `All trades present — but our value is ${gapMag(a)} ${gapDir(a)} than the exchange shows.`;
   }
+}
+
+// ── Copy-to-clipboard field (#224) ──────────────────────────────────────────
+// Small inline field: label + monospaced value + copy icon.
+// Shows "Copied!" momentarily on success.
+function CopyField({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = useCallback(() => {
+    if (!value) return;
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }).catch(() => {});
+  }, [value]);
+  if (!value) return null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'nowrap', minWidth: 0 }}>
+      <span style={{ fontSize: 10.5, color: t.mut, whiteSpace: 'nowrap', flexShrink: 0 }}>{label}</span>
+      <Mono style={{ fontSize: 10.5, color: '#cdd4da', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flex: 1 }}>{value}</Mono>
+      <button
+        onClick={copy}
+        title={copied ? 'Copied!' : `Copy ${label}`}
+        style={{ fontFamily: t.sans, cursor: 'pointer', background: 'none', border: 'none', padding: '2px 4px', color: copied ? t.green : t.mut2, flexShrink: 0, display: 'inline-flex', alignItems: 'center', borderRadius: 4, transition: 'color .15s' }}
+      >
+        {copied ? (
+          <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+        ) : (
+          <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+        )}
+      </button>
+    </div>
+  );
 }
 
 export function Accounts() {
@@ -549,6 +581,13 @@ function AccountRow({ a, walletLabel }: { a: Account; walletLabel: string }) {
           <button onClick={() => m.updateAccount(a.id, { apiSkipped: false })} style={{ fontFamily: t.sans, fontSize: 12, fontWeight: 600, cursor: 'pointer', background: 'none', color: t.acc, border: 'none', padding: 0 }}>Add key</button>
         </div>
       )}
+
+      {/* ── #224 Copyable identifiers (always shown in the expanded row) ── */}
+      <div style={{ marginTop: 13, display: 'flex', flexDirection: 'column', gap: 5, padding: '10px 12px', background: 'rgba(255,255,255,.025)', border: `1px solid ${t.border2}`, borderRadius: 9 }}>
+        <CopyField label="Wallet address" value={a.walletAddress} />
+        <CopyField label="Exchange ID" value={a.accountIdentifier} />
+        <CopyField label="Internal ID" value={a.id} />
+      </div>
     </div>
   );
 }

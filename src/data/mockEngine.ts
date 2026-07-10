@@ -447,8 +447,8 @@ export class MockEngine {
           this.wallets.unshift({
             id, address: full, label: label || 'New wallet', status: 'ready',
             accounts: [
-              { id: id + 'm', walletId: id, name: label || 'Main account', exch: 'Lighter', type: 'main', value: 128450, pnl: 12300, accuracy: 'synced', dataComplete: true, reconcileStatus: 'reconciled', gapAmount: 0, needsApi: false, apiProvided: true, apiSkipped: false, hidden: false, tags: [] },
-              { id: id + 'b', walletId: id, name: 'Binance', exch: 'Binance', type: 'main', value: 0, pnl: 0, accuracy: 'pending', dataComplete: true, reconcileStatus: 'reconciled', gapAmount: 0, needsApi: true, apiProvided: false, apiSkipped: false, hidden: false, tags: [] },
+              { id: id + 'm', walletId: id, name: label || 'Main account', exch: 'Lighter', type: 'main', value: 128450, pnl: 12300, accuracy: 'synced', dataComplete: true, reconcileStatus: 'reconciled', gapAmount: 0, needsApi: false, apiProvided: true, apiSkipped: false, hidden: false, tags: [], walletAddress: full, accountIdentifier: '' },
+              { id: id + 'b', walletId: id, name: 'Binance', exch: 'Binance', type: 'main', value: 0, pnl: 0, accuracy: 'pending', dataComplete: true, reconcileStatus: 'reconciled', gapAmount: 0, needsApi: true, apiProvided: false, apiSkipped: false, hidden: false, tags: [], walletAddress: full, accountIdentifier: '' },
             ] as Account[],
           });
           this.pushAccounts();
