@@ -472,7 +472,8 @@ export function Activity() {
         </div>
       )}
 
-      <Card style={{ padding: '18px 20px' }}>
+      {/* #218: outer border/frame removed — keep inner row separators */}
+      <Card style={{ padding: '18px 20px', border: 'none', background: 'transparent', borderRadius: 0 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
           {combined ? (
             combinedRows.map((g) => <CombinedRowView key={g.key} g={g} isMobile={isMobile} />)

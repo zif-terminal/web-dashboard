@@ -296,6 +296,7 @@ export function Income() {
         <span style={{ fontSize: 12, color: t.mut2 }}>{periods.length} period{periods.length === 1 ? '' : 's'} · each source its own column</span>
       </div>
 
+      {/* #218: outer border/frame removed — keep inner row separators */}
       <Card style={{ padding: '4px 6px', overflowX: 'auto', border: 'none', background: 'transparent', borderRadius: 0 }}>
         <div style={{ minWidth: 880 }}>
           <Row header cols={['Period', 'Realized', 'Funding', 'Fees', 'Rewards', 'Interest', 'Net income', 'Transfers']} />
