@@ -31,15 +31,15 @@ export const seedOrders: RestingOrder[] = [
 
 export const seedWallets: Wallet[] = [
   { id: 'w1', address: '0x7ff5…126b', label: 'Hyperliquid', status: 'ready', accounts: [
-    { id: 'a1', walletId: 'w1', name: 'hype-borrow', exch: 'Hyperliquid', type: 'sub', value: 527248.02, pnl: 232200, accuracy: 'mismatch', dataComplete: true, needsApi: false, apiProvided: true, apiSkipped: false, hidden: false, tags: [] },
-    { id: 'a2', walletId: 'w1', name: 'Main', exch: 'Hyperliquid', type: 'main', value: 86335.1, pnl: 253600, accuracy: 'mismatch', dataComplete: true, needsApi: false, apiProvided: true, apiSkipped: false, hidden: false, tags: ['core'] },
-    { id: 'a3', walletId: 'w1', name: 'Hype OG', exch: 'Hyperliquid', type: 'main', value: 1.23, pnl: 800700, accuracy: 'synced', dataComplete: true, needsApi: false, apiProvided: true, apiSkipped: false, hidden: false, tags: [] },
-    { id: 'a4', walletId: 'w1', name: 'Zif Test', exch: 'Hyperliquid', type: 'sub', value: 0, pnl: -5, accuracy: 'synced', dataComplete: true, needsApi: false, apiProvided: true, apiSkipped: false, hidden: true, tags: [] },
-    { id: 'a5', walletId: 'w1', name: 'Binance Main', exch: 'Binance', type: 'main', value: 148200, pnl: 9400, accuracy: 'synced', dataComplete: true, needsApi: true, apiProvided: true, apiSkipped: false, keyMask: '••••7c4a', hidden: false, tags: ['core'] },
+    { id: 'a1', walletId: 'w1', name: 'hype-borrow', exch: 'Hyperliquid', type: 'sub', value: 527248.02, pnl: 232200, accuracy: 'mismatch', dataComplete: true, gapAmount: 0, needsApi: false, apiProvided: true, apiSkipped: false, hidden: false, tags: [] },
+    { id: 'a2', walletId: 'w1', name: 'Main', exch: 'Hyperliquid', type: 'main', value: 86335.1, pnl: 253600, accuracy: 'mismatch', dataComplete: true, gapAmount: 0, needsApi: false, apiProvided: true, apiSkipped: false, hidden: false, tags: ['core'] },
+    { id: 'a3', walletId: 'w1', name: 'Hype OG', exch: 'Hyperliquid', type: 'main', value: 1.23, pnl: 800700, accuracy: 'synced', dataComplete: true, gapAmount: 0, needsApi: false, apiProvided: true, apiSkipped: false, hidden: false, tags: [] },
+    { id: 'a4', walletId: 'w1', name: 'Zif Test', exch: 'Hyperliquid', type: 'sub', value: 0, pnl: -5, accuracy: 'synced', dataComplete: true, gapAmount: 0, needsApi: false, apiProvided: true, apiSkipped: false, hidden: true, tags: [] },
+    { id: 'a5', walletId: 'w1', name: 'Binance Main', exch: 'Binance', type: 'main', value: 148200, pnl: 9400, accuracy: 'synced', dataComplete: true, gapAmount: 0, needsApi: true, apiProvided: true, apiSkipped: false, keyMask: '••••7c4a', hidden: false, tags: ['core'] },
   ] },
   { id: 'w2', address: '0x3a91…8b40', label: 'Lighter', status: 'ready', accounts: [
-    { id: 'b1', walletId: 'w2', name: 'Dad Trading', exch: 'Lighter', type: 'main', value: 542900, pnl: -57800, accuracy: 'synced', dataComplete: true, needsApi: false, apiProvided: true, apiSkipped: false, hidden: false, tags: ['core'] },
-    { id: 'b2', walletId: 'w2', name: 'Funding', exch: 'Lighter', type: 'sub', value: 5.87, pnl: -56200, accuracy: 'gap', dataComplete: false, needsApi: false, apiProvided: true, apiSkipped: false, hidden: false, tags: [] },
+    { id: 'b1', walletId: 'w2', name: 'Dad Trading', exch: 'Lighter', type: 'main', value: 542900, pnl: -57800, accuracy: 'synced', dataComplete: true, gapAmount: 0, needsApi: false, apiProvided: true, apiSkipped: false, hidden: false, tags: ['core'] },
+    { id: 'b2', walletId: 'w2', name: 'Funding', exch: 'Lighter', type: 'sub', value: 5.87, pnl: -56200, accuracy: 'gap', dataComplete: false, gapAmount: 0, needsApi: false, apiProvided: true, apiSkipped: false, hidden: false, tags: [] },
   ] },
 ];
 

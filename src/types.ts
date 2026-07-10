@@ -202,6 +202,11 @@ export interface Account {
   pnl: number;
   accuracy: Accuracy;
   dataComplete: boolean;
+  // Reconciliation gap magnitude (#222): the netflow residual
+  // equity − realized − unrealized + net_flow, i.e. how far the dashboard's
+  // computed value is from the exchange's reported balance. ≈0 when reconciled;
+  // sign = dashboard is that much higher (+) / lower (−) than the exchange.
+  gapAmount: number;
   needsApi: boolean;
   apiProvided: boolean;
   apiSkipped: boolean;

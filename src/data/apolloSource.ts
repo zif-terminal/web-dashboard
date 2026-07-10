@@ -180,6 +180,7 @@ const groupAccounts = (rows: any[]): Wallet[] => {
       pnl: num(r.pnl),
       accuracy: accuracyOf(r.accuracy),
       dataComplete: r.data_complete !== false,
+      gapAmount: num(r.gap_amount),
       needsApi,
       apiProvided,
       // No durable DB source — local UI/edit state in the prototype. Default sensibly.

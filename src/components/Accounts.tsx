@@ -26,6 +26,26 @@ function metaFor(a: Account) {
   return accMeta[key];
 }
 
+// ── Reconciliation gap (#222) ────────────────────────────────────────────────
+// gapAmount = the netflow residual (equity − realized − unrealized + net_flow) =
+// how far the dashboard's computed value is from the exchange's reported balance.
+// Reconciled = the two match (residual ≈ 0). We only surface a magnitude once it
+// clears a small rounding floor so cent-level noise doesn't read as a "gap".
+const GAP_FLOOR = 1; // dollars — below this we treat the account as reconciled
+
+// Signed absolute magnitude, e.g. $86,864.77 (always positive $, direction is words).
+const gapMag = (a: Account) => usd(Math.abs(a.gapAmount ?? 0));
+const gapDir = (a: Account) => ((a.gapAmount ?? 0) >= 0 ? 'higher' : 'lower');
+const hasGap = (a: Account) => Math.abs(a.gapAmount ?? 0) >= GAP_FLOOR;
+
+// Plain-English explanation of what "reconciled / gap" means for this account.
+function gapExplain(a: Account): string {
+  if (!hasGap(a)) {
+    return 'Reconciled — your computed positions & PnL match the exchange’s reported balance.';
+  }
+  return `Gap — we’re missing some fills, so the dashboard value is ${gapMag(a)} ${gapDir(a)} than the exchange balance.`;
+}
+
 export function Accounts() {
   const wallets = useStore((s) => s.wallets);
   const m = useMutations();
@@ -246,13 +266,19 @@ function WalletCard({ w }: { w: Wallet }) {
             {issueAccts.map((a) => {
               const isIncomplete = !a.dataComplete;
               const accMeta = metaFor(a);
-              const isGap = a.accuracy === 'gap' || a.accuracy === 'mismatch';
+              const showGap = hasGap(a);
               return (
-                <div key={a.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 7, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', ...(isIncomplete ? { color: '#f87171', background: 'rgba(248,113,113,.10)', border: '1px solid #5a2a2c' } : { color: accMeta.color, background: accMeta.bg, border: `1px solid ${a.accuracy === 'mismatch' ? 'rgba(248,113,113,.3)' : 'rgba(251,191,36,.25)'}` }) }}>
+                <div key={a.id} title={gapExplain(a)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 7, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', cursor: 'help', ...(isIncomplete ? { color: '#f87171', background: 'rgba(248,113,113,.10)', border: '1px solid #5a2a2c' } : { color: accMeta.color, background: accMeta.bg, border: `1px solid ${a.accuracy === 'mismatch' ? 'rgba(248,113,113,.3)' : 'rgba(251,191,36,.25)'}` }) }}>
                   <span>{isIncomplete ? '⚠' : accMeta.dot}</span>
                   <span>{a.name}</span>
                   <span style={{ opacity: 0.7 }}>·</span>
                   <span>{isIncomplete ? 'Incomplete data' : accMeta.label}</span>
+                  {showGap && (
+                    <>
+                      <span style={{ opacity: 0.7 }}>·</span>
+                      <Mono style={{ fontWeight: 700 }}>{gapMag(a)} off</Mono>
+                    </>
+                  )}
                 </div>
               );
             })}
@@ -301,6 +327,30 @@ function WalletCard({ w }: { w: Wallet }) {
         </div>
       )}
     </Card>
+  );
+}
+
+// Sign-aware reconciliation-gap line shown under each account's status badge.
+// Reconciled → a quiet green "matches the exchange balance ✓"; gap → an amber/red
+// "$X higher/lower than the exchange balance" so the user SEES the magnitude and
+// direction BEFORE any reconciliation is applied. Read-only (consumes gapAmount).
+function GapExplainer({ a, align = 'left' }: { a: Account; align?: 'left' | 'right' }) {
+  const gap = hasGap(a);
+  const incomplete = !a.dataComplete;
+  // Only render a gap line when there's something to say: a real gap, or an
+  // incomplete-data account (reconciled+complete accounts already read "✓").
+  if (!gap && !incomplete) return null;
+  const color = gap ? (a.accuracy === 'mismatch' ? t.red : t.amber) : t.green;
+  return (
+    <div title={gapExplain(a)} style={{ marginTop: 5, fontSize: 10.5, lineHeight: 1.45, color, textAlign: align, maxWidth: 240, marginLeft: align === 'right' ? 'auto' : undefined }}>
+      {gap ? (
+        <>
+          <b>{gapMag(a)}</b> {gapDir(a)} than the exchange balance
+        </>
+      ) : (
+        <>Missing history — figure may be off once fills land</>
+      )}
+    </div>
   );
 }
 
@@ -415,6 +465,7 @@ function AccountRow({ a, walletLabel }: { a: Account; walletLabel: string }) {
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: info.color, background: info.bg, borderRadius: 6, padding: '3px 8px' }}>{info.dot} {info.label}</div>
             <Mono style={{ fontSize: 10, color: t.mut2 }}>{info.detail}</Mono>
           </div>
+          <GapExplainer a={a} />
 
           {/* Band 4: action buttons — 44px touch targets */}
           <div style={{ display: 'flex', gap: 8 }}>
@@ -440,9 +491,10 @@ function AccountRow({ a, walletLabel }: { a: Account; walletLabel: string }) {
             <Mono style={{ fontSize: 11.5, fontWeight: 600, color: col(a.pnl) }}>{k(a.pnl)}</Mono>
           </div>
 
-          <div style={{ textAlign: 'right', minWidth: 120 }}>
+          <div style={{ textAlign: 'right', minWidth: 120, maxWidth: 260 }}>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: info.color, background: info.bg, borderRadius: 6, padding: '3px 8px' }}>{info.dot} {info.label}</div>
             <Mono style={{ fontSize: 10, color: t.mut2, marginTop: 5, display: 'block' }}>{info.detail}</Mono>
+            <GapExplainer a={a} align="right" />
           </div>
 
           <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
