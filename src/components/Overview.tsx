@@ -1,20 +1,83 @@
+import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../store/store';
+import { dataSource } from '../store/useLiveData';
 import { Card, Mono, StatCard } from '../ui/primitives';
 import { t } from '../ui/theme';
 import { k, kc, usd, col } from '../lib/format';
 import { useIsMobile } from '../lib/useIsMobile';
 import { PositionsSection } from './Positions';
 
+// #212-analytics: compact "since you last checked" pulse. Funding + net income
+// come from mat_income_periods summed over [prevLastCheckedMs, now]; exits come
+// from mat_closed_trades in the same window; entries come from live open positions
+// whose current lifecycle opened after the marker (best cheap signal available).
+function usePulse(prevLastCheckedMs: number) {
+  const positions = useStore((s) => s.positions);
+  const lifecycle = useStore((s) => s.lifecycle);
+  const [funding, setFunding] = useState(0);
+  const [netIncome, setNetIncome] = useState(0);
+  const [exits, setExits] = useState(0);
+  const [ready, setReady] = useState(false);
+
+  const sinceMs = prevLastCheckedMs > 0 ? prevLastCheckedMs : Date.now() - 86_400_000;
+
+  useEffect(() => {
+    let cancelled = false;
+    const now = Date.now();
+    Promise.all([
+      dataSource.fetchIncomePeriods('day', sinceMs, now),
+      dataSource.fetchClosedWindow(sinceMs, now),
+    ])
+      .then(([rows, win]) => {
+        if (cancelled) return;
+        let fund = 0, net = 0;
+        const INCOME = new Set(['realized_trade', 'funding', 'fee', 'reward', 'interest']);
+        for (const r of rows) {
+          if (r.category === 'funding') fund += r.amount;
+          if (INCOME.has(r.category)) net += r.amount;
+        }
+        setFunding(fund);
+        setNetIncome(net);
+        setExits(win.agg.count);
+        setReady(true);
+      })
+      .catch(() => { if (!cancelled) setReady(true); });
+    return () => { cancelled = true; };
+  }, [sinceMs]);
+
+  // Entries: open positions whose current lifecycle opened after the marker.
+  const entries = useMemo(() => {
+    let n = 0;
+    for (const p of positions) {
+      if (!p.exchangeAccountId) continue;
+      // Look up the lifecycle by scanning the map for a matching eaid+asset start.
+      for (const key in lifecycle) {
+        const lc = lifecycle[key];
+        if (lc.exchangeAccountId === p.exchangeAccountId && lc.startTime > sinceMs) { n++; break; }
+      }
+    }
+    return n;
+  }, [positions, lifecycle, sinceMs]);
+
+  return { funding, netIncome, exits, entries, ready, sinceMs };
+}
+
 export function Overview() {
   const pf = useStore((s) => s.portfolio);
   const positions = useStore((s) => s.positions);
   const wallets = useStore((s) => s.wallets);
   const setTab = useStore((s) => s.setTab);
+  const prevLastCheckedMs = useStore((s) => s.prevLastCheckedMs);
   const isMobile = useIsMobile();
+  const pulse = usePulse(prevLastCheckedMs);
 
   const incompleteAccounts = wallets.flatMap((w) => w.accounts).filter((a) => !a.dataComplete).length;
 
   if (!pf) return <div style={{ color: t.mut }}>Connecting…</div>;
+
+  const sinceLabel = prevLastCheckedMs > 0
+    ? new Date(prevLastCheckedMs).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : 'last 24h';
 
   const longCount = positions.filter((p) => p.side === 'LONG').length;
   const shortCount = positions.length - longCount;
@@ -35,6 +98,23 @@ export function Overview() {
           </button>
         </div>
       )}
+      {/* #212-analytics: compact "since you last checked" pulse strip. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', background: 'linear-gradient(160deg,#191e29,#15191e)', border: '1px solid #2c3550', borderRadius: 11, padding: '11px 16px', marginBottom: 20 }}>
+        <span style={{ fontSize: 11, letterSpacing: '.06em', color: t.acc, fontWeight: 600, whiteSpace: 'nowrap' }}>SINCE YOU LAST CHECKED</span>
+        <span style={{ fontSize: 11, color: t.mut2, whiteSpace: 'nowrap' }}>{sinceLabel}</span>
+        <span style={{ flex: 1, minWidth: 8 }} />
+        <PulseStat label="Net P/L" value={<Mono style={{ fontSize: 15, fontWeight: 600, color: col(pulse.netIncome) }}>{pulse.ready ? k(pulse.netIncome) : '—'}</Mono>} />
+        <PulseStat label="Funding" value={<Mono style={{ fontSize: 15, fontWeight: 600, color: col(pulse.funding) }}>{pulse.ready ? k(pulse.funding) : '—'}</Mono>} />
+        <PulseStat label="Entries" value={<Mono style={{ fontSize: 15, fontWeight: 600 }}>{pulse.entries}</Mono>} />
+        <PulseStat label="Exits" value={<Mono style={{ fontSize: 15, fontWeight: 600 }}>{pulse.ready ? pulse.exits : '—'}</Mono>} />
+        <button
+          onClick={() => setTab('performance')}
+          style={{ fontFamily: t.sans, fontSize: 12, fontWeight: 600, cursor: 'pointer', background: 'none', color: t.acc, border: `1px solid #2c3550`, borderRadius: 7, padding: '5px 11px', whiteSpace: 'nowrap' }}
+        >
+          View in Analytics →
+        </button>
+      </div>
+
       <div style={{ fontSize: 14, color: t.mut }}>Total portfolio value</div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, flexWrap: 'wrap', margin: '4px 0 22px' }}>
         <Mono style={{ fontSize: 'clamp(34px,7vw,52px)', fontWeight: 600, letterSpacing: '-.02em' }}>
@@ -85,3 +165,11 @@ export function Overview() {
     </div>
   );
 }
+
+// Compact stat cell for the "since you last checked" pulse strip.
+const PulseStat: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 62 }}>
+    <span style={{ fontSize: 10, letterSpacing: '.04em', color: t.mut2, textTransform: 'uppercase' }}>{label}</span>
+    {value}
+  </div>
+);

@@ -268,6 +268,10 @@ export const CLOSED_TRADES_QUERY = gql`
       total
       opened_ts
       closed_ts
+      # #212-analytics: is_liquidation — the only exit trigger derivable from ingested
+      # data (Lighter tx_signature + Variational omni liq rows). false for HL/Drift
+      # (liq not ingested) and all non-liquidation closes. Drives the Exit column.
+      is_liquidation
       # Per-user friendly WALLET label (user_wallets.label) via the relationship
       # chain mat_closed_trades -> exchange_account -> wallet -> user_wallets. RLS on
       # user_wallets scopes this to X-Hasura-User-Id, so the array is at most the
@@ -470,6 +474,8 @@ export const CLOSED_PAGE_QUERY = gql`
       total
       opened_ts
       closed_ts
+      # #212-analytics: exit-trigger flag (liquidation vs not) — see CLOSED_TRADES_QUERY.
+      is_liquidation
       exchange_account {
         wallet {
           user_wallets {

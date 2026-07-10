@@ -233,6 +233,9 @@ const mapClosedTrade = (r: any): ClosedTrade => {
     interest: num(r.interest),
     hack: num(r.hack),
     total: num(r.total),
+    // #212-analytics: liquidation exit flag (Lighter + Variational only). Any other
+    // close (incl. HL/Drift, whose liq isn't ingested) → false.
+    isLiquidation: !!r.is_liquidation,
   };
 };
 

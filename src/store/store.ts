@@ -66,6 +66,9 @@ interface UiState {
   posSort: 'risk' | 'unreal' | 'size' | 'pl';
   testPrice: Record<string, number>; // per-position "what-if" price on the planner
   shock: number;
+  // #212-analytics: epoch-ms of the PRIOR app open (the "since you last checked"
+  // anchor). 0 until the first markChecked() OR when there's no stored history.
+  prevLastCheckedMs: number;
 }
 
 interface Actions {
@@ -79,6 +82,9 @@ interface Actions {
   setPosSort: (s: UiState['posSort']) => void;
   setTestPrice: (id: string, price: number) => void;
   setShock: (v: number) => void;
+  // #212-analytics: snapshot the prior "last checked" ms into prevLastCheckedMs,
+  // then stamp now() into localStorage. Called once on app mount.
+  markChecked: () => void;
   // server ingest (called by useLiveData / the rAF batcher)
   _ingestPositions: (p: Position[]) => void;
   _ingestPortfolio: (p: Portfolio) => void;
@@ -103,10 +109,9 @@ export type StoreState = ServerState & UiState & Actions;
 const TAB_LS_KEY = 'zif.tab';
 // #208: 'positions' removed — a stale persisted `zif.tab === 'positions'` now
 // falls back to 'overview' (which shows the Positions section inline).
-// #212 Stream C: 'income' added (the "Income over time" view). 'activity' is also
-// listed so a persisted `zif.tab === 'activity'` restores correctly (it is rendered
-// by the App router but was previously absent from this validation list).
-const VALID_TABS: readonly Tab[] = ['overview', 'performance', 'activity', 'income', 'plan', 'accounts'];
+// #212-analytics: 'income' REMOVED — folded into Analytics (the 'performance' tab).
+// A stale persisted `zif.tab === 'income'` now falls back to 'overview'.
+const VALID_TABS: readonly Tab[] = ['overview', 'performance', 'activity', 'plan', 'accounts'];
 
 function getInitialTab(): Tab {
   if (typeof localStorage === 'undefined') return 'overview';
@@ -177,6 +182,20 @@ function getInitialShock(): number {
   return Number.isFinite(parsed) ? parsed : -20;
 }
 
+// #212-analytics: "since you last checked" marker. `zif.lastChecked` holds the
+// epoch-ms of the PRIOR app open; on mount markChecked() reads it into
+// prevLastCheckedMs (the "since" anchor the Overview pulse + Analytics range use)
+// then stamps now(). First-ever visit has no stored value → prevLastCheckedMs = 0
+// (callers fall back to a 24h window).
+const LAST_CHECKED_LS_KEY = 'zif.lastChecked';
+function readLastChecked(): number {
+  if (typeof localStorage === 'undefined') return 0;
+  const stored = localStorage.getItem(LAST_CHECKED_LS_KEY);
+  if (stored === null) return 0;
+  const parsed = Number(stored);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
 export const useStore = create<StoreState>((set) => ({
   // server
   positions: [],
@@ -200,6 +219,9 @@ export const useStore = create<StoreState>((set) => ({
   posSort: getInitialPosSort(),
   testPrice: {},
   shock: getInitialShock(),
+  // #212-analytics: seeded from storage at init so the pulse has an anchor even
+  // before markChecked() runs; markChecked() (on mount) refreshes it + stamps now.
+  prevLastCheckedMs: readLastChecked(),
   // ui actions
   setTab: (tab) => {
     if (typeof localStorage !== 'undefined') localStorage.setItem(TAB_LS_KEY, tab);
@@ -216,6 +238,15 @@ export const useStore = create<StoreState>((set) => ({
   setPerfStatus: (perfStatus) => {
     if (typeof localStorage !== 'undefined') localStorage.setItem('zif.perfStatus', perfStatus);
     set({ perfStatus });
+  },
+  markChecked: () => {
+    const prev = readLastChecked();
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(LAST_CHECKED_LS_KEY, String(Date.now()));
+    }
+    // Only advance the anchor forward; if the store was init'd with a stored value
+    // already, keep the earliest of the two so the pulse window doesn't collapse.
+    set((s) => ({ prevLastCheckedMs: prev || s.prevLastCheckedMs }));
   },
   togglePerf: (k) => set((s) => ({ perfExpanded: { ...s.perfExpanded, [k]: !s.perfExpanded[k] } })),
   toggleExpand: (id) => set((s) => ({ expanded: { ...s.expanded, [id]: !s.expanded[id] } })),

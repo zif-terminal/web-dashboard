@@ -136,6 +136,12 @@ export interface ClosedTrade {
   interest: number;
   hack: number;
   total: number;
+  // #212-analytics: true when this closed position was liquidated. The ONLY exit
+  // trigger derivable from ingested data (Lighter tx_signature + Variational omni
+  // liquidation rows — see mat_closed_trades.is_liquidation). HL/Drift liq not
+  // ingested → false. SL/TP/limit/manual are NOT derivable anywhere and are never
+  // fabricated (design doc §C).
+  isLiquidation: boolean;
 }
 
 // ── Performance server-side aggregates (#184) ────────────────────────────────
@@ -234,12 +240,12 @@ export interface Wallet {
 // "income" total — follow tax_category (non_taxable / casualty_loss are not income).
 export type IncomeCategory =
   | 'realized_trade' | 'funding' | 'fee' | 'reward' | 'interest' | 'hack' | 'transfer';
-export type IncomeGrain = 'day' | 'week' | 'month';
+export type IncomeGrain = 'day' | 'week' | 'month' | 'year';
 
 export interface IncomePeriodRow {
   exchangeAccountId: string;
   exch: string;            // venue (exchanges.name)
-  periodType: IncomeGrain; // 'day' | 'week' | 'month'
+  periodType: IncomeGrain; // 'day' | 'week' | 'month' | 'year'
   periodStart: number;     // epoch-ms UTC bucket start (server-computed)
   category: IncomeCategory;
   taxCategory: string;     // capital | ordinary_income | expense | casualty_loss | non_taxable
@@ -265,5 +271,6 @@ export type PerfDim = 'exch' | 'asset' | 'wallet' | 'none';
 export type PerfStatus = 'all' | 'open' | 'closed';
 // #208: 'positions' removed as a top-level tab — the Positions view is now a
 // section rendered inline at the bottom of Overview.
-// #212 Stream C: 'income' added — the "Income over time" period rollup view.
-export type Tab = 'overview' | 'performance' | 'activity' | 'income' | 'plan' | 'accounts';
+// #212-analytics: 'income' REMOVED — the Income period rollup was folded into the
+// renamed Analytics page (key stays 'performance'; label relabelled to "Analytics").
+export type Tab = 'overview' | 'performance' | 'activity' | 'plan' | 'accounts';

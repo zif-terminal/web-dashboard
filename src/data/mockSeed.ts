@@ -75,6 +75,9 @@ export const seedClosedTrades: ClosedTrade[] = rawTrades.map((t, i) => {
     pnl,
     hack: 0,
     total: pnl + t.fees + t.funding + t.rewards + t.interest,
+    // #212-analytics: flag every 5th mock trade as a liquidation so the Exit column
+    // has visible variety in the mock build (real data comes from is_liquidation).
+    isLiquidation: i % 5 === 0,
   };
 });
 

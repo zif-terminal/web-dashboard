@@ -5,7 +5,6 @@ import { Layout } from './components/Layout';
 import { Overview } from './components/Overview';
 import { Performance } from './components/Performance';
 import { Activity } from './components/Activity';
-import { Income } from './components/Income';
 import { RiskPlan } from './components/RiskPlan';
 import { Accounts } from './components/Accounts';
 import { Login } from './components/Login';
@@ -17,16 +16,25 @@ import { useAuth, isTokenValid, clearSession } from './data/authStore';
 function Dashboard() {
   useLiveData(); // boots subscriptions + rAF ingest once
   const tab = useStore((s) => s.tab);
+  const markChecked = useStore((s) => s.markChecked);
+
+  // #212-analytics: on mount, snapshot the prior "last checked" marker into
+  // prevLastCheckedMs then stamp now — powers the Overview pulse + Analytics
+  // "Since last checked" range. Runs once per app open.
+  useEffect(() => {
+    markChecked();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <>
       <Layout>
         {/* #208: Positions is no longer a standalone tab — the Overview page
-            now renders the full Positions section inline below its summary. */}
+            now renders the full Positions section inline below its summary.
+            #212-analytics: 'income' folded into Analytics (the 'performance' tab). */}
         {tab === 'overview' && <Overview />}
         {tab === 'performance' && <Performance />}
         {tab === 'activity' && <Activity />}
-        {tab === 'income' && <Income />}
         {tab === 'plan' && <RiskPlan />}
         {tab === 'accounts' && <Accounts />}
       </Layout>
