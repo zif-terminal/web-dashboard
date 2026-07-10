@@ -6,7 +6,7 @@ import { t, exchMeta } from '../ui/theme';
 import { k, col, px, shortAddr } from '../lib/format';
 import { useIsMobile } from '../lib/useIsMobile';
 import { windowBounds, isYearWin } from '../data/perfWindow';
-import { IdentityTagsNoAccount } from '../lib/tags';
+import { IdentityTags } from '../lib/tags';
 import type {
   ClosedTrade, Position, PerfDim, PerfStatus, ClosedAgg, ClosedGroupAgg, ClosedWindow,
 } from '../types';
@@ -492,8 +492,8 @@ const FlatOpenRow: React.FC<{ p: Position }> = ({ p }) => (
       <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: '.04em', color: '#8aa2ff', background: 'rgba(138,162,255,.13)', borderRadius: 4, padding: '2px 6px', flexShrink: 0 }}>OPEN</span>
       <Mono style={{ fontSize: 13, fontWeight: 600 }}>{p.asset}</Mono>
       <span style={{ fontSize: 9, fontWeight: 600, color: p.side === 'LONG' ? t.green : t.red }}>{p.side}</span>
-      {/* #216: identity chip tags (exchange + wallet) — shared with Activity rows. */}
-      <IdentityTagsNoAccount p={p} />
+      {/* #216: full identity chip tags (exchange + wallet + account) — shared with Activity rows. */}
+      <IdentityTags p={p} />
     </span>
     <Num v={0} /><Num v={0} /><Num v={0} /><Num v={0} /><Num v={0} /><Num v={0} />
     <Num v={0} bold /><Num v={p.unreal} />
@@ -506,9 +506,9 @@ const FlatClosedRow: React.FC<{ t: ClosedTrade }> = ({ t: tr }) => (
       <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: '.04em', color: '#9aa3ab', background: 'rgba(139,149,160,.13)', borderRadius: 4, padding: '2px 6px', flexShrink: 0 }}>CLOSED</span>
       <Mono style={{ fontSize: 13, fontWeight: 600 }}>{tr.asset}</Mono>
       <span style={{ fontSize: 9, fontWeight: 600, color: tr.side === 'LONG' ? t.green : t.red }}>{tr.side}</span>
-      {/* #216: identity chip tags (exchange + wallet from mat_closed_trades) —
-          shared with Activity rows (#213). Account chip is a follow-up. */}
-      <IdentityTagsNoAccount p={tr} />
+      {/* #216: full identity chip tags (exchange + wallet + account from
+          mat_closed_trades) — shared with Activity rows (#213). */}
+      <IdentityTags p={tr} />
       <Mono style={{ fontSize: 10.5, color: t.mut2 }}>{closedLabel(tr)}</Mono>
     </span>
     <Num v={tr.pnl} /><Num v={tr.funding} /><Num v={tr.fees} />

@@ -205,10 +205,16 @@ const mapClosedTrade = (r: any): ClosedTrade => {
     id: r.id,
     asset: r.asset ?? '',
     exch: exch(r.exch),
-    wallet: r.wallet ?? '',
+    // #216: the ACCOUNT label (exchange_accounts.label) now comes from the
+    // dedicated `account` column — same as mat_activity_stream's `account` (see
+    // mapActivity: `wallet: a.account`). It drives the account chip via
+    // IdentityTags. NULL/'' for unlabeled accounts → chip omitted (consistent
+    // with Activity). Fall back to the legacy `wallet` (COALESCE(label,ident))
+    // only if `account` is absent (older payloads).
+    wallet: (r.account as string | undefined)?.trim() || (r.wallet ?? ''),
     // Real per-user wallet label via exchange_account → wallet → user_wallets
     // (RLS-scoped to this user, so [0] is the only row). Falls back to '' when the
-    // user hasn't labelled the wallet. `wallet` above is the ACCOUNT label.
+    // user hasn't labelled the wallet.
     walletLabel: (r.exchange_account?.wallet?.user_wallets?.[0]?.label as string | undefined)?.trim() ?? '',
     side: (r.side as Side) ?? 'LONG',
     // closedMs = raw epoch-ms of the close timestamp (for year filtering in Performance).

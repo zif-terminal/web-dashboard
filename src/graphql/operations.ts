@@ -253,6 +253,7 @@ export const CLOSED_TRADES_QUERY = gql`
       asset
       exch
       wallet
+      account
       side
       size
       entry
@@ -454,6 +455,7 @@ export const CLOSED_PAGE_QUERY = gql`
       asset
       exch
       wallet
+      account
       side
       size
       entry
