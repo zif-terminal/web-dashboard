@@ -225,6 +225,17 @@ function WalletCard({ w }: { w: Wallet }) {
   const noAccts = w.status === 'noaccts';
   const shortAddress = shortAddr(w.address);
 
+  // Group visible accounts by exchange, sorted alphabetically.
+  const exchGroups = useMemo(() => {
+    const map = new Map<string, Account[]>();
+    for (const a of vis) {
+      const g = map.get(a.exch) ?? [];
+      g.push(a);
+      map.set(a.exch, g);
+    }
+    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [vis]);
+
   const startEdit = () => { setLabelVal(w.label); setLabelEditing(true); };
   const cancelEdit = () => { setLabelEditing(false); setLabelVal(w.label); };
   const saveEdit = () => {
@@ -285,8 +296,10 @@ function WalletCard({ w }: { w: Wallet }) {
               </div>
             )}
           </div>
-          {/* Address on its own line, truncated */}
-          <Mono style={{ fontSize: 10, color: t.mut2, marginTop: 4, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shortAddress}</Mono>
+          {/* Wallet address shown ONCE here in the header */}
+          <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 4 }}>
+            <CopyField label="Address" value={w.address} />
+          </div>
           {/* Account count / scanning / no-accounts */}
           <Mono style={{ fontSize: 11, color: noAccts ? t.amber : t.mut, marginTop: 3, display: 'block' }}>
             {scanning ? 'scanning…' : noAccts ? 'no accounts detected yet' : `${vis.length} account${vis.length === 1 ? '' : 's'}${hid.length ? ` · ${hid.length} hidden` : ''}`}
@@ -296,10 +309,13 @@ function WalletCard({ w }: { w: Wallet }) {
         <div onClick={toggle} style={{ display: 'flex', alignItems: 'center', gap: 13, flexWrap: 'wrap', padding: '17px 19px', borderBottom: `1px solid ${t.border2}`, cursor: w.status === 'ready' ? 'pointer' : 'default' }}>
           {w.status === 'ready' && chevron}
           <span style={{ width: 9, height: 9, borderRadius: 3, background: dot, flexShrink: 0 }} />
-          <div>
+          <div style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
               {labelEditor(16)}
-              <Mono style={{ fontSize: 11, color: t.mut2 }}>{shortAddress}</Mono>
+            </div>
+            {/* Wallet address shown ONCE here in the header */}
+            <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 4 }}>
+              <CopyField label="Address" value={w.address} />
             </div>
             <Mono style={{ fontSize: 11.5, color: noAccts ? t.amber : t.mut, marginTop: 3 }}>
               {scanning ? 'scanning…' : noAccts ? 'no accounts detected yet' : `${vis.length} account${vis.length === 1 ? '' : 's'}${hid.length ? ` · ${hid.length} hidden` : ''}`}
@@ -357,7 +373,19 @@ function WalletCard({ w }: { w: Wallet }) {
 
       {w.status === 'ready' && !collapsed && (
         <div>
-          {vis.map((a) => <AccountRow key={a.id} a={a} walletLabel={w.label} />)}
+          {exchGroups.map(([exch, accounts]) => {
+            const em = exchMeta[exch];
+            return (
+              <div key={exch}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 19px 6px', borderBottom: `1px solid ${t.border2}`, background: 'rgba(255,255,255,.018)' }}>
+                  {em && <span style={{ width: 7, height: 7, borderRadius: 2, background: em.dot, flexShrink: 0 }} />}
+                  <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: em?.color ?? t.mut, textTransform: 'uppercase' }}>{exch}</span>
+                  <span style={{ fontSize: 10.5, color: t.mut2, marginLeft: 2 }}>({accounts.length})</span>
+                </div>
+                {accounts.map((a) => <AccountRow key={a.id} a={a} walletLabel={w.label} />)}
+              </div>
+            );
+          })}
           {hid.length > 0 && (
             <div style={{ padding: '12px 19px' }}>
               <button onClick={() => setShowHidden((v) => !v)} style={{ fontFamily: t.sans, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: 'none', color: t.mut, border: 'none', padding: 0 }}>
@@ -582,11 +610,9 @@ function AccountRow({ a, walletLabel }: { a: Account; walletLabel: string }) {
         </div>
       )}
 
-      {/* ── #224 Copyable identifiers (always shown in the expanded row) ── */}
+      {/* ── #224/#225 Copyable identifier — exchange-given account id only ── */}
       <div style={{ marginTop: 13, display: 'flex', flexDirection: 'column', gap: 5, padding: '10px 12px', background: 'rgba(255,255,255,.025)', border: `1px solid ${t.border2}`, borderRadius: 9 }}>
-        <CopyField label="Wallet address" value={a.walletAddress} />
-        <CopyField label="Exchange ID" value={a.accountIdentifier} />
-        <CopyField label="Internal ID" value={a.id} />
+        <CopyField label="Account ID" value={a.accountIdentifier} />
       </div>
     </div>
   );
