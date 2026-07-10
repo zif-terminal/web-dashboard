@@ -5,7 +5,7 @@ import { Card, Mono, StatCard } from '../ui/primitives';
 import { t, exchMeta } from '../ui/theme';
 import { usd, usd0, k, col, shortAddr } from '../lib/format';
 import { useIsMobile } from '../lib/useIsMobile';
-import type { Account, Wallet, Accuracy } from '../types';
+import type { Account, Wallet, ReconcileStatus } from '../types';
 import { OmniCsvUpload } from './OmniCsvUpload';
 
 const TAGS = ['core', 'hedge', 'long-term', 'degen'];
@@ -13,37 +13,63 @@ const TAGS = ['core', 'hedge', 'long-term', 'degen'];
 // Warm-bronze wallet chip — matches the wallet chip on the Positions cards.
 const WALLET_CHIP = { fg: '#d3a574', bd: '#4a3a26', bg: 'rgba(211,165,116,0.10)' } as const;
 
-const accMeta: Record<Accuracy, { label: string; color: string; bg: string; dot: string; detail: string }> = {
-  synced: { label: 'Reconciled', color: t.green, bg: 'rgba(52,211,153,.12)', dot: '✓', detail: 'snapshot ✓ · PnL ✓' },
-  gap: { label: 'Minor gap', color: t.amber, bg: 'rgba(251,191,36,.12)', dot: '⚠', detail: 'snapshot ✓ · small PnL gap' },
-  mismatch: { label: 'Mismatch', color: t.red, bg: 'rgba(248,113,113,.12)', dot: '✗', detail: 'snapshot ✓ · PnL vs flow gap' },
-  pending: { label: 'Awaiting key', color: t.mut, bg: 'rgba(139,149,160,.12)', dot: '○', detail: 'connect API to sync' },
-  nokey: { label: 'On-chain only', color: t.amber, bg: 'rgba(251,191,36,.10)', dot: '○', detail: 'no API key · limited' },
+type BadgeMeta = { label: string; color: string; bg: string; dot: string; detail: string };
+
+// #223 The reconciliation badge is driven SOLELY by reconcile_status — ONE
+// mapping, no ad-hoc thresholds. reconciled = computed == exchange-reported;
+// gap = complete data, real drift ($X off); incomplete = missing fills ($X off).
+const RECONCILE_META: Record<ReconcileStatus, BadgeMeta> = {
+  reconciled:  { label: 'Reconciled', color: t.green, bg: 'rgba(52,211,153,.12)', dot: '✓', detail: 'computed = exchange' },
+  gap:         { label: 'Gap',        color: t.amber, bg: 'rgba(251,191,36,.12)', dot: '⚠', detail: 'complete data · off exchange' },
+  incomplete:  { label: 'Incomplete', color: t.red,   bg: 'rgba(248,113,113,.12)', dot: '⚠', detail: 'missing fills · off exchange' },
 };
-function metaFor(a: Account) {
-  let key: Accuracy = a.accuracy;
-  if (a.needsApi && !a.apiProvided) key = a.apiSkipped ? 'nokey' : 'pending';
-  return accMeta[key];
+
+// The API-key state is ORTHOGONAL to reconciliation (no data yet vs. how well
+// data matches), so it still overrides the badge when a key is needed.
+const KEY_META: Record<'pending' | 'nokey', BadgeMeta> = {
+  pending: { label: 'Awaiting key', color: t.mut, bg: 'rgba(139,149,160,.12)', dot: '○', detail: 'connect API to sync' },
+  nokey:   { label: 'On-chain only', color: t.amber, bg: 'rgba(251,191,36,.10)', dot: '○', detail: 'no API key · limited' },
+};
+
+function metaFor(a: Account): BadgeMeta {
+  if (a.needsApi && !a.apiProvided) return KEY_META[a.apiSkipped ? 'nokey' : 'pending'];
+  return RECONCILE_META[a.reconcileStatus];
 }
 
-// ── Reconciliation gap (#222) ────────────────────────────────────────────────
+// ── Reconciliation status (#223) ─────────────────────────────────────────────
+// reconcileStatus is the SINGLE source of truth, computed ONCE by the backend
+// (mat_accounts.reconcile_status) from ONE code-defined rule — NO ad-hoc client
+// thresholds/floors (the #222 $1 floor is GONE; the $5 TOL now lives ONLY in the
+// backend view). The FE just maps the status → badge / color / copy / whether a
+// gap number is shown.
+//   incomplete → NOT data_complete (missing fills)
+//   gap        → complete data but real drift (abs(gap) > $5 TOL, backend)
+//   reconciled → computed matches the exchange (abs(gap) <= $5 TOL, backend)
+//
 // gapAmount = the netflow residual (equity − realized − unrealized + net_flow) =
-// how far the dashboard's computed value is from the exchange's reported balance.
-// Reconciled = the two match (residual ≈ 0). We only surface a magnitude once it
-// clears a small rounding floor so cent-level noise doesn't read as a "gap".
-const GAP_FLOOR = 1; // dollars — below this we treat the account as reconciled
+// how far the dashboard's computed value is from the exchange's reported balance;
+// used ONLY for the "$X off" magnitude/direction, never for classification.
+const isGap = (a: Account) => a.reconcileStatus === 'gap';
+const isIncomplete = (a: Account) => a.reconcileStatus === 'incomplete';
+// Show a gap number for anything the rule flags as off (gap OR incomplete).
+const showGapNum = (a: Account) => a.reconcileStatus !== 'reconciled';
 
 // Signed absolute magnitude, e.g. $86,864.77 (always positive $, direction is words).
 const gapMag = (a: Account) => usd(Math.abs(a.gapAmount ?? 0));
 const gapDir = (a: Account) => ((a.gapAmount ?? 0) >= 0 ? 'higher' : 'lower');
-const hasGap = (a: Account) => Math.abs(a.gapAmount ?? 0) >= GAP_FLOOR;
 
-// Plain-English explanation of what "reconciled / gap" means for this account.
+// Plain-English tooltip: Reconciled = computed == exchange-reported; Gap /
+// Incomplete = off by $X (gap = complete data, real drift; incomplete = missing
+// fills so the figure may still move).
 function gapExplain(a: Account): string {
-  if (!hasGap(a)) {
-    return 'Reconciled — your computed positions & PnL match the exchange’s reported balance.';
+  switch (a.reconcileStatus) {
+    case 'reconciled':
+      return 'Reconciled — your computed positions & PnL match the exchange’s reported balance.';
+    case 'incomplete':
+      return `Incomplete data — we’re missing some fills, so the dashboard value is ${gapMag(a)} ${gapDir(a)} than the exchange balance (may correct once fills land).`;
+    default:
+      return `Gap — data is complete but the dashboard value is ${gapMag(a)} ${gapDir(a)} than the exchange balance.`;
   }
-  return `Gap — we’re missing some fills, so the dashboard value is ${gapMag(a)} ${gapDir(a)} than the exchange balance.`;
 }
 
 export function Accounts() {
@@ -58,18 +84,18 @@ export function Accounts() {
   const summary = useMemo(() => {
     const all = wallets.flatMap((w) => w.accounts);
     const vis = all.filter((a) => !a.hidden);
-    const mism = all.filter((a) => a.accuracy === 'mismatch').length;
-    const gaps = all.filter((a) => a.accuracy === 'gap').length;
+    // #223 header summary keyed on the SINGLE reconcile_status rule.
+    const gaps = all.filter((a) => a.reconcileStatus === 'gap').length;
     const value = all.reduce((s, a) => s + a.value, 0);
-    const txt = mism ? `${mism} mismatch${mism > 1 ? 'es' : ''}` : gaps ? `${gaps} minor gap${gaps > 1 ? 's' : ''}` : 'All reconciled';
-    const color = mism ? t.red : gaps ? t.amber : t.green;
+    const txt = gaps ? `${gaps} gap${gaps > 1 ? 's' : ''}` : 'All reconciled';
+    const color = gaps ? t.amber : t.green;
     // Accounts awaiting a read-only API key to sync (CEX / needs-key, key not yet
     // provided and not explicitly skipped) — drives the amber banner below. Any
     // 'detecting' wallet (Wallets +1 while scanning) is already counted via
     // wallets.length so the stat card ticks up immediately on add.
     const awaitingKey = vis.filter((a) => a.needsApi && !a.apiProvided && !a.apiSkipped).length;
-    // Accounts with incomplete source history (data_complete=false, #186).
-    const incompleteData = all.filter((a) => !a.dataComplete).length;
+    // Accounts with incomplete source history (#223 reconcile_status='incomplete').
+    const incompleteData = all.filter((a) => a.reconcileStatus === 'incomplete').length;
     return { wallets: wallets.length, accounts: vis.length, value, txt, color, awaitingKey, incompleteData };
   }, [wallets]);
 
@@ -258,27 +284,24 @@ function WalletCard({ w }: { w: Wallet }) {
       )}
 
       {/* ── Issue cards: always visible even when collapsed ── */}
+      {/* #223 driven SOLELY by reconcile_status — both 'incomplete' AND 'gap'
+          accounts get a card (so a real drift like the Lighter ~$4,477 shows a
+          Gap card); 'reconciled' accounts never appear. ONE mapping, no floors. */}
       {w.status === 'ready' && (() => {
-        const issueAccts = w.accounts.filter((a) => !a.hidden && (!a.dataComplete || a.accuracy === 'gap' || a.accuracy === 'mismatch'));
+        const issueAccts = w.accounts.filter((a) => !a.hidden && (isIncomplete(a) || isGap(a)));
         if (issueAccts.length === 0) return null;
         return (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '10px 16px', borderBottom: `1px solid ${t.border2}`, background: 'rgba(255,255,255,.015)' }}>
             {issueAccts.map((a) => {
-              const isIncomplete = !a.dataComplete;
-              const accMeta = metaFor(a);
-              const showGap = hasGap(a);
+              const inc = isIncomplete(a);
               return (
-                <div key={a.id} title={gapExplain(a)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 7, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', cursor: 'help', ...(isIncomplete ? { color: '#f87171', background: 'rgba(248,113,113,.10)', border: '1px solid #5a2a2c' } : { color: accMeta.color, background: accMeta.bg, border: `1px solid ${a.accuracy === 'mismatch' ? 'rgba(248,113,113,.3)' : 'rgba(251,191,36,.25)'}` }) }}>
-                  <span>{isIncomplete ? '⚠' : accMeta.dot}</span>
+                <div key={a.id} title={gapExplain(a)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 7, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', cursor: 'help', color: inc ? '#f87171' : t.amber, background: inc ? 'rgba(248,113,113,.10)' : 'rgba(251,191,36,.12)', border: `1px solid ${inc ? '#5a2a2c' : 'rgba(251,191,36,.25)'}` }}>
+                  <span>⚠</span>
                   <span>{a.name}</span>
                   <span style={{ opacity: 0.7 }}>·</span>
-                  <span>{isIncomplete ? 'Incomplete data' : accMeta.label}</span>
-                  {showGap && (
-                    <>
-                      <span style={{ opacity: 0.7 }}>·</span>
-                      <Mono style={{ fontWeight: 700 }}>{gapMag(a)} off</Mono>
-                    </>
-                  )}
+                  <span>{inc ? 'Incomplete data' : 'Gap'}</span>
+                  <span style={{ opacity: 0.7 }}>·</span>
+                  <Mono style={{ fontWeight: 700 }}>{gapMag(a)} off</Mono>
                 </div>
               );
             })}
@@ -330,26 +353,18 @@ function WalletCard({ w }: { w: Wallet }) {
   );
 }
 
-// Sign-aware reconciliation-gap line shown under each account's status badge.
-// Reconciled → a quiet green "matches the exchange balance ✓"; gap → an amber/red
-// "$X higher/lower than the exchange balance" so the user SEES the magnitude and
-// direction BEFORE any reconciliation is applied. Read-only (consumes gapAmount).
+// Reconciliation line shown under each account's status badge. #223 driven
+// SOLELY by reconcile_status: reconciled accounts render nothing (the badge
+// already reads "✓ Reconciled"); gap/incomplete show "$X off the exchange
+// balance" so the user SEES the magnitude BEFORE any reconciliation. The $X and
+// direction come from gapAmount; the CLASSIFICATION comes only from the backend.
 function GapExplainer({ a, align = 'left' }: { a: Account; align?: 'left' | 'right' }) {
-  const gap = hasGap(a);
-  const incomplete = !a.dataComplete;
-  // Only render a gap line when there's something to say: a real gap, or an
-  // incomplete-data account (reconciled+complete accounts already read "✓").
-  if (!gap && !incomplete) return null;
-  const color = gap ? (a.accuracy === 'mismatch' ? t.red : t.amber) : t.green;
+  if (a.reconcileStatus === 'reconciled') return null;
+  const incomplete = isIncomplete(a);
+  const color = incomplete ? t.red : t.amber;
   return (
     <div title={gapExplain(a)} style={{ marginTop: 5, fontSize: 10.5, lineHeight: 1.45, color, textAlign: align, maxWidth: 240, marginLeft: align === 'right' ? 'auto' : undefined }}>
-      {gap ? (
-        <>
-          <b>{gapMag(a)}</b> {gapDir(a)} than the exchange balance
-        </>
-      ) : (
-        <>Missing history — figure may be off once fills land</>
-      )}
+      <b>{gapMag(a)}</b> {gapDir(a)} than the exchange balance
     </div>
   );
 }
@@ -406,7 +421,7 @@ function AccountRow({ a, walletLabel }: { a: Account; walletLabel: string }) {
       {walletLabel && (
         <span style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: '.05em', color: WALLET_CHIP.fg, background: WALLET_CHIP.bg, border: `1px solid ${WALLET_CHIP.bd}`, borderRadius: 5, padding: '1px 6px', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={walletLabel}>{walletLabel}</span>
       )}
-      {!a.dataComplete && (
+      {isIncomplete(a) && (
         <span
           title="Missing history — balances &amp; positions may be inaccurate."
           style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.04em', color: '#f87171', background: 'rgba(248,113,113,.10)', border: `1px solid #5a2a2c`, borderRadius: 5, padding: '1px 7px', whiteSpace: 'nowrap' }}

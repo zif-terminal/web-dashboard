@@ -221,6 +221,10 @@ export const ACCOUNTS_SUB = gql`
       accuracy
       data_complete
       gap_amount
+      # #223 SINGLE source of truth for the reconciliation badge (incomplete|
+      # reconciled|gap). Backend rule: NOT data_complete → incomplete; else
+      # abs(gap_amount) <= $5 TOL → reconciled; else → gap.
+      reconcile_status
       tags
       wallet_address
       wallet_status

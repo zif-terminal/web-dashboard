@@ -7,6 +7,12 @@ export type Exchange = 'Hyperliquid' | 'Lighter' | 'Drift' | 'Variational' | 'Bi
 export type LadderKind = 'tp' | 'sl';
 export type Accuracy = 'synced' | 'gap' | 'mismatch' | 'pending' | 'nokey';
 
+// #223 SINGLE source of truth for the reconciliation badge, computed by the
+// backend (mat_accounts.reconcile_status) with ONE code-defined rule — NO
+// ad-hoc client thresholds. Priority: NOT data_complete → 'incomplete';
+// else abs(gap_amount) <= $5 TOL → 'reconciled'; else → 'gap'.
+export type ReconcileStatus = 'incomplete' | 'reconciled' | 'gap';
+
 export interface Position {
   id: string;
   // exchange_account_id (mat_positions column). Part of the lifecycleKey() used to
@@ -207,6 +213,9 @@ export interface Account {
   // computed value is from the exchange's reported balance. ≈0 when reconciled;
   // sign = dashboard is that much higher (+) / lower (−) than the exchange.
   gapAmount: number;
+  // #223 backend-computed reconciliation status — the SINGLE source of truth
+  // for the badge/color/copy and whether a gap is shown. See ReconcileStatus.
+  reconcileStatus: ReconcileStatus;
   needsApi: boolean;
   apiProvided: boolean;
   apiSkipped: boolean;

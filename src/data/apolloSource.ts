@@ -14,7 +14,7 @@ import {
   INSERT_OMNI_RAW_EVENTS,
 } from '../graphql/operations';
 import type {
-  Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account, Exchange, Accuracy, Side,
+  Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account, Exchange, Accuracy, ReconcileStatus, Side,
   ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim, Lifecycle, LifecycleMap,
   IncomePeriodRow, IncomeFilter, IncomeGrain, IncomeCategory,
 } from '../types';
@@ -150,6 +150,17 @@ const aggregatePortfolio = (rows: any[], positions: Position[]): Portfolio => {
 const ACCURACY_SET = new Set<Accuracy>(['synced', 'gap', 'mismatch', 'pending', 'nokey']);
 const accuracyOf = (v: any): Accuracy => (ACCURACY_SET.has(v) ? v : 'synced');
 
+// #223 reconcile tolerance USD, set by Jaison 2026-07-10 — mirrors the backend
+// literal ONLY for the client-derived fallback (mock/legacy view). The prod view
+// supplies reconcile_status directly, so this fallback is never the live path.
+const RECONCILE_TOL = 5;
+const RECONCILE_SET = new Set<ReconcileStatus>(['incomplete', 'reconciled', 'gap']);
+const reconcileStatusOf = (r: any): ReconcileStatus => {
+  if (RECONCILE_SET.has(r.reconcile_status)) return r.reconcile_status;
+  if (r.data_complete === false) return 'incomplete';
+  return Math.abs(num(r.gap_amount)) <= RECONCILE_TOL ? 'reconciled' : 'gap';
+};
+
 const groupAccounts = (rows: any[]): Wallet[] => {
   const byWallet = new Map<string, Wallet>();
   for (const r of rows) {
@@ -181,6 +192,11 @@ const groupAccounts = (rows: any[]): Wallet[] => {
       accuracy: accuracyOf(r.accuracy),
       dataComplete: r.data_complete !== false,
       gapAmount: num(r.gap_amount),
+      // #223 SINGLE source of truth: use the backend-computed status when the
+      // view supplies it; else derive it from the SAME rule (NOT data_complete
+      // → incomplete; abs(gap) <= $5 TOL → reconciled; else gap) so the client
+      // never invents its own threshold.
+      reconcileStatus: reconcileStatusOf(r),
       needsApi,
       apiProvided,
       // No durable DB source — local UI/edit state in the prototype. Default sensibly.
