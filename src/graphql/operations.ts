@@ -545,6 +545,104 @@ export const CLOSED_WINDOW_QUERY = gql`
 `;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PER-POSITION BREAKDOWN  (#223 Analytics rebuild).
+//
+// `mat_position_breakdown` is a READ-ONLY VIEW: one per-position PnL rollup row
+// (source: position_pnl buckets, SAME sign convention as mat_closed_trades) for
+// every fully-CLOSED position PLUS every still-OPEN position that carries realized
+// PnL from partial closes (is_partial). RLS-scoped to the user via
+// exchange_account.wallet.user_wallets. All ts are epoch-ms; sort key is
+// last_event_ts DESC (tiebreak id) — a stable keyset/offset order.
+//
+//   1. TOTALS  — mat_position_breakdown_aggregate SUMs drive the header cards. The
+//      buckets are already reconciled; net = SUM(net_pnl). The list Σ == the header
+//      by construction (both sum the SAME rows over the SAME window).
+//   2. PAGINATION — the list is fetched a page at a time (last_event_ts DESC, id
+//      tiebreak), auto-loaded on 50%-scroll. limit/offset; never a full pull.
+//   3. WINDOW — a real-now _gte/_lte bound on last_event_ts (positions whose close /
+//      last-event date is in the range).
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Shared selection set — matches the PositionBreakdown mapper 1:1.
+const BREAKDOWN_FIELDS = `
+  id
+  asset
+  exch
+  account
+  is_partial
+  earliest_event_ts
+  last_event_ts
+  net_pnl
+  trade_pnl
+  funding
+  fees
+  interest
+  rewards
+  hacks
+  exchange_account {
+    wallet {
+      user_wallets {
+        label
+      }
+    }
+  }
+`;
+
+// Grand-total aggregate over the window — drives the 7 header cards + the list total.
+export const BREAKDOWN_TOTALS_QUERY = gql`
+  query BreakdownTotals($since: bigint!, $until: bigint!) {
+    mat_position_breakdown_aggregate(
+      where: { last_event_ts: { _gte: $since, _lte: $until } }
+    ) {
+      aggregate {
+        count
+        sum {
+          net_pnl
+          trade_pnl
+          funding
+          fees
+          interest
+          rewards
+          hacks
+        }
+      }
+    }
+  }
+`;
+
+// One bounded PAGE of the breakdown list (last_event_ts DESC, id tiebreak) within
+// the window. Auto-loaded on 50%-scroll; limit/offset — never a full pull.
+export const BREAKDOWN_PAGE_QUERY = gql`
+  query BreakdownPage($since: bigint!, $until: bigint!, $limit: Int!, $offset: Int!) {
+    position_breakdown: mat_position_breakdown(
+      where: { last_event_ts: { _gte: $since, _lte: $until } }
+      order_by: [{ last_event_ts: desc }, { id: desc }]
+      limit: $limit
+      offset: $offset
+    ) {
+      ${BREAKDOWN_FIELDS}
+    }
+  }
+`;
+
+// All contributing events for ONE position (#223 D: expand a row), ts DESC. Sourced
+// from mat_position_events (position_id-keyed — exact, not an asset/window approx).
+export const POSITION_EVENTS_QUERY = gql`
+  query PositionEvents($positionId: uuid!) {
+    position_events: mat_position_events(
+      where: { position_id: { _eq: $positionId } }
+      order_by: { ts: desc }
+    ) {
+      id
+      ts
+      type
+      amount
+      market
+    }
+  }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // INCOME OVER TIME  (EPIC #212, Stream C — Jaison need #2).
 //
 // `mat_income_periods` is a READ-ONLY VIEW: the server pre-buckets every money

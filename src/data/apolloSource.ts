@@ -9,6 +9,7 @@ import {
   CLOSED_DISTINCT_EXCH_QUERY, CLOSED_DISTINCT_ASSET_QUERY, CLOSED_DISTINCT_WALLET_QUERY,
   CLOSED_GROUP_AGG_EXCH_QUERY, CLOSED_GROUP_AGG_ASSET_QUERY, CLOSED_GROUP_AGG_WALLET_QUERY,
   INCOME_PERIODS_QUERY,
+  BREAKDOWN_TOTALS_QUERY, BREAKDOWN_PAGE_QUERY, POSITION_EVENTS_QUERY,
   UPSERT_ORDER_LEVEL, ADD_ORDER_LEVEL, REMOVE_ORDER_LEVEL, SET_WALLET_LABEL,
   UPDATE_ACCOUNT_LABEL, UPDATE_ACCOUNT_TAGS,
   INSERT_OMNI_RAW_EVENTS,
@@ -17,6 +18,7 @@ import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account, Exchange, Accuracy, ReconcileStatus, Side,
   ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim, Lifecycle, LifecycleMap,
   IncomePeriodRow, IncomeFilter, IncomeGrain, IncomeCategory,
+  PositionBreakdown, BreakdownTotals, PositionEvent,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 import { shortAddr } from '../lib/format';
@@ -255,6 +257,56 @@ const mapClosedTrade = (r: any): ClosedTrade => {
     isLiquidation: !!r.is_liquidation,
   };
 };
+
+// ── per-position breakdown (#223 Analytics rebuild) ──────────────────────────
+// mat_position_breakdown row → domain PositionBreakdown. Columns are already 1:1
+// with the type; we only coerce numerics + resolve the per-user wallet label off
+// the exchange_account→wallet→user_wallets chain (RLS-scoped, ≤1 row). The 7 money
+// fields are the DB's already-reconciled buckets — NO client money math.
+const mapBreakdown = (r: any): PositionBreakdown => ({
+  id: r.id,
+  asset: r.asset ?? '',
+  exch: (r.exch as string | undefined)?.trim() ?? '',
+  wallet: (r.account as string | undefined)?.trim() ?? '',
+  walletLabel: (r.exchange_account?.wallet?.user_wallets?.[0]?.label as string | undefined)?.trim() ?? '',
+  isPartial: !!r.is_partial,
+  earliestEventMs: num(r.earliest_event_ts),
+  lastEventMs: num(r.last_event_ts),
+  netPnl: num(r.net_pnl),
+  tradePnl: num(r.trade_pnl),
+  funding: num(r.funding),
+  fees: num(r.fees),
+  interest: num(r.interest),
+  rewards: num(r.rewards),
+  hacks: num(r.hacks),
+});
+
+// mat_position_breakdown_aggregate { aggregate { count sum {...} } } → BreakdownTotals.
+// Empty bucket → 0. NO money math: the SUMs are the reconciled per-position buckets.
+const mapBreakdownTotals = (agg: any): BreakdownTotals => {
+  const s = agg?.sum ?? {};
+  return {
+    count: num(agg?.count),
+    netPnl: num(s.net_pnl),
+    tradePnl: num(s.trade_pnl),
+    funding: num(s.funding),
+    fees: num(s.fees),
+    interest: num(s.interest),
+    rewards: num(s.rewards),
+    hacks: num(s.hacks),
+  };
+};
+
+// mat_position_events row → domain PositionEvent (the expand-row detail). ts is
+// epoch-ms; amount is the signed USD impact (mirrors the activity feed's pnl).
+const mapPositionEvent = (r: any): PositionEvent => ({
+  id: r.id,
+  ts: num(r.ts),
+  type: (r.type as string | undefined)?.trim() ?? '',
+  text: '',
+  amount: num(r.amount),
+  market: (r.market as string | undefined)?.trim() ?? '',
+});
 
 // ── closed-trades aggregates (#184) ──────────────────────────────────────────
 // Coerce a mat_closed_trades_aggregate { aggregate { count sum {...} } } payload
@@ -642,6 +694,43 @@ export function makeApolloDataSource(client: ApolloClient<any>): DataSource {
         fetchPolicy: 'no-cache',
       });
       return ((data?.mat_income_periods as any[]) ?? []).map(mapIncomePeriod);
+    },
+
+    // ── Per-position breakdown (#223 Analytics rebuild) ─────────────────────────
+    // Grand-total aggregate over the window (bound on last_event_ts): drives the 7
+    // header cards + the list total from ONE round-trip. The list Σ reconciles to
+    // this by construction (same rows, same window). 'network-only' — always fresh.
+    fetchBreakdownTotals: async (sinceMs, untilMs): Promise<BreakdownTotals> => {
+      const { data } = await client.query({
+        query: BREAKDOWN_TOTALS_QUERY,
+        variables: { since: Math.floor(sinceMs), until: Math.floor(untilMs) },
+        fetchPolicy: 'network-only',
+      });
+      return mapBreakdownTotals(data?.mat_position_breakdown_aggregate?.aggregate);
+    },
+
+    // One bounded page of the breakdown list (last_event_ts DESC, id tiebreak). The
+    // caller bumps offset for the 50%-scroll prefetch. 'no-cache' so re-selecting a
+    // window always reflects the latest data and never collides in the normalized
+    // cache (mirrors CLOSED_WINDOW_QUERY's policy).
+    fetchBreakdownPage: async (sinceMs, untilMs, opts): Promise<PositionBreakdown[]> => {
+      const { limit, offset } = opts;
+      const { data } = await client.query({
+        query: BREAKDOWN_PAGE_QUERY,
+        variables: { since: Math.floor(sinceMs), until: Math.floor(untilMs), limit, offset },
+        fetchPolicy: 'no-cache',
+      });
+      return ((data?.position_breakdown as any[]) ?? []).map(mapBreakdown);
+    },
+
+    // ALL contributing events for one position (ts DESC) — the expand-row detail.
+    fetchPositionEvents: async (positionId): Promise<PositionEvent[]> => {
+      const { data } = await client.query({
+        query: POSITION_EVENTS_QUERY,
+        variables: { positionId },
+        fetchPolicy: 'no-cache',
+      });
+      return ((data?.position_events as any[]) ?? []).map(mapPositionEvent);
     },
 
     upsertOrderLevel: (id, price, size) =>

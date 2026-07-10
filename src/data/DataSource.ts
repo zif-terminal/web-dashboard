@@ -2,6 +2,7 @@ import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account,
   ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim, LifecycleMap,
   IncomePeriodRow, IncomeFilter, IncomeGrain,
+  PositionBreakdown, BreakdownTotals, PositionEvent,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 
@@ -97,6 +98,28 @@ export interface DataSource {
     untilMs: number,
     filter?: IncomeFilter,
   ): Promise<IncomePeriodRow[]>;
+
+  // ── Per-position breakdown (#223 Analytics rebuild) ─────────────────────────
+  // Grand-total aggregate of mat_position_breakdown over a real-now window (bound
+  // on last_event_ts). Drives the 7 Analytics header cards. The SUMs are the
+  // already-reconciled per-position buckets — net = SUM(net_pnl); NO new client
+  // money math. Reconciles EXACTLY with the list Σ (both sum the same rows).
+  fetchBreakdownTotals(sinceMs: number, untilMs: number): Promise<BreakdownTotals>;
+
+  // One bounded PAGE of the per-position breakdown list (last_event_ts DESC, id
+  // tiebreak — stable) within the window. Auto-loaded on 50%-scroll; the caller
+  // bumps `offset`. NEVER a full pull. Rows are COMPLETE (closed) + PARTIAL (open
+  // with realized), interleaved by close/last-event date.
+  fetchBreakdownPage(
+    sinceMs: number,
+    untilMs: number,
+    opts: { limit: number; offset: number },
+  ): Promise<PositionBreakdown[]>;
+
+  // ALL contributing events for one position (#223 D: expand a row), ts DESC —
+  // every fill/funding/fee/interest/reward/settlement of that position, from
+  // mat_position_events (position_id-keyed — exact, not an asset/window approx).
+  fetchPositionEvents(positionId: string): Promise<PositionEvent[]>;
 
   upsertOrderLevel(id: string, price: number, size: number): void;
   addOrderLevel(positionId: string, kind: 'tp' | 'sl', price: number, size: number): void;

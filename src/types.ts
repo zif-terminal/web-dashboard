@@ -240,6 +240,57 @@ export interface Wallet {
   pending?: boolean;
 }
 
+// ── Per-position breakdown (#223 Analytics rebuild) ──────────────────────────
+// One row of `mat_position_breakdown`: a per-position PnL rollup (source:
+// position_pnl buckets, SAME sign convention as mat_closed_trades). Covers
+// fully-closed positions AND still-OPEN positions with realized PnL from partial
+// closes (isPartial). All ts are epoch-ms. The 7 money fields are already-
+// reconciled buckets — NO new client money math (net = the DB's net_pnl). The
+// Analytics header SUMs these same rows, so header totals == list Σ to the cent.
+export interface PositionBreakdown {
+  id: string;
+  asset: string;
+  exch: string;         // exchanges.display_name
+  wallet: string;       // account label (exchange_accounts.label)
+  walletLabel: string;  // per-user wallet label (user_wallets.label); '' if unset
+  isPartial: boolean;   // true = OPEN position with realized (partial close); false = COMPLETE
+  earliestEventMs: number; // min contributing-event ts (epoch-ms)
+  lastEventMs: number;     // close / max-event ts (epoch-ms) — the sort key (DESC)
+  netPnl: number;
+  tradePnl: number;
+  funding: number;
+  fees: number;
+  interest: number;
+  rewards: number;
+  hacks: number;
+}
+
+// Grand-total aggregate of mat_position_breakdown over a window (drives the
+// Analytics header cards). The SUMs are the already-reconciled per-position
+// buckets — net == Σ netPnl. `count` = positions folded in.
+export interface BreakdownTotals {
+  count: number;
+  netPnl: number;
+  tradePnl: number;
+  funding: number;
+  fees: number;
+  interest: number;
+  rewards: number;
+  hacks: number;
+}
+
+// One contributing event of a position, for the expand-row detail (#223 D).
+// Sourced from mat_activity_stream filtered to the position's exchange_account +
+// market, ts DESC. type · date · amount, in the app's activity row style.
+export interface PositionEvent {
+  id: string;
+  ts: number;      // epoch-ms
+  type: string;    // act badge (FILL / FUNDING / FEE / SETTLE / …)
+  text: string;
+  amount: number;  // signed USD (pnl column)
+  market: string;
+}
+
 // ── Income over time (EPIC #212, Stream C) ────────────────────────────────────
 // One row of `mat_income_periods`: the server-side pre-bucketed rollup of one
 // category's signed USD amount for one (period_type, period_start) bucket, scoped

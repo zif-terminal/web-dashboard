@@ -361,6 +361,43 @@ export class MockEngine {
           .map((r) => ({ ...r }));
       },
 
+      // ── Per-position breakdown (#223 Analytics rebuild) mock parity ────────────
+      // Derive the breakdown rows from seedClosedTrades (all COMPLETE in mock; no
+      // partial-close seed data). Filter to the window on the close/last-event ts,
+      // then sum for the totals / page for the list — the SAME shape the live view
+      // takes, so the header Σ == the list Σ in mock too.
+      fetchBreakdownTotals: async (sinceMs, untilMs) => {
+        const inWin = seedClosedTrades.filter((t) => t.closedMs >= sinceMs && t.closedMs <= untilMs);
+        const acc = { count: 0, netPnl: 0, tradePnl: 0, funding: 0, fees: 0, interest: 0, rewards: 0, hacks: 0 };
+        for (const t of inWin) {
+          acc.count += 1;
+          acc.netPnl += t.total; acc.tradePnl += t.pnl; acc.funding += t.funding;
+          acc.fees += t.fees; acc.interest += t.interest; acc.rewards += t.rewards; acc.hacks += t.hack;
+        }
+        return acc;
+      },
+
+      fetchBreakdownPage: async (sinceMs, untilMs, opts) => {
+        const { limit, offset } = opts;
+        return seedClosedTrades
+          .filter((t) => t.closedMs >= sinceMs && t.closedMs <= untilMs)
+          .slice()
+          .sort((a, b) => (b.closedMs - a.closedMs) || a.id.localeCompare(b.id))
+          .slice(offset, offset + limit)
+          .map((t) => ({
+            id: t.id, asset: t.asset, exch: t.exch, wallet: t.wallet, walletLabel: t.walletLabel,
+            isPartial: false,
+            earliestEventMs: t.closedMs - t.dur * 86_400_000,
+            lastEventMs: t.closedMs,
+            netPnl: t.total, tradePnl: t.pnl, funding: t.funding, fees: t.fees,
+            interest: t.interest, rewards: t.rewards, hacks: t.hack,
+          }));
+      },
+
+      // Mock has no per-event detail seed — return an empty list (the expand simply
+      // shows "no events"). Live mode fetches mat_position_events.
+      fetchPositionEvents: async (_positionId) => [],
+
       upsertOrderLevel: (id, price, size) => {
         const l = this.levels.find((x) => x.id === id);
         if (l) { l.price = price; l.size = size; this.pushLevels(); }
