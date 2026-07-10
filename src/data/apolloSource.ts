@@ -9,7 +9,7 @@ import {
   CLOSED_DISTINCT_EXCH_QUERY, CLOSED_DISTINCT_ASSET_QUERY, CLOSED_DISTINCT_WALLET_QUERY,
   CLOSED_GROUP_AGG_EXCH_QUERY, CLOSED_GROUP_AGG_ASSET_QUERY, CLOSED_GROUP_AGG_WALLET_QUERY,
   INCOME_PERIODS_QUERY,
-  BREAKDOWN_TOTALS_QUERY, BREAKDOWN_PAGE_QUERY, POSITION_EVENTS_QUERY,
+  BREAKDOWN_TOTALS_QUERY, LEDGER_TOTALS_QUERY, BREAKDOWN_PAGE_QUERY, POSITION_EVENTS_QUERY,
   UPSERT_ORDER_LEVEL, ADD_ORDER_LEVEL, REMOVE_ORDER_LEVEL, SET_WALLET_LABEL,
   UPDATE_ACCOUNT_LABEL, UPDATE_ACCOUNT_TAGS,
   INSERT_OMNI_RAW_EVENTS,
@@ -18,7 +18,7 @@ import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account, Exchange, Accuracy, ReconcileStatus, Side,
   ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim, Lifecycle, LifecycleMap,
   IncomePeriodRow, IncomeFilter, IncomeGrain, IncomeCategory,
-  PositionBreakdown, BreakdownTotals, PositionEvent,
+  PositionBreakdown, BreakdownTotals, LedgerTotals, PositionEvent,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 import { shortAddr } from '../lib/format';
@@ -297,6 +297,24 @@ const mapBreakdownTotals = (agg: any): BreakdownTotals => {
     interest: num(s.interest),
     rewards: num(s.rewards),
     hacks: num(s.hacks),
+  };
+};
+
+// LEDGER_TOTALS_QUERY result → LedgerTotals (#228). Each aliased aggregate is that
+// category's SUM(amount) over the window (already signed USD). Net = Σ INCOME cats
+// only (realized_trade+funding+fee+reward+interest) — transfer + hack are NOT income
+// (per tax_category) and are excluded from Net; hack surfaces on its own card.
+const catSum = (d: any, alias: string): number => num(d?.[alias]?.aggregate?.sum?.amount);
+const mapLedgerTotals = (d: any): LedgerTotals => {
+  const tradePnl = catSum(d, 'realized_trade');
+  const funding = catSum(d, 'funding');
+  const fees = catSum(d, 'fee');
+  const rewards = catSum(d, 'reward');
+  const interest = catSum(d, 'interest');
+  const hacks = catSum(d, 'hack');
+  return {
+    tradePnl, funding, fees, rewards, interest, hacks,
+    netPnl: tradePnl + funding + fees + rewards + interest,
   };
 };
 
@@ -710,6 +728,18 @@ export function makeApolloDataSource(client: ApolloClient<any>): DataSource {
         fetchPolicy: 'network-only',
       });
       return mapBreakdownTotals(data?.mat_position_breakdown_aggregate?.aggregate);
+    },
+
+    // ── Analytics header totals — FULL LEDGER (#228, fixes the $0 Hacks card) ────
+    // Sum mat_ledger by category over the window (bound on ts). One round-trip of
+    // 6 aliased aggregates. 'network-only' — always fresh. RLS-scoped by the view.
+    fetchLedgerTotals: async (sinceMs, untilMs): Promise<LedgerTotals> => {
+      const { data } = await client.query({
+        query: LEDGER_TOTALS_QUERY,
+        variables: { since: Math.floor(sinceMs), until: Math.floor(untilMs) },
+        fetchPolicy: 'network-only',
+      });
+      return mapLedgerTotals(data);
     },
 
     // One bounded page of the breakdown list (last_event_ts DESC, id tiebreak). The

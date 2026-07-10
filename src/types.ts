@@ -284,6 +284,26 @@ export interface BreakdownTotals {
   hacks: number;
 }
 
+// ── Analytics header totals (#228) ────────────────────────────────────────────
+// The 7-card header sums the FULL LEDGER (mat_ledger) over the selected range —
+// the TRUE period P&L per category — NOT the per-position breakdown. This picks up
+// ledger-only events the per-position rollup misses: the −$342,670 Drift hack
+// (transfers.type='hack' → category 'hack'), plus standalone funding/interest/
+// rewards not tied to a position. category → card: realized_trade→Trade PnL,
+// funding→Funding, fee→Fees, reward→Rewards, interest→Interest, hack→Hacks.
+// Net PnL = Σ of the INCOME categories only (realized_trade+funding+fee+reward+
+// interest); `transfer` (non_taxable) and `hack` (casualty_loss) are EXCLUDED from
+// Net per tax_category (matches the Income-page taxonomy). RLS-scoped by the view.
+export interface LedgerTotals {
+  netPnl: number;   // Σ income cats only (excludes transfer + hack)
+  tradePnl: number; // realized_trade
+  funding: number;
+  fees: number;     // fee (signed — expenses are negative)
+  rewards: number;
+  interest: number;
+  hacks: number;    // hack (casualty_loss) — shown as its own card, NOT in netPnl
+}
+
 // One contributing event of a position, for the expand-row detail (#223 D).
 // Sourced from mat_activity_stream filtered to the position's exchange_account +
 // market, ts DESC. type · date · amount, in the app's activity row style.

@@ -2,9 +2,9 @@ import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store/store';
 import { dataSource } from '../store/useLiveData';
-import { Card, Mono, Segment } from '../ui/primitives';
+import { Card, Mono, Segment, StakedBadge } from '../ui/primitives';
 import { t } from '../ui/theme';
-import { k, col } from '../lib/format';
+import { k, col, poolDisplay } from '../lib/format';
 import { useIsMobile } from '../lib/useIsMobile';
 import { IdentityTags, ColorChip, MARKET_CHIP } from '../lib/tags';
 import type { ActivityEvent, ActivityFilter } from '../types';
@@ -69,6 +69,13 @@ function showMarketChip(r: ActivityEvent): boolean {
   if (!m) return false;
   return !r.text?.includes(m);
 }
+
+// #228: the "-POOL" suffix is an INTERNAL key that leaks into the DB-generated
+// activity text (e.g. "Pool_Stake 100 LIT-POOL"). Strip it for DISPLAY so the base
+// token shows (→ "Pool_Stake 100 LIT"); the STAKED badge/market-chip carries the
+// staked marker. Matches a "-POOL" only where it terminates a token (word boundary),
+// so it never chews into an unrelated word. Display-only; never touches the data.
+const stripPoolText = (s: string): string => s.replace(/-POOL\b/gi, '');
 
 // ── Shared row shell (task #213) ─────────────────────────────────────────────
 // Rich two-column row matching the Positions cards + Performance closed rows:
@@ -147,10 +154,16 @@ function Row({ r, isMobile }: { r: ActivityEvent; isMobile: boolean }) {
       tags={
         <>
           <IdentityTags p={r} />
-          {showMarketChip(r) && <ColorChip {...MARKET_CHIP}>{r.market}</ColorChip>}
+          {/* #228: strip the internal "-POOL" market key + append a STAKED badge. */}
+          {showMarketChip(r) && (() => { const m = poolDisplay(r.market); return (
+            <>
+              <ColorChip {...MARKET_CHIP}>{m.label}</ColorChip>
+              {m.staked && <StakedBadge />}
+            </>
+          ); })()}
         </>
       }
-      text={r.text}
+      text={stripPoolText(r.text)}
     />
   );
 }
@@ -252,13 +265,19 @@ function CombinedRowView({ g, isMobile }: { g: CombinedRow; isMobile: boolean })
       tags={
         <>
           <IdentityTags p={g.sample} />
-          {g.market && <ColorChip {...MARKET_CHIP}>{g.market}</ColorChip>}
+          {/* #228: strip the "-POOL" key from the combined market + append STAKED. */}
+          {g.market && (() => { const gm = poolDisplay(g.market); return (
+            <>
+              <ColorChip {...MARKET_CHIP}>{gm.label}</ColorChip>
+              {gm.staked && <StakedBadge />}
+            </>
+          ); })()}
           <span style={{ fontSize: 10.5, fontWeight: 600, color: t.mut, border: `1px solid ${t.border}`, borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>
             ×{g.count} event{g.count === 1 ? '' : 's'}
           </span>
         </>
       }
-      text={`${g.market ? g.market + ' ' : ''}${g.act.toLowerCase()} · net over ${g.count} event${g.count === 1 ? '' : 's'}`}
+      text={`${g.market ? poolDisplay(g.market).label + ' ' : ''}${g.act.toLowerCase()} · net over ${g.count} event${g.count === 1 ? '' : 's'}`}
     />
   );
 }

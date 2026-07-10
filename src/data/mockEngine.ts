@@ -4,7 +4,7 @@ import type {
 import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account,
   ClosedAgg, ClosedGroupAgg, PerfDim,
-  IncomePeriodRow, IncomeFilter, IncomeGrain, IncomeCategory,
+  IncomePeriodRow, IncomeFilter, IncomeGrain, IncomeCategory, LedgerTotals,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 import { pnlAt } from '../lib/pnl';
@@ -374,6 +374,32 @@ export class MockEngine {
           acc.netPnl += t.total; acc.tradePnl += t.pnl; acc.funding += t.funding;
           acc.fees += t.fees; acc.interest += t.interest; acc.rewards += t.rewards; acc.hacks += t.hack;
         }
+        return acc;
+      },
+
+      // ── Analytics header totals — FULL LEDGER (#228) mock parity ──────────────
+      // Sum the DAY-grain income history over the window (mirrors mat_ledger's
+      // per-event sum), then add a seeded hack in April so the Hacks card is nonzero
+      // (the live fix surfaces a −$342,670 hack; mock uses a token value). Net = Σ
+      // income cats only (transfer + hack excluded).
+      fetchLedgerTotals: async (sinceMs, untilMs): Promise<LedgerTotals> => {
+        const acc: LedgerTotals = { netPnl: 0, tradePnl: 0, funding: 0, fees: 0, rewards: 0, interest: 0, hacks: 0 };
+        for (const r of this.incomeHistory()) {
+          if (r.periodType !== 'day') continue;
+          if (r.periodStart < sinceMs || r.periodStart > untilMs) continue;
+          switch (r.category) {
+            case 'realized_trade': acc.tradePnl += r.amount; acc.netPnl += r.amount; break;
+            case 'funding': acc.funding += r.amount; acc.netPnl += r.amount; break;
+            case 'fee': acc.fees += r.amount; acc.netPnl += r.amount; break;
+            case 'reward': acc.rewards += r.amount; acc.netPnl += r.amount; break;
+            case 'interest': acc.interest += r.amount; acc.netPnl += r.amount; break;
+            case 'hack': acc.hacks += r.amount; break; // NOT in netPnl
+            // transfer: excluded from both
+          }
+        }
+        // Seed a demo hack (April 1 of the current year) so the card renders nonzero.
+        const hackTs = Date.UTC(new Date().getUTCFullYear(), 3, 1);
+        if (hackTs >= sinceMs && hackTs <= untilMs) acc.hacks += -342670.32;
         return acc;
       },
 

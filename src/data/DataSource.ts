@@ -2,7 +2,7 @@ import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account,
   ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim, LifecycleMap,
   IncomePeriodRow, IncomeFilter, IncomeGrain,
-  PositionBreakdown, BreakdownTotals, PositionEvent,
+  PositionBreakdown, BreakdownTotals, LedgerTotals, PositionEvent,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 
@@ -105,6 +105,15 @@ export interface DataSource {
   // already-reconciled per-position buckets — net = SUM(net_pnl); NO new client
   // money math. Reconciles EXACTLY with the list Σ (both sum the same rows).
   fetchBreakdownTotals(sinceMs: number, untilMs: number): Promise<BreakdownTotals>;
+
+  // ── Analytics header totals — FULL LEDGER (#228, fixes the $0 Hacks card) ────
+  // Sum mat_ledger by category over the window (bound on ts, epoch-ms) — the TRUE
+  // period P&L per category, including ledger-only events the per-position rollup
+  // misses (the −$342,670 hack, standalone funding/interest/rewards). Drives the 7
+  // header cards. Net = Σ income cats only (transfer + hack excluded per
+  // tax_category). RLS-scoped by the view. Does NOT reconcile to the list Σ — the
+  // header is full period P&L, the list is the positions within the range.
+  fetchLedgerTotals(sinceMs: number, untilMs: number): Promise<LedgerTotals>;
 
   // One bounded PAGE of the per-position breakdown list (last_event_ts DESC, id
   // tiebreak — stable) within the window. Auto-loaded on 50%-scroll; the caller

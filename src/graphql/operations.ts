@@ -612,6 +612,47 @@ export const BREAKDOWN_TOTALS_QUERY = gql`
   }
 `;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ANALYTICS HEADER TOTALS — FULL LEDGER (#228, fixes the $0 Hacks card).
+//
+// The 7 header cards sum `mat_ledger` (the raw per-event money ledger) over the
+// selected range — the TRUE period P&L per category — NOT the per-position
+// breakdown. mat_position_breakdown misses ledger-only events: the −$342,670 Drift
+// hack (transfers.type='hack' → category 'hack', tied to no position) and any
+// standalone funding/interest/rewards. mat_ledger has them all.
+//
+// Hasura has no GROUP BY, so we issue one aliased `mat_ledger_aggregate` per
+// category, each bounded on ts (epoch-ms) AND pinned to its category, summing
+// `amount` (the already-signed USD). RLS scopes rows to the user via the view's
+// exchange_account.wallet.user_wallets.user_id filter. allow_aggregations is on for
+// the user role (verified in public_mat_ledger.yaml). The FE maps:
+//   realized_trade→Trade PnL · funding→Funding · fee→Fees · reward→Rewards ·
+//   interest→Interest · hack→Hacks. Net PnL = Σ income cats only (transfer + hack
+//   excluded per tax_category). This header intentionally NO LONGER equals the
+//   closed-position list Σ (list = positions in range; header = full period P&L).
+export const LEDGER_TOTALS_QUERY = gql`
+  query LedgerTotals($since: bigint!, $until: bigint!) {
+    realized_trade: mat_ledger_aggregate(
+      where: { _and: [{ ts: { _gte: $since, _lte: $until } }, { category: { _eq: "realized_trade" } }] }
+    ) { aggregate { sum { amount } } }
+    funding: mat_ledger_aggregate(
+      where: { _and: [{ ts: { _gte: $since, _lte: $until } }, { category: { _eq: "funding" } }] }
+    ) { aggregate { sum { amount } } }
+    fee: mat_ledger_aggregate(
+      where: { _and: [{ ts: { _gte: $since, _lte: $until } }, { category: { _eq: "fee" } }] }
+    ) { aggregate { sum { amount } } }
+    reward: mat_ledger_aggregate(
+      where: { _and: [{ ts: { _gte: $since, _lte: $until } }, { category: { _eq: "reward" } }] }
+    ) { aggregate { sum { amount } } }
+    interest: mat_ledger_aggregate(
+      where: { _and: [{ ts: { _gte: $since, _lte: $until } }, { category: { _eq: "interest" } }] }
+    ) { aggregate { sum { amount } } }
+    hack: mat_ledger_aggregate(
+      where: { _and: [{ ts: { _gte: $since, _lte: $until } }, { category: { _eq: "hack" } }] }
+    ) { aggregate { sum { amount } } }
+  }
+`;
+
 // One bounded PAGE of the breakdown list (last_event_ts DESC, id tiebreak) within
 // the window. Auto-loaded on 50%-scroll; limit/offset — never a full pull.
 export const BREAKDOWN_PAGE_QUERY = gql`

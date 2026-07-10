@@ -1,26 +1,33 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store/store';
 import { dataSource } from '../store/useLiveData';
-import { Card, Mono, Chip } from '../ui/primitives';
+import { Card, Mono, Chip, StakedBadge } from '../ui/primitives';
 import { t } from '../ui/theme';
-import { k, col } from '../lib/format';
+import { k, col, poolDisplay } from '../lib/format';
 import { useIsMobile } from '../lib/useIsMobile';
 import { windowBounds } from '../data/perfWindow';
 import { IdentityTags } from '../lib/tags';
-import type { PositionBreakdown, BreakdownTotals, PositionEvent } from '../types';
+import type { PositionBreakdown, BreakdownTotals, LedgerTotals, PositionEvent } from '../types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Analytics (#223 — rebuilt to Jaison's exact spec). TWO things, nothing else:
 //
-//   (A) Totals header — Net PnL · Trade PnL · Funding · Fees · Interest · Rewards ·
+//   (A) Totals header — Net PnL · Trade PnL · Funding · Fees · Rewards · Interest ·
 //       Hacks for the selected time range. Range control: custom date range +
-//       presets 1hr / 24h / week / month / YTD. Totals = SUM of each category over
-//       the range (source: mat_position_breakdown_aggregate, bound on last_event_ts;
-//       Net PnL = the reconciled net_pnl bucket).
+//       presets 1hr / 24h / week / month / YTD.
+//       #228: the header sums the FULL LEDGER (mat_ledger) over the range — the TRUE
+//       period P&L per category — NOT the per-position breakdown. This picks up
+//       ledger-only events the per-position rollup misses: the −$342,670 Drift hack
+//       (transfers.type='hack' → category 'hack', tied to no position) and standalone
+//       funding/interest/rewards. category→card: realized_trade→Trade PnL,
+//       funding→Funding, fee→Fees, reward→Rewards, interest→Interest, hack→Hacks.
+//       Net PnL = Σ income cats only (transfer + hack excluded per tax_category).
+//       The header intentionally NO LONGER equals the closed-position list Σ.
 //
 //   (B) Closed-positions list — PARTIAL (open w/ realized) + COMPLETE (fully closed),
 //       sorted by close/last-event date DESC. Infinite scroll: prefetch the next
-//       page at 50% scroll. Filtered by the same range.
+//       page at 50% scroll. Filtered by the same range. Source: mat_position_breakdown
+//       (unchanged). The list's own Total row reconciles to the LIST (same rows).
 //
 //   (C) Each row: Wallet · Exchange · Account tags (lib/tags) · earliest+last event
 //       date · asset · Net/Trade/Funding/Fees/Interest/Rewards/Hacks (per-position,
@@ -29,8 +36,8 @@ import type { PositionBreakdown, BreakdownTotals, PositionEvent } from '../types
 //   (D) Click a row → expand → ALL contributing events (mat_position_events) DESC by
 //       ts: type · date · amount, in the app's row style.
 //
-// The list Σ reconciles to the header totals to the cent (both SUM the same rows
-// over the same window). NO client money math — the DB supplies reconciled buckets.
+// NO client money math — the DB supplies reconciled buckets (ledger sums for the
+// header, per-position buckets for the list).
 // ─────────────────────────────────────────────────────────────────────────────
 
 type RangeMode = '1h' | '24h' | 'week' | 'month' | 'ytd' | 'all' | 'custom';
@@ -49,6 +56,11 @@ const PAGE_SIZE = 50;
 
 const EMPTY_TOTALS: BreakdownTotals = {
   count: 0, netPnl: 0, tradePnl: 0, funding: 0, fees: 0, interest: 0, rewards: 0, hacks: 0,
+};
+
+// #228: header totals now come from the FULL LEDGER (mat_ledger), not the list.
+const EMPTY_LEDGER: LedgerTotals = {
+  netPnl: 0, tradePnl: 0, funding: 0, fees: 0, rewards: 0, interest: 0, hacks: 0,
 };
 
 // Resolve a range mode → concrete [sinceMs, untilMs] from the real-now clock. 1hr
@@ -89,7 +101,21 @@ export function Performance() {
   const bounds = useMemo(() => rangeBounds(rangeMode, custom), [rangeMode, custom]);
   const boundsKey = `${bounds.sinceMs}|${bounds.untilMs}`;
 
-  // ── Totals header (mat_position_breakdown_aggregate over the window) ──────────
+  // ── Header totals — FULL LEDGER (#228): sum mat_ledger by category over the
+  // window. The TRUE period P&L incl the −$342,670 hack + unassociated funding/etc.
+  const [ledger, setLedger] = useState<LedgerTotals>(EMPTY_LEDGER);
+  const [ledgerLoading, setLedgerLoading] = useState(true);
+  const ledgerReq = useRef(0);
+  useEffect(() => {
+    const my = ++ledgerReq.current;
+    setLedgerLoading(true);
+    dataSource.fetchLedgerTotals(bounds.sinceMs, bounds.untilMs)
+      .then((l) => { if (my === ledgerReq.current) { setLedger(l); setLedgerLoading(false); } })
+      .catch(() => { if (my === ledgerReq.current) { setLedger(EMPTY_LEDGER); setLedgerLoading(false); } });
+  }, [boundsKey]);
+
+  // ── List totals (mat_position_breakdown_aggregate) — drives the LIST Total row +
+  // the subtitle position count (reconciles to the list rows, NOT the header). ─────
   const [totals, setTotals] = useState<BreakdownTotals>(EMPTY_TOTALS);
   const [totalsLoading, setTotalsLoading] = useState(true);
   const totalsReq = useRef(0);
@@ -154,14 +180,15 @@ export function Performance() {
     ? 'Loading…'
     : `${totals.count} position${totals.count === 1 ? '' : 's'}${partialCount ? ` · ${partialCount} partially realized` : ''}`;
 
+  // #228: header cards read the FULL-LEDGER totals (period P&L per category).
   const cards: { label: string; v: number; accent?: boolean }[] = [
-    { label: 'Net PnL', v: totals.netPnl, accent: true },
-    { label: 'Trade PnL', v: totals.tradePnl },
-    { label: 'Funding', v: totals.funding },
-    { label: 'Fees', v: totals.fees },
-    { label: 'Rewards', v: totals.rewards },
-    { label: 'Interest', v: totals.interest },
-    { label: 'Hacks', v: totals.hacks },
+    { label: 'Net PnL', v: ledger.netPnl, accent: true },
+    { label: 'Trade PnL', v: ledger.tradePnl },
+    { label: 'Funding', v: ledger.funding },
+    { label: 'Fees', v: ledger.fees },
+    { label: 'Rewards', v: ledger.rewards },
+    { label: 'Interest', v: ledger.interest },
+    { label: 'Hacks', v: ledger.hacks },
   ];
 
   return (
@@ -194,8 +221,8 @@ export function Performance() {
         {cards.map((c) => (
           <Card key={c.label} style={{ padding: '16px 17px', background: c.accent ? 'linear-gradient(160deg,#191e29,#15191e)' : t.panel, border: `1px solid ${c.accent ? '#2c3550' : t.border}` }}>
             <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.05em', color: t.mut }}>{c.label}</div>
-            <Mono style={{ fontSize: 23, fontWeight: 600, marginTop: 7, color: totalsLoading ? t.mut2 : col(c.v), display: 'block' }}>
-              {totalsLoading ? '—' : k(c.v)}
+            <Mono style={{ fontSize: 23, fontWeight: 600, marginTop: 7, color: ledgerLoading ? t.mut2 : col(c.v), display: 'block' }}>
+              {ledgerLoading ? '—' : k(c.v)}
             </Mono>
           </Card>
         ))}
@@ -229,7 +256,9 @@ export function Performance() {
               {pageLoading && (
                 <div style={{ padding: '14px', textAlign: 'center', fontSize: 12.5, color: t.mut2 }}>Loading more…</div>
               )}
-              {/* Total row — reconciles to the header cards (same rows, same window). */}
+              {/* Total row — Σ of the LIST rows (mat_position_breakdown). #228: this is
+                  the positions-in-range total; it does NOT equal the header cards (which
+                  are the full-ledger period P&L, incl hacks + unassociated income). */}
               <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 8, padding: 14, borderTop: `1px solid ${t.border}` }}>
                 <span style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: '.03em', color: t.mut, textTransform: 'uppercase' }}>Total</span>
                 <Num v={totals.netPnl} bold /><Num v={totals.tradePnl} bold /><Num v={totals.funding} bold />
@@ -240,7 +269,7 @@ export function Performance() {
         </div>
       </Card>
       <p style={{ fontSize: 11, color: t.mut2, marginTop: 10, lineHeight: 1.5 }}>
-        <b style={{ color: '#8aa2ff' }}>PARTIAL</b> = an open position with realized P/L from partial closes (shown before it fully closes); <b style={{ color: '#9aa3ab' }}>COMPLETE</b> = a fully-closed position. Sorted by close / last-event date, newest first. The Total reconciles to the header.
+        <b style={{ color: '#8aa2ff' }}>PARTIAL</b> = an open position with realized P/L from partial closes (shown before it fully closes); <b style={{ color: '#9aa3ab' }}>COMPLETE</b> = a fully-closed position. Sorted by close / last-event date, newest first. The Total sums the positions in range; the header cards above are the full period P&L (all ledger events, including hacks and income not tied to a position).
       </p>
     </div>
   );
@@ -270,7 +299,13 @@ const PositionRow: React.FC<{
       <span style={{ display: 'flex', alignItems: 'center', gap: 8, rowGap: 5, minWidth: 0, flexWrap: 'wrap' }}>
         <Mono style={{ fontSize: 11, color: t.mut2, width: 9, flexShrink: 0 }}>{expanded ? '▾' : '▸'}</Mono>
         <StatusBadge partial={r.isPartial} />
-        <Mono style={{ fontSize: 13, fontWeight: 600 }}>{r.asset}</Mono>
+        {/* #228: strip the internal "-POOL" key for display + show a STAKED badge. */}
+        {(() => { const a = poolDisplay(r.asset); return (
+          <>
+            <Mono style={{ fontSize: 13, fontWeight: 600 }}>{a.label}</Mono>
+            {a.staked && <StakedBadge />}
+          </>
+        ); })()}
         <IdentityTags p={{ exch: r.exch, wallet: r.wallet, walletLabel: r.walletLabel }} />
         <Mono style={{ fontSize: 10.5, color: t.mut2, whiteSpace: 'nowrap' }}>{fmtDate(r.earliestEventMs)} → {fmtDate(r.lastEventMs)}</Mono>
       </span>

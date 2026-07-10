@@ -82,6 +82,20 @@ export function shortAddr(s: string): string {
   return s;
 }
 
+// ── Staked-pool display (#228, #189) ──────────────────────────────────────────
+// Staked bags materialize with a DISTINCT "-POOL" asset/market key (e.g. "LIT-POOL")
+// so they don't collide with the plain spot bag in mat_positions. That suffix is an
+// INTERNAL key — it must NEVER show to the user. This strips it for DISPLAY and flags
+// `staked` so the surface can add a STAKED badge. DISPLAY-ONLY: never mutate the key.
+// Handles a bare "LIT-POOL" and a market-suffixed "LIT-POOL" (base is the token).
+export function poolDisplay(raw: string | undefined | null): { label: string; staked: boolean } {
+  const s = (raw ?? '').trim();
+  if (s.toUpperCase().endsWith('-POOL')) {
+    return { label: s.slice(0, -'-POOL'.length), staked: true };
+  }
+  return { label: s, staked: false };
+}
+
 export function pricePrecision(v: number): number {
   const a = Math.abs(v);
   if (a >= 1) return 2;

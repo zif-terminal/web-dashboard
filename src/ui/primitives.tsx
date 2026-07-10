@@ -5,6 +5,19 @@ export const Mono: React.FC<React.HTMLAttributes<HTMLSpanElement>> = ({ style, .
   <span {...p} style={{ fontFamily: t.mono, fontVariantNumeric: 'tabular-nums', ...style }} />
 );
 
+// STAKED badge (#228, #189) — the shared amber "staked-pool" treatment used across
+// Analytics + Activity (matches Positions' STAKED type badge: warm amber). Reused
+// wherever a "-POOL" bag renders, so the base asset shows + a STAKED marker (the
+// "-POOL" suffix is an internal key, never shown; see lib/format.poolDisplay).
+export const StakedBadge: React.FC<{ style?: React.CSSProperties }> = ({ style }) => (
+  <span style={{
+    fontSize: 8.5, fontWeight: 700, letterSpacing: '.05em', flexShrink: 0, borderRadius: 4,
+    padding: '2px 6px', textTransform: 'uppercase', whiteSpace: 'nowrap',
+    color: '#e0b872', background: 'rgba(224,184,114,0.10)', border: '1px solid #4a3d1f',
+    ...style,
+  }}>STAKED</span>
+);
+
 export const Card: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({ style, ...p }) => (
   <div
     {...p}
