@@ -212,6 +212,7 @@ const groupAccounts = (rows: any[]): Wallet[] => {
       // #226 Check-2 net-flow terms (Section A of the reconciliation breakdown).
       unrealized: num(r.unrealized),
       netDeposits: num(r.net_deposits),
+      netFlow: num(r.net_flow),
     };
     w.accounts.push(account);
   }

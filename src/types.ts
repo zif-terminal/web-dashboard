@@ -234,6 +234,10 @@ export interface Account {
   // seeds can omit them; the live apolloSource always fills them.
   unrealized?: number;
   netDeposits?: number;
+  // #232 net_flow (money-OUT positive: withdrawals + fees − deposits). netFlow =
+  // −netDeposits. Kept explicitly so the flow breakout can show the value that
+  // LEFT the account, not just the netted deposits figure.
+  netFlow?: number;
 }
 
 // #226 One per-(account,asset,kind) SIZE reconciliation row (Check-1, price-independent).

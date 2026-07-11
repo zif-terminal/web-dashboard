@@ -3,6 +3,7 @@ import { dataSource } from '../store/useLiveData';
 import { Mono } from '../ui/primitives';
 import { t } from '../ui/theme';
 import { usd, col } from '../lib/format';
+import { classifyGap, type GapClass } from '../lib/reconcile';
 import type { Account, SizeReconcileRow } from '../types';
 
 // ── #226 Per-account RECONCILIATION BREAKDOWN ────────────────────────────────
@@ -62,6 +63,49 @@ function TermRow({ label, value, hint, highlight }: { label: string; value: stri
   );
 }
 
+// ── #232 LEADING cause line ──────────────────────────────────────────────────
+// The expanded breakdown LEADS with the pinpointed cause in plain language,
+// stating AXIS (asset / cash-ledger / valuation) + DIRECTION (from gap sign) +
+// MAGNITUDE + the upload-to-remediate path. Class is chosen in CODE by
+// classifyGap() — NEVER auto-plug (Jaison 2026-07-10). Design §2.3.
+function CauseLine({ a, cls }: { a: Account; cls: GapClass }) {
+  const amt = usd(cls.usd);
+  let title: React.ReactNode;
+  let body: string;
+
+  if (cls.klass === 'asset') {
+    const q = fmtQty(cls.qty);
+    if (cls.kind === 'venue-only') {
+      title = <>Exchange holds {q} {cls.asset} ({amt}) your recorded trades don't account for</>;
+      body = 'Likely an airdrop or a transfer we haven’t ingested. Upload the missing fills/transfer to reconcile.';
+    } else if (cls.kind === 'derived-only') {
+      title = <>Your recorded trades show {q} {cls.asset} ({amt}) the exchange no longer holds</>;
+      body = 'A close or transfer we haven’t ingested yet. Upload the missing fills to reconcile.';
+    } else {
+      title = <>Your {cls.asset} size is off by {q} ({amt}) vs the exchange</>;
+      body = 'Some fills are missing. Upload them to reconcile.';
+    }
+  } else if (cls.klass === 'valuation') {
+    title = <>All trades are present — the {amt} is a price/mark difference on your open positions</>;
+    body = 'Not a missing holding. It clears itself as marks settle; nothing to upload.';
+  } else {
+    // cash / ledger residual — DIRECTION-aware
+    title = <>All positions match — the {amt} is a cash/ledger difference</>;
+    body = cls.dir === 'exchange-lower'
+      ? 'Your recorded deposits and trades imply more should remain than the exchange holds; value left the account (a withdrawal, fee, or funding payment) that isn’t in your recorded history. Upload the missing transfers to reconcile.'
+      : 'The exchange holds more than your recorded deposits + trades explain; value came in (a deposit, funding credit, or transfer) we haven’t recorded. Upload the missing transfer to reconcile.';
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, background: 'rgba(251,191,36,.06)', border: `1px solid #4a3f1e`, borderRadius: 10, padding: '11px 13px' }}>
+      <span style={{ color: t.amber, fontSize: 14, lineHeight: 1.3, flexShrink: 0 }}>⚠</span>
+      <div style={{ fontSize: 11.5, color: '#e7d9b0', lineHeight: 1.5 }}>
+        <b>{title}.</b> {body}
+      </div>
+    </div>
+  );
+}
+
 export function ReconcileBreakdown({ a }: { a: Account }) {
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<SizeReconcileRow[] | null>(null);
@@ -101,6 +145,13 @@ export function ReconcileBreakdown({ a }: { a: Account }) {
 
   const mismatches = (rows ?? []).filter(isMismatch);
 
+  // #232 code-driven cause classification. `rows` is null until the lazy Check-1
+  // fetch resolves — classifyGap then does A/B/C; before that (or for DB-only
+  // venues with no size rows) it classifies B/C from mat_accounts alone. Shown
+  // only for real 'gap' accounts; 'incomplete' keeps its missing-fills note.
+  const cls = classifyGap(a, rows);
+  const showCause = a.reconcileStatus === 'gap';
+
   return (
     <div style={{ marginTop: 11 }}>
       {/* Expander toggle */}
@@ -115,17 +166,26 @@ export function ReconcileBreakdown({ a }: { a: Account }) {
       {open && (
         <div style={{ marginTop: 9, background: 'rgba(255,255,255,.02)', border: `1px solid ${t.border2}`, borderRadius: 10, padding: '13px 14px', display: 'flex', flexDirection: 'column', gap: 14 }}>
 
+          {/* ── #232 LEADING cause line (gap accounts only) ── */}
+          {showCause && <CauseLine a={a} cls={cls} />}
+
           {/* ── Section A: net-flow terms (Check-2) ── */}
           <div>
             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.06em', color: t.mut2, textTransform: 'uppercase', marginBottom: 6 }}>Value breakdown</div>
             <TermRow label="Equity (exchange)" value={usd(equity)} />
-            <TermRow label="Net deposits" hint="money in" value={usd(netDeposits)} />
-            <TermRow label="Realized PnL" value={usd(realized)} highlight={col(realized)} />
+            {/* #232 Flow terms: only the NET is exposed on mat_accounts today, so we
+                label it as the identity it represents and note the sub-terms below.
+                Deposits/withdrawals/fees would need dedicated backend columns (#4). */}
+            <TermRow label="Net deposits" hint="deposits − withdrawals − fees" value={usd(netDeposits)} highlight={col(netDeposits)} />
+            <TermRow label="Realized PnL" hint="incl. funding" value={usd(realized)} highlight={col(realized)} />
             <TermRow label="Unrealized PnL" value={usd(unrealized)} highlight={col(unrealized)} />
             <div style={{ borderTop: `1px solid ${t.border2}`, margin: '5px 0 3px' }} />
             <TermRow label="Residual (gap)" value={usd(residual)} highlight={residualColor} />
             <div style={{ fontSize: 10, color: t.mut2, marginTop: 6, lineHeight: 1.5, fontFamily: t.mono }}>
               equity = net deposits + realized + unrealized + residual
+            </div>
+            <div style={{ fontSize: 10, color: t.mut2, marginTop: 6, lineHeight: 1.5 }}>
+              Deposits, withdrawals &amp; fees are shown here only as the <b>net</b> (funding is folded into Realized PnL). We don’t yet break out withdrawals separately — that’s a coming enhancement.
             </div>
             {a.reconcileStatus === 'incomplete' && (
               <div style={{ fontSize: 10.5, color: '#f5c5c5', marginTop: 7, lineHeight: 1.5 }}>

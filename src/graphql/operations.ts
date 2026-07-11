@@ -229,6 +229,9 @@ export const ACCOUNTS_SUB = gql`
       # equity(=value) = net_deposits + realized(=pnl) + unrealized + residual(=gap_amount).
       unrealized
       net_deposits
+      # #232 money-OUT-positive net flow (= withdrawals + fees − deposits). netFlow =
+      # −net_deposits; surfaced so the breakout can label the value that LEFT the account.
+      net_flow
       tags
       wallet_address
       wallet_status

@@ -57,19 +57,34 @@ const showGapNum = (a: Account) => a.reconcileStatus !== 'reconciled';
 
 // Signed absolute magnitude, e.g. $86,864.77 (always positive $, direction is words).
 const gapMag = (a: Account) => usd(Math.abs(a.gapAmount ?? 0));
-const gapDir = (a: Account) => ((a.gapAmount ?? 0) >= 0 ? 'higher' : 'lower');
+
+// #232 DIRECTION-CORRECT phrasing, derived from the SIGN of gap_amount
+//   gap_amount = equity_exchange − (net_deposits + realized + unrealized)
+//   gap < 0 → exchange holds LESS than your ledger implies (value LEFT the account)
+//   gap > 0 → exchange holds MORE than your ledger records (unrecorded inflow)
+// The OLD copy ("$X lower than the exchange balance", gapDir()) was INVERTED for
+// the common gap<0 case — it read as exchange>ledger (an airdrop) when the money
+// had actually left. See design §1.5.
+const dirShort = (a: Account) =>
+  (a.gapAmount ?? 0) > 0
+    ? 'the exchange holds more than your ledger records'
+    : 'the exchange holds less than your ledger implies';
+const dirLong = (a: Account) =>
+  (a.gapAmount ?? 0) > 0
+    ? 'the exchange holds more than your recorded deposits + trades explain'
+    : 'the exchange holds less than your recorded deposits + trades imply';
 
 // Plain-English tooltip: Reconciled = computed == exchange-reported; Gap /
-// Incomplete = off by $X (gap = complete data, real drift; incomplete = missing
-// fills so the figure may still move).
+// Incomplete = off by $X in a stated direction (gap = complete data, real drift;
+// incomplete = missing fills so the figure may still move).
 function gapExplain(a: Account): string {
   switch (a.reconcileStatus) {
     case 'reconciled':
       return 'Reconciled — your computed positions & PnL match what the exchange reports for this account.';
     case 'incomplete':
-      return `Missing some trades — our value is ${gapMag(a)} ${gapDir(a)} than the exchange shows (may correct once the trades land).`;
+      return `Missing some trades — ${gapMag(a)} off; ${dirLong(a)} (may correct once the missing fills land).`;
     default:
-      return `All trades present — but our value is ${gapMag(a)} ${gapDir(a)} than the exchange shows.`;
+      return `All trades present — ${gapMag(a)} off; ${dirLong(a)}.`;
   }
 }
 
@@ -437,9 +452,12 @@ function GapExplainer({ a, align = 'left' }: { a: Account; align?: 'left' | 'rig
   if (a.reconcileStatus === 'reconciled') return null;
   const incomplete = isIncomplete(a);
   const color = incomplete ? t.red : t.amber;
+  // #232 DIRECTION-CORRECT short line under the badge. The class-specific cause
+  // (asset / cash-ledger / valuation) + the flow-term breakout live in the
+  // "Reconciliation breakdown" expander (ReconcileBreakdown).
   return (
-    <div title={gapExplain(a)} style={{ marginTop: 5, fontSize: 10.5, lineHeight: 1.45, color, textAlign: align, maxWidth: 240, marginLeft: align === 'right' ? 'auto' : undefined }}>
-      <b>{gapMag(a)}</b> {gapDir(a)} than the exchange balance
+    <div title={gapExplain(a)} style={{ marginTop: 5, fontSize: 10.5, lineHeight: 1.45, color, textAlign: align, maxWidth: 250, marginLeft: align === 'right' ? 'auto' : undefined }}>
+      <b>{gapMag(a)}</b> off — {incomplete ? 'missing fills (may correct once they land)' : dirShort(a)}
     </div>
   );
 }
@@ -551,7 +569,7 @@ function AccountRow({ a, walletLabel: _walletLabel }: { a: Account; walletLabel:
 
           {/* Band 3: status badge + detail */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: info.color, background: info.bg, borderRadius: 6, padding: '3px 8px' }}>{info.dot} {info.label}</div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: info.color, background: info.bg, borderRadius: 6, padding: '3px 8px' }}>{info.dot} {info.label}{showGapNum(a) ? ` ${gapMag(a)}` : ''}</div>
             <Mono style={{ fontSize: 10, color: t.mut2 }}>{info.detail}</Mono>
           </div>
           <GapExplainer a={a} />
@@ -589,7 +607,7 @@ function AccountRow({ a, walletLabel: _walletLabel }: { a: Account; walletLabel:
           </div>
 
           <div style={{ textAlign: 'right', minWidth: 120, maxWidth: 260 }}>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: info.color, background: info.bg, borderRadius: 6, padding: '3px 8px' }}>{info.dot} {info.label}</div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: info.color, background: info.bg, borderRadius: 6, padding: '3px 8px' }}>{info.dot} {info.label}{showGapNum(a) ? ` ${gapMag(a)}` : ''}</div>
             <Mono style={{ fontSize: 10, color: t.mut2, marginTop: 5, display: 'block' }}>{info.detail}</Mono>
             <GapExplainer a={a} align="right" />
           </div>
