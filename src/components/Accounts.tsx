@@ -7,6 +7,7 @@ import { usd, usd0, k, col, shortAddr } from '../lib/format';
 import { useIsMobile } from '../lib/useIsMobile';
 import type { Account, Wallet, ReconcileStatus } from '../types';
 import { OmniCsvUpload } from './OmniCsvUpload';
+import { ReconcileBreakdown } from './ReconcileBreakdown';
 
 const TAGS = ['core', 'hedge', 'long-term', 'degen'];
 
@@ -625,6 +626,37 @@ function AccountRow({ a, walletLabel: _walletLabel }: { a: Account; walletLabel:
       {/* ── #224/#225 Copyable identifier — exchange-given account id only ── */}
       <div style={{ marginTop: 13, display: 'flex', flexDirection: 'column', gap: 5, padding: '10px 12px', background: 'rgba(255,255,255,.025)', border: `1px solid ${t.border2}`, borderRadius: 9 }}>
         <CopyField label="Account ID" value={a.accountIdentifier} />
+      </div>
+
+      {/* ── #226 Reconciliation breakdown — gap/incomplete accounts only ── */}
+      {(isGap(a) || isIncomplete(a)) && <ReconcileBreakdown a={a} />}
+
+      {/* ── #226 Remediation: upload missing fills (incomplete accounts) ── */}
+      {isIncomplete(a) && <UploadFillsAffordance a={a} />}
+    </div>
+  );
+}
+
+// ── #226 Upload-missing-fills affordance ─────────────────────────────────────
+// Jaison 2026-07-10: incomplete-account gaps are NEVER auto-plugged; remediation
+// is USER-DRIVEN. Give a clear path to upload the missing fills.
+//   Variational → the existing in-app CSV uploader closes the gap directly.
+//   Other venues (HL/Lighter) → no in-app uploader reaches these yet, so surface
+//     a prominent note + a link to where fills are uploaded (reported to Jaison).
+function UploadFillsAffordance({ a }: { a: Account }) {
+  const canCsv = a.exch === 'Variational';
+  return (
+    <div style={{ marginTop: 10, display: 'flex', alignItems: 'flex-start', gap: 9, background: 'rgba(251,191,36,.06)', border: `1px solid #4a3f1e`, borderRadius: 10, padding: '11px 13px' }}>
+      <span style={{ color: t.amber, fontSize: 14, lineHeight: 1.3, flexShrink: 0 }}>↥</span>
+      <div style={{ fontSize: 11.5, color: '#e7d9b0', lineHeight: 1.5 }}>
+        <b>Missing fills.</b> Some trades for this account aren't ingested, so its value is off by <Mono style={{ fontWeight: 700 }}>{gapMag(a)}</Mono>. Upload the missing fills to reconcile it — we never auto-adjust the ledger.
+        {canCsv ? (
+          <div style={{ marginTop: 7 }}><OmniCsvUpload /></div>
+        ) : (
+          <div style={{ marginTop: 5, color: t.mut }}>
+            No in-app uploader covers {a.exch} accounts yet. Export the missing fills from the exchange and send them in to be ingested.
+          </div>
+        )}
       </div>
     </div>
   );

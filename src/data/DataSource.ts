@@ -2,7 +2,7 @@ import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account,
   ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim, LifecycleMap,
   IncomePeriodRow, IncomeFilter, IncomeGrain,
-  PositionBreakdown, BreakdownTotals, LedgerTotals, PositionEvent,
+  PositionBreakdown, BreakdownTotals, LedgerTotals, PositionEvent, SizeReconcileRow,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 
@@ -54,6 +54,10 @@ export interface DataSource {
   fetchActivityPage(before: number, limit: number, filter?: ActivityFilter): Promise<ActivityEvent[]>;
 
   fetchClosedTrades(sinceDays: number): Promise<ClosedTrade[]>;
+
+  // #226 Per-account SIZE reconciliation rows (Check-1), lazy-fetched on account
+  // expand. Price-independent derived-vs-venue quantity diff per (asset, kind).
+  fetchSizeReconcile(accountId: string): Promise<SizeReconcileRow[]>;
 
   // ── Performance server-side aggregates + pagination (#184) ──────────────────
   // Grand-total aggregate over a real-now window [sinceMs, untilMs] (closed_ts

@@ -13,12 +13,13 @@ import {
   UPSERT_ORDER_LEVEL, ADD_ORDER_LEVEL, REMOVE_ORDER_LEVEL, SET_WALLET_LABEL,
   UPDATE_ACCOUNT_LABEL, UPDATE_ACCOUNT_TAGS,
   INSERT_OMNI_RAW_EVENTS,
+  SIZE_RECONCILE_QUERY,
 } from '../graphql/operations';
 import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account, Exchange, Accuracy, ReconcileStatus, Side,
   ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim, Lifecycle, LifecycleMap,
   IncomePeriodRow, IncomeFilter, IncomeGrain, IncomeCategory,
-  PositionBreakdown, BreakdownTotals, LedgerTotals, PositionEvent,
+  PositionBreakdown, BreakdownTotals, LedgerTotals, PositionEvent, SizeReconcileRow,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 import { shortAddr } from '../lib/format';
@@ -208,6 +209,9 @@ const groupAccounts = (rows: any[]): Wallet[] => {
       // #224 identifiers for copy-to-clipboard in expanded account detail.
       walletAddress: r.wallet_address ?? '',
       accountIdentifier: r.account_identifier ?? '',
+      // #226 Check-2 net-flow terms (Section A of the reconciliation breakdown).
+      unrealized: num(r.unrealized),
+      netDeposits: num(r.net_deposits),
     };
     w.accounts.push(account);
   }
@@ -533,6 +537,29 @@ export function makeApolloDataSource(client: ApolloClient<any>): DataSource {
         fetchPolicy: 'network-only',
       });
       return ((data?.closed_trades as any[]) ?? []).map(mapClosedTrade);
+    },
+
+    // Size reconcile (#226): one-shot per-account fetch on expand. RLS-scoped to the
+    // user via the mat_size_reconcile exchange_account relationship. venue_as_of is a
+    // timestamptz string → coerce to epoch-ms (null when the venue side is missing).
+    fetchSizeReconcile: async (accountId): Promise<SizeReconcileRow[]> => {
+      const { data } = await client.query({
+        query: SIZE_RECONCILE_QUERY,
+        variables: { eaid: accountId },
+        fetchPolicy: 'network-only',
+      });
+      return ((data?.rows as any[]) ?? []).map((r): SizeReconcileRow => ({
+        asset: r.asset ?? '',
+        kind: r.kind === 'perp' ? 'perp' : 'spot',
+        derivedQty: num(r.derived_qty),
+        venueQty: num(r.venue_qty),
+        qtyDiff: num(r.qty_diff),
+        venueMark: nnum(r.venue_mark),
+        valueDiff: nnum(r.value_diff),
+        venueAsOf: r.venue_as_of ? new Date(r.venue_as_of).getTime() : null,
+        derivedMissing: !!r.derived_missing,
+        venueMissing: !!r.venue_missing,
+      }));
     },
 
     // ── Performance aggregates + pagination (#184) ──────────────────────────────

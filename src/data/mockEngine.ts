@@ -264,6 +264,10 @@ export class MockEngine {
       fetchClosedTrades: async (sinceDays) =>
         seedClosedTrades.filter((t) => t.endDays <= sinceDays).map((t) => ({ ...t })) as ClosedTrade[],
 
+      // #226 mock: no reconcile rows in the prototype — Section B renders its
+      // "sizes match" empty state. Section A (net-flow terms) rides account fields.
+      fetchSizeReconcile: async () => [],
+
       // ── Performance aggregates + pagination (#184), mock parity ───────────────
       // Filter seedClosedTrades to the closed_ts window, then reduce the SAME
       // reconciled per-trade fields the aggregate SUMs over — so mock and live take

@@ -225,6 +225,10 @@ export const ACCOUNTS_SUB = gql`
       # reconciled|gap). Backend rule: NOT data_complete → incomplete; else
       # abs(gap_amount) <= $5 TOL → reconciled; else → gap.
       reconcile_status
+      # #226 Check-2 net-flow terms for the reconciliation breakdown (Section A).
+      # equity(=value) = net_deposits + realized(=pnl) + unrealized + residual(=gap_amount).
+      unrealized
+      net_deposits
       tags
       wallet_address
       wallet_status
@@ -239,6 +243,34 @@ export const ACCOUNTS_SUB = gql`
           label
         }
       }
+    }
+  }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SIZE RECONCILE  (#226 — Check-1). One-shot fetch on account expand (NOT a
+// subscription: Hasura allows one top-level field per subscription, and size rows
+// only matter when the user drills in). Per (asset, kind) derived-vs-venue QUANTITY
+// diff, price-independent. RLS-scoped to the user via the mat_size_reconcile
+// exchange_account relationship. Ordered by |qty_diff| desc so the biggest
+// mismatch surfaces first.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const SIZE_RECONCILE_QUERY = gql`
+  query SizeReconcile($eaid: uuid!) {
+    rows: mat_size_reconcile(
+      where: { exchange_account_id: { _eq: $eaid } }
+    ) {
+      asset
+      kind
+      derived_qty
+      venue_qty
+      qty_diff
+      venue_mark
+      value_diff
+      venue_as_of
+      derived_missing
+      venue_missing
     }
   }
 `;

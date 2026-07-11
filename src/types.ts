@@ -227,6 +227,32 @@ export interface Account {
   // accountIdentifier: exchange-given address/id (exchange_accounts.account_identifier).
   walletAddress: string;
   accountIdentifier: string;
+  // #226 Check-2 net-flow terms — the reconciliation breakdown (Section A). All ride
+  // ACCOUNTS_SUB (mat_accounts). Identity: equity = netDeposits + realized + unrealized
+  // + residual, where residual == gapAmount, equity == value, realized == pnl (already
+  // on Account). netDeposits = −net_flow (money-IN display sign). Optional so mock
+  // seeds can omit them; the live apolloSource always fills them.
+  unrealized?: number;
+  netDeposits?: number;
+}
+
+// #226 One per-(account,asset,kind) SIZE reconciliation row (Check-1, price-independent).
+// Lazy-fetched on account expand from mat_size_reconcile. derivedQty = zif's event-ledger
+// quantity (positions.quantity); venueQty = exchange-reported (live_positions.size for
+// perps, spot_balance_snapshots.balance for spot/-POOL). qtyDiff = derived − venue.
+//   venueMissing=true  → derived-only  (PHANTOM: a position the venue doesn't report)
+//   derivedMissing=true → venue-only   (UN-INGESTED: venue holds it, zif hasn't booked it)
+export interface SizeReconcileRow {
+  asset: string;
+  kind: 'perp' | 'spot';
+  derivedQty: number;
+  venueQty: number;
+  qtyDiff: number;
+  venueMark: number | null;   // spot mark (oracle_price); null for perps / unpriced venues
+  valueDiff: number | null;   // qtyDiff * venueMark; null when unpriced
+  venueAsOf: number | null;   // snapshot freshness (epoch-ms); null if venue-only-missing
+  derivedMissing: boolean;
+  venueMissing: boolean;
 }
 
 export interface Wallet {
