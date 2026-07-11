@@ -326,11 +326,17 @@ function WalletCard({ w }: { w: Wallet }) {
           </div>
           <span style={{ flex: 1 }} />
           {w.status === 'ready' && (
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 9.5, color: t.mut, marginBottom: 1 }}>Value</div>
-              <Mono style={{ fontSize: 17, fontWeight: 600, display: 'block' }}>{usd0(value)}</Mono>
-              <div style={{ fontSize: 9.5, color: t.mut, marginTop: 4, marginBottom: 1 }}>PnL</div>
-              <Mono style={{ fontSize: 12, fontWeight: 600, color: col(pnl) }}>{k(pnl)}</Mono>
+            /* Desktop (≥769px, this branch only renders when !isMobile): Value + PnL
+               side-by-side. Mobile keeps the stacked block above (own branch, untouched). */
+            <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'baseline', gap: 18, textAlign: 'right' }}>
+              <div>
+                <div style={{ fontSize: 9.5, color: t.mut, marginBottom: 1 }}>Value</div>
+                <Mono style={{ fontSize: 17, fontWeight: 600, display: 'block' }}>{usd0(value)}</Mono>
+              </div>
+              <div>
+                <div style={{ fontSize: 9.5, color: t.mut, marginBottom: 1 }}>PnL</div>
+                <Mono style={{ fontSize: 12, fontWeight: 600, color: col(pnl) }}>{k(pnl)}</Mono>
+              </div>
             </div>
           )}
         </div>
@@ -534,16 +540,13 @@ function AccountRow({ a, walletLabel: _walletLabel }: { a: Account; walletLabel:
             )}
           </div>
 
-          {/* Band 2: value + PnL — own row, no collision */}
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16 }}>
-            <div>
-              <div style={{ fontSize: 9.5, color: t.mut, marginBottom: 1 }}>Value</div>
-              <Mono style={{ fontSize: 15, fontWeight: 600 }}>{usd(a.value)}</Mono>
-            </div>
-            <div>
-              <div style={{ fontSize: 9.5, color: t.mut, marginBottom: 1 }}>PnL</div>
-              <Mono style={{ fontSize: 11.5, fontWeight: 600, color: col(a.pnl) }}>{k(a.pnl)}</Mono>
-            </div>
+          {/* Band 2: value + PnL — own row, no collision. Mobile: stacked (not enough
+              width beside the other bands); desktop mirrors this but side-by-side below. */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <div style={{ fontSize: 9.5, color: t.mut, marginBottom: 1 }}>Value</div>
+            <Mono style={{ fontSize: 15, fontWeight: 600 }}>{usd(a.value)}</Mono>
+            <div style={{ fontSize: 9.5, color: t.mut, marginTop: 4, marginBottom: 1 }}>PnL</div>
+            <Mono style={{ fontSize: 11.5, fontWeight: 600, color: col(a.pnl) }}>{k(a.pnl)}</Mono>
           </div>
 
           {/* Band 3: status badge + detail */}
@@ -572,11 +575,17 @@ function AccountRow({ a, walletLabel: _walletLabel }: { a: Account; walletLabel:
             <div style={{ marginTop: 9 }}>{tagRow}</div>
           </div>
 
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 9.5, color: t.mut, marginBottom: 1 }}>Value</div>
-            <Mono style={{ fontSize: 15, fontWeight: 600, display: 'block' }}>{usd(a.value)}</Mono>
-            <div style={{ fontSize: 9.5, color: t.mut, marginTop: 5, marginBottom: 1 }}>PnL</div>
-            <Mono style={{ fontSize: 11.5, fontWeight: 600, color: col(a.pnl) }}>{k(a.pnl)}</Mono>
+          {/* Desktop: Value + PnL side-by-side (own branch, only rendered when !isMobile);
+              mobile keeps the stacked Band 2 above, unchanged. */}
+          <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'baseline', gap: 14, textAlign: 'right' }}>
+            <div>
+              <div style={{ fontSize: 9.5, color: t.mut, marginBottom: 1 }}>Value</div>
+              <Mono style={{ fontSize: 15, fontWeight: 600, display: 'block' }}>{usd(a.value)}</Mono>
+            </div>
+            <div>
+              <div style={{ fontSize: 9.5, color: t.mut, marginBottom: 1 }}>PnL</div>
+              <Mono style={{ fontSize: 11.5, fontWeight: 600, color: col(a.pnl) }}>{k(a.pnl)}</Mono>
+            </div>
           </div>
 
           <div style={{ textAlign: 'right', minWidth: 120, maxWidth: 260 }}>
