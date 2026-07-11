@@ -103,13 +103,6 @@ export interface DataSource {
     filter?: IncomeFilter,
   ): Promise<IncomePeriodRow[]>;
 
-  // ── Per-position breakdown (#223 Analytics rebuild) ─────────────────────────
-  // Grand-total aggregate of mat_position_breakdown over a real-now window (bound
-  // on last_event_ts). Drives the 7 Analytics header cards. The SUMs are the
-  // already-reconciled per-position buckets — net = SUM(net_pnl); NO new client
-  // money math. Reconciles EXACTLY with the list Σ (both sum the same rows).
-  fetchBreakdownTotals(sinceMs: number, untilMs: number): Promise<BreakdownTotals>;
-
   // ── Analytics header totals — FULL LEDGER (#228, fixes the $0 Hacks card) ────
   // Sum mat_ledger by category over the window (bound on ts, epoch-ms) — the TRUE
   // period P&L per category, including ledger-only events the per-position rollup
@@ -119,11 +112,19 @@ export interface DataSource {
   // header is full period P&L, the list is the positions within the range.
   fetchLedgerTotals(sinceMs: number, untilMs: number): Promise<LedgerTotals>;
 
-  // One bounded PAGE of the per-position breakdown list (last_event_ts DESC, id
-  // tiebreak — stable) within the window. Auto-loaded on 50%-scroll; the caller
-  // bumps `offset`. NEVER a full pull. Rows are COMPLETE (closed) + PARTIAL (open
-  // with realized), interleaved by close/last-event date.
-  fetchBreakdownPage(
+  // Grand-total aggregate of the range-scoped breakdown over [since, until] — count + Σ
+  // of the same rows the pages walk. Drives the list Total row + subtitle count.
+  // Reconciles to the header's category cards minus ledger-only events tied to no
+  // position (2026-07-11 range-scope fix, Opt 1).
+  fetchRangeBreakdownTotals(sinceMs: number, untilMs: number): Promise<BreakdownTotals>;
+
+  // One PAGE of the range-scoped per-position breakdown list (2026-07-11 range-scope fix,
+  // Opt 1): positions with a P/L-generating event (realized fill / funding / fee /
+  // interest / reward / hack) in [since, until], each row carrying its IN-RANGE
+  // per-category CONTRIBUTION (Σ of that position's ledger events in the window) — NOT
+  // lifetime. COMPLETE (fully closed) + PARTIAL (open with realized in range), newest
+  // first. Sourced from mat_position_range_breakdown; auto-loaded on 50%-scroll.
+  fetchRangeBreakdown(
     sinceMs: number,
     untilMs: number,
     opts: { limit: number; offset: number },

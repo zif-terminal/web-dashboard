@@ -579,22 +579,41 @@ export const CLOSED_WINDOW_QUERY = gql`
 `;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PER-POSITION BREAKDOWN  (#223 Analytics rebuild).
+// PER-POSITION RANGE BREAKDOWN  (Analytics list — 2026-07-11 range-scope fix, Opt 1).
 //
-// `mat_position_breakdown` is a READ-ONLY VIEW: one per-position PnL rollup row
-// (source: position_pnl buckets, SAME sign convention as mat_closed_trades) for
-// every fully-CLOSED position PLUS every still-OPEN position that carries realized
-// PnL from partial closes (is_partial). RLS-scoped to the user via
-// exchange_account.wallet.user_wallets. All ts are epoch-ms; sort key is
-// last_event_ts DESC (tiebreak id) — a stable keyset/offset order.
+// THE BUG THIS FIXES: the old list read `mat_position_breakdown` (LIFETIME per-position
+// buckets) merely FILTERED by last_event_ts. So at 1hr an open position whose last
+// funding tick landed in the window rendered its FULL-LIFE realized P/L (e.g. TAO
+// +$9.4K) and the Total row showed +$19.5K — flatly contradicting the ~$0 range header.
 //
-//   1. TOTALS  — mat_position_breakdown_aggregate SUMs drive the header cards. The
-//      buckets are already reconciled; net = SUM(net_pnl). The list Σ == the header
-//      by construction (both sum the SAME rows over the SAME window).
-//   2. PAGINATION — the list is fetched a page at a time (last_event_ts DESC, id
-//      tiebreak), auto-loaded on 50%-scroll. limit/offset; never a full pull.
-//   3. WINDOW — a real-now _gte/_lte bound on last_event_ts (positions whose close /
-//      last-event date is in the range).
+// THE FIX (realized-only): the list is now sourced from the SQL function
+// `mat_position_range_breakdown(p_since, p_until)` which GROUPs the categorized money
+// ledger BY POSITION over [since, until]. Each row is that position's CONTRIBUTION
+// WITHIN THE RANGE — Σ of its ledger events (realized fill / funding / fee / interest /
+// reward / hack) whose ts ∈ [since, until]. A position with no in-range P/L event does
+// NOT appear (1hr with no activity → empty). earliest/last_event_ts are the in-range
+// min/max event ts (NOT the lifetime span).
+//
+// WHY IT RECONCILES TO THE HEADER: the function's per-category sums come from the SAME
+// rows the header sums (`mat_ledger`, category by category) — internally via
+// `mat_position_ledger` (= mat_ledger + a derived position_id, no fan-out). So
+//   Σ(list, category C over range) == Σ(mat_ledger, C over range) − (unattributed C rows)
+// where "unattributed" = ledger-only events tied to no position (the −$342,670 Drift
+// hack, standalone income). That documented remainder is the ONLY legitimate gap between
+// the list Total and the header cards; the footnote explains it.
+//
+// RETURNS SETOF mat_position_breakdown → identical column shape (mapBreakdown reused) and
+// INHERITS mat_position_breakdown's user RLS (exchange_account.wallet.user_wallets.user_id
+// = X-Hasura-User-Id) — verified served under X-Hasura-Role: user. Hasura exposes it as a
+// queryable set (where/order_by/limit/offset) PLUS a `_aggregate` field:
+//   1. PAGE     — mat_position_range_breakdown(args, order_by last_event_ts desc, limit,
+//                 offset): one 50-row page, auto-loaded on 50%-scroll (small payload).
+//   2. TOTALS   — mat_position_range_breakdown_aggregate(args): count + Σ over ALL the
+//                 user's in-range positions in ONE round-trip. The list Total row reads
+//                 THIS (the whole in-range set), so it reconciles to the header's
+//                 category cards minus ledger-only events tied to no position.
+// (We paginate server-side + total via the aggregate — NOT a full pull — because a heavy
+// book has ~1k in-range positions; an all-rows fetch was a 400KB/5s payload.)
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Shared selection set — matches the PositionBreakdown mapper 1:1.
@@ -622,12 +641,28 @@ const BREAKDOWN_FIELDS = `
   }
 `;
 
-// Grand-total aggregate over the window — drives the 7 header cards + the list total.
-export const BREAKDOWN_TOTALS_QUERY = gql`
-  query BreakdownTotals($since: bigint!, $until: bigint!) {
-    mat_position_breakdown_aggregate(
-      where: { last_event_ts: { _gte: $since, _lte: $until } }
+// One PAGE of the range breakdown list (last in-range event DESC, id tiebreak) — positions
+// with a P/L-generating event in [since, until], each carrying its in-range per-category
+// contribution. Auto-loaded on 50%-scroll; the caller bumps offset.
+export const RANGE_BREAKDOWN_QUERY = gql`
+  query RangeBreakdown($since: bigint!, $until: bigint!, $limit: Int!, $offset: Int!) {
+    position_breakdown: mat_position_range_breakdown(
+      args: { p_since: $since, p_until: $until }
+      order_by: [{ last_event_ts: desc }, { id: desc }]
+      limit: $limit
+      offset: $offset
     ) {
+      ${BREAKDOWN_FIELDS}
+    }
+  }
+`;
+
+// Grand-total aggregate over the WHOLE in-range set — drives the list Total row + the
+// subtitle position count. count + Σ of the same rows the pages walk. Reconciles to the
+// header's category cards minus ledger-only events tied to no position.
+export const RANGE_BREAKDOWN_TOTALS_QUERY = gql`
+  query RangeBreakdownTotals($since: bigint!, $until: bigint!) {
+    mat_position_range_breakdown_aggregate(args: { p_since: $since, p_until: $until }) {
       aggregate {
         count
         sum {
@@ -682,21 +717,6 @@ export const LEDGER_TOTALS_QUERY = gql`
     hack: mat_ledger_aggregate(
       where: { _and: [{ ts: { _gte: $since, _lte: $until } }, { category: { _eq: "hack" } }] }
     ) { aggregate { sum { amount } } }
-  }
-`;
-
-// One bounded PAGE of the breakdown list (last_event_ts DESC, id tiebreak) within
-// the window. Auto-loaded on 50%-scroll; limit/offset — never a full pull.
-export const BREAKDOWN_PAGE_QUERY = gql`
-  query BreakdownPage($since: bigint!, $until: bigint!, $limit: Int!, $offset: Int!) {
-    position_breakdown: mat_position_breakdown(
-      where: { last_event_ts: { _gte: $since, _lte: $until } }
-      order_by: [{ last_event_ts: desc }, { id: desc }]
-      limit: $limit
-      offset: $offset
-    ) {
-      ${BREAKDOWN_FIELDS}
-    }
   }
 `;
 

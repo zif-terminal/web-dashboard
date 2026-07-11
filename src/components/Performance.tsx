@@ -24,14 +24,20 @@ import type { PositionBreakdown, BreakdownTotals, LedgerTotals, PositionEvent } 
 //       Net PnL = Σ income cats only (transfer + hack excluded per tax_category).
 //       The header intentionally NO LONGER equals the closed-position list Σ.
 //
-//   (B) Closed-positions list — PARTIAL (open w/ realized) + COMPLETE (fully closed),
-//       sorted by close/last-event date DESC. Infinite scroll: prefetch the next
-//       page at 50% scroll. Filtered by the same range. Source: mat_position_breakdown
-//       (unchanged). The list's own Total row reconciles to the LIST (same rows).
+//   (B) Range breakdown list (2026-07-11 range-scope fix, Opt 1) — ALL positions with
+//       a P/L-generating event IN THE RANGE, PARTIAL (open w/ realized in range) +
+//       COMPLETE (fully closed), sorted by last in-range event DESC. Source:
+//       mat_position_range_breakdown(since, until) — each row is the position's
+//       CONTRIBUTION WITHIN THE RANGE (Σ of its ledger events in the window), NOT
+//       lifetime. This FIXES the bug where an open position whose last funding tick
+//       landed in a short window rendered its full-life P/L, contradicting the header.
+//       ONE fetch per range; the FE paginates + totals CLIENT-SIDE (infinite scroll at
+//       50%), so the Total literally sums the whole in-range list and reconciles to the
+//       header's category cards minus ledger-only events tied to no position.
 //
-//   (C) Each row: Wallet · Exchange · Account tags (lib/tags) · earliest+last event
-//       date · asset · Net/Trade/Funding/Fees/Interest/Rewards/Hacks (per-position,
-//       sign-aware, format.ts dust rules).
+//   (C) Each row: Wallet · Exchange · Account tags (lib/tags) · earliest+last IN-RANGE
+//       event date · asset · Net/Trade/Funding/Fees/Interest/Rewards/Hacks (per-position
+//       in-range contribution, sign-aware, format.ts dust rules).
 //
 //   (D) Click a row → expand → ALL contributing events (mat_position_events) DESC by
 //       ts: type · date · amount, in the app's row style.
@@ -114,20 +120,24 @@ export function Performance() {
       .catch(() => { if (my === ledgerReq.current) { setLedger(EMPTY_LEDGER); setLedgerLoading(false); } });
   }, [boundsKey]);
 
-  // ── List totals (mat_position_breakdown_aggregate) — drives the LIST Total row +
-  // the subtitle position count (reconciles to the list rows, NOT the header). ─────
+  // ── List totals (mat_position_range_breakdown_aggregate) — the Σ over the WHOLE
+  // in-range set. Drives the LIST Total row + the subtitle count. Reconciles to the
+  // header's category cards minus ledger-only events tied to no position. ────────────
   const [totals, setTotals] = useState<BreakdownTotals>(EMPTY_TOTALS);
   const [totalsLoading, setTotalsLoading] = useState(true);
   const totalsReq = useRef(0);
   useEffect(() => {
     const my = ++totalsReq.current;
     setTotalsLoading(true);
-    dataSource.fetchBreakdownTotals(bounds.sinceMs, bounds.untilMs)
+    dataSource.fetchRangeBreakdownTotals(bounds.sinceMs, bounds.untilMs)
       .then((tot) => { if (my === totalsReq.current) { setTotals(tot); setTotalsLoading(false); } })
       .catch(() => { if (my === totalsReq.current) { setTotals(EMPTY_TOTALS); setTotalsLoading(false); } });
   }, [boundsKey]);
 
-  // ── (B) Paginated breakdown list (last_event_ts DESC, id tiebreak) ───────────
+  // ── (B) Range breakdown list — positions with a P/L-generating event in [since, until]
+  // (mat_position_range_breakdown), each row carrying its IN-RANGE per-category
+  // contribution, last in-range event DESC. Server-paginated (50/page), auto-loaded on
+  // 50%-scroll — small payloads, never a full pull.
   const [rows, setRows] = useState<PositionBreakdown[]>([]);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -138,7 +148,7 @@ export function Performance() {
   useEffect(() => {
     const my = ++listReq.current;
     setListLoading(true); setRows([]); setOffset(0); setHasMore(false);
-    dataSource.fetchBreakdownPage(bounds.sinceMs, bounds.untilMs, { limit: PAGE_SIZE, offset: 0 })
+    dataSource.fetchRangeBreakdown(bounds.sinceMs, bounds.untilMs, { limit: PAGE_SIZE, offset: 0 })
       .then((r) => {
         if (my !== listReq.current) return;
         setRows(r); setOffset(r.length); setHasMore(r.length === PAGE_SIZE); setListLoading(false);
@@ -150,7 +160,7 @@ export function Performance() {
     if (pageLoading || !hasMore) return;
     const my = listReq.current;
     setPageLoading(true);
-    dataSource.fetchBreakdownPage(bounds.sinceMs, bounds.untilMs, { limit: PAGE_SIZE, offset })
+    dataSource.fetchRangeBreakdown(bounds.sinceMs, bounds.untilMs, { limit: PAGE_SIZE, offset })
       .then((r) => {
         if (my !== listReq.current) return;
         setRows((prev) => [...prev, ...r]);
@@ -162,8 +172,6 @@ export function Performance() {
   }, [bounds, offset, hasMore, pageLoading]);
 
   // ── Infinite scroll: prefetch the next page at 50% of the scrolled list ───────
-  // A sentinel placed at the list's 50% mark triggers loadMore when it enters the
-  // viewport — the page arrives before the user reaches the bottom (feels instant).
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const el = sentinelRef.current;
@@ -197,7 +205,7 @@ export function Performance() {
         <h1 style={{ fontSize: 'clamp(24px,5vw,32px)', fontWeight: 600, letterSpacing: '-.02em', margin: 0 }}>Analytics</h1>
       </div>
       <p style={{ fontSize: 14, color: t.mut, margin: '0 0 18px' }}>
-        Everything your book made or lost over a period, and the positions behind it. Pick a range; every closed position — plus open positions with realized P/L from partial closes — is listed newest-first. Click a row to see its events.
+        Everything your book made or lost over a period, and the positions behind it. Pick a range; every position that booked P/L in that window is listed newest-first, showing its in-range contribution. Click a row to see its events.
       </p>
 
       {/* (A) Range selector: preset chips + custom dates. */}
@@ -256,9 +264,10 @@ export function Performance() {
               {pageLoading && (
                 <div style={{ padding: '14px', textAlign: 'center', fontSize: 12.5, color: t.mut2 }}>Loading more…</div>
               )}
-              {/* Total row — Σ of the LIST rows (mat_position_breakdown). #228: this is
-                  the positions-in-range total; it does NOT equal the header cards (which
-                  are the full-ledger period P&L, incl hacks + unassociated income). */}
+              {/* Total row — Σ of the WHOLE in-range list. Reconciles to the header's
+                  position-attributable category cards (Trade+Funding+Fees+Interest+
+                  Rewards+Hacks) MINUS ledger-only events tied to no position (the
+                  −$342,670 hack, standalone income) — see the footnote. */}
               <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 8, padding: 14, borderTop: `1px solid ${t.border}` }}>
                 <span style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: '.03em', color: t.mut, textTransform: 'uppercase' }}>Total</span>
                 <Num v={totals.netPnl} bold /><Num v={totals.tradePnl} bold /><Num v={totals.funding} bold />
@@ -269,7 +278,7 @@ export function Performance() {
         </div>
       </Card>
       <p style={{ fontSize: 11, color: t.mut2, marginTop: 10, lineHeight: 1.5 }}>
-        <b style={{ color: '#8aa2ff' }}>PARTIAL</b> = an open position with realized P/L from partial closes (shown before it fully closes); <b style={{ color: '#9aa3ab' }}>COMPLETE</b> = a fully-closed position. Sorted by close / last-event date, newest first. The Total sums the positions in range; the header cards above are the full period P&L (all ledger events, including hacks and income not tied to a position).
+        Each position shows its P/L <b>within the selected range</b> — realized fills, funding, fees, interest, rewards and hacks whose date falls in the window (not lifetime). <b style={{ color: '#8aa2ff' }}>PARTIAL</b> = an open position with realized P/L in this range; <b style={{ color: '#9aa3ab' }}>COMPLETE</b> = a fully-closed position. Sorted by last in-range event, newest first. The Total reconciles to the header cards above, category by category, except for ledger-only events tied to no position (e.g. the −$342,670 hack, standalone income) which appear in the header but not the list.
       </p>
     </div>
   );
@@ -406,7 +415,7 @@ const LoadingRows: React.FC = () => (
 
 const EmptyState: React.FC = () => (
   <div style={{ padding: '34px 14px', textAlign: 'center' }}>
-    <div style={{ fontSize: 13.5, fontWeight: 600, color: t.mut }}>No positions in this range</div>
-    <div style={{ fontSize: 12, color: t.mut2, marginTop: 5 }}>Nothing closed or partially realized in this range. Try a wider range.</div>
+    <div style={{ fontSize: 13.5, fontWeight: 600, color: t.mut }}>No position activity in this range</div>
+    <div style={{ fontSize: 12, color: t.mut2, marginTop: 5 }}>No position booked realized P/L, funding, fees, interest, rewards or a hack in this range. Try a wider range.</div>
   </div>
 );

@@ -9,7 +9,7 @@ import {
   CLOSED_DISTINCT_EXCH_QUERY, CLOSED_DISTINCT_ASSET_QUERY, CLOSED_DISTINCT_WALLET_QUERY,
   CLOSED_GROUP_AGG_EXCH_QUERY, CLOSED_GROUP_AGG_ASSET_QUERY, CLOSED_GROUP_AGG_WALLET_QUERY,
   INCOME_PERIODS_QUERY,
-  BREAKDOWN_TOTALS_QUERY, LEDGER_TOTALS_QUERY, BREAKDOWN_PAGE_QUERY, POSITION_EVENTS_QUERY,
+  LEDGER_TOTALS_QUERY, RANGE_BREAKDOWN_QUERY, RANGE_BREAKDOWN_TOTALS_QUERY, POSITION_EVENTS_QUERY,
   UPSERT_ORDER_LEVEL, ADD_ORDER_LEVEL, REMOVE_ORDER_LEVEL, SET_WALLET_LABEL,
   UPDATE_ACCOUNT_LABEL, UPDATE_ACCOUNT_TAGS,
   INSERT_OMNI_RAW_EVENTS,
@@ -288,8 +288,9 @@ const mapBreakdown = (r: any): PositionBreakdown => ({
   hacks: num(r.hacks),
 });
 
-// mat_position_breakdown_aggregate { aggregate { count sum {...} } } → BreakdownTotals.
-// Empty bucket → 0. NO money math: the SUMs are the reconciled per-position buckets.
+// mat_position_range_breakdown_aggregate { aggregate { count sum {...} } } → BreakdownTotals.
+// The Σ over the whole in-range set — NOT client money math, the DB aggregates the same
+// range-scoped per-position buckets the pages walk.
 const mapBreakdownTotals = (agg: any): BreakdownTotals => {
   const s = agg?.sum ?? {};
   return {
@@ -744,19 +745,6 @@ export function makeApolloDataSource(client: ApolloClient<any>): DataSource {
       return ((data?.mat_income_periods as any[]) ?? []).map(mapIncomePeriod);
     },
 
-    // ── Per-position breakdown (#223 Analytics rebuild) ─────────────────────────
-    // Grand-total aggregate over the window (bound on last_event_ts): drives the 7
-    // header cards + the list total from ONE round-trip. The list Σ reconciles to
-    // this by construction (same rows, same window). 'network-only' — always fresh.
-    fetchBreakdownTotals: async (sinceMs, untilMs): Promise<BreakdownTotals> => {
-      const { data } = await client.query({
-        query: BREAKDOWN_TOTALS_QUERY,
-        variables: { since: Math.floor(sinceMs), until: Math.floor(untilMs) },
-        fetchPolicy: 'network-only',
-      });
-      return mapBreakdownTotals(data?.mat_position_breakdown_aggregate?.aggregate);
-    },
-
     // ── Analytics header totals — FULL LEDGER (#228, fixes the $0 Hacks card) ────
     // Sum mat_ledger by category over the window (bound on ts). One round-trip of
     // 6 aliased aggregates. 'network-only' — always fresh. RLS-scoped by the view.
@@ -769,14 +757,26 @@ export function makeApolloDataSource(client: ApolloClient<any>): DataSource {
       return mapLedgerTotals(data);
     },
 
-    // One bounded page of the breakdown list (last_event_ts DESC, id tiebreak). The
-    // caller bumps offset for the 50%-scroll prefetch. 'no-cache' so re-selecting a
-    // window always reflects the latest data and never collides in the normalized
-    // cache (mirrors CLOSED_WINDOW_QUERY's policy).
-    fetchBreakdownPage: async (sinceMs, untilMs, opts): Promise<PositionBreakdown[]> => {
+    // Grand-total aggregate over the whole in-range set (count + Σ) — drives the list
+    // Total row + subtitle. 'network-only' — always fresh. Reconciles to the header's
+    // category cards minus ledger-only events tied to no position.
+    fetchRangeBreakdownTotals: async (sinceMs, untilMs): Promise<BreakdownTotals> => {
+      const { data } = await client.query({
+        query: RANGE_BREAKDOWN_TOTALS_QUERY,
+        variables: { since: Math.floor(sinceMs), until: Math.floor(untilMs) },
+        fetchPolicy: 'network-only',
+      });
+      return mapBreakdownTotals(data?.mat_position_range_breakdown_aggregate?.aggregate);
+    },
+
+    // One PAGE of the range-scoped breakdown list (last in-range event DESC, id tiebreak).
+    // Each row carries its IN-RANGE per-category contribution. The caller bumps offset for
+    // the 50%-scroll prefetch. 'no-cache' so re-selecting a window always reflects the
+    // latest data and never collides in the normalized cache.
+    fetchRangeBreakdown: async (sinceMs, untilMs, opts): Promise<PositionBreakdown[]> => {
       const { limit, offset } = opts;
       const { data } = await client.query({
-        query: BREAKDOWN_PAGE_QUERY,
+        query: RANGE_BREAKDOWN_QUERY,
         variables: { since: Math.floor(sinceMs), until: Math.floor(untilMs), limit, offset },
         fetchPolicy: 'no-cache',
       });

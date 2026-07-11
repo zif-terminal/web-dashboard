@@ -365,22 +365,6 @@ export class MockEngine {
           .map((r) => ({ ...r }));
       },
 
-      // ── Per-position breakdown (#223 Analytics rebuild) mock parity ────────────
-      // Derive the breakdown rows from seedClosedTrades (all COMPLETE in mock; no
-      // partial-close seed data). Filter to the window on the close/last-event ts,
-      // then sum for the totals / page for the list — the SAME shape the live view
-      // takes, so the header Σ == the list Σ in mock too.
-      fetchBreakdownTotals: async (sinceMs, untilMs) => {
-        const inWin = seedClosedTrades.filter((t) => t.closedMs >= sinceMs && t.closedMs <= untilMs);
-        const acc = { count: 0, netPnl: 0, tradePnl: 0, funding: 0, fees: 0, interest: 0, rewards: 0, hacks: 0 };
-        for (const t of inWin) {
-          acc.count += 1;
-          acc.netPnl += t.total; acc.tradePnl += t.pnl; acc.funding += t.funding;
-          acc.fees += t.fees; acc.interest += t.interest; acc.rewards += t.rewards; acc.hacks += t.hack;
-        }
-        return acc;
-      },
-
       // ── Analytics header totals — FULL LEDGER (#228) mock parity ──────────────
       // Sum the DAY-grain income history over the window (mirrors mat_ledger's
       // per-event sum), then add a seeded hack in April so the Hacks card is nonzero
@@ -407,7 +391,23 @@ export class MockEngine {
         return acc;
       },
 
-      fetchBreakdownPage: async (sinceMs, untilMs, opts) => {
+      // ── Range breakdown (2026-07-11 range-scope fix) mock parity ──────────────
+      // Positions with a P/L event in the window — the SAME shape the live
+      // mat_position_range_breakdown function returns. Mock seeds are all COMPLETE
+      // (no partial-close seed data). Totals aggregate + paginated page, so the list
+      // Total (from the aggregate) == the pages' Σ.
+      fetchRangeBreakdownTotals: async (sinceMs, untilMs) => {
+        const inWin = seedClosedTrades.filter((t) => t.closedMs >= sinceMs && t.closedMs <= untilMs);
+        const acc = { count: 0, netPnl: 0, tradePnl: 0, funding: 0, fees: 0, interest: 0, rewards: 0, hacks: 0 };
+        for (const t of inWin) {
+          acc.count += 1;
+          acc.netPnl += t.total; acc.tradePnl += t.pnl; acc.funding += t.funding;
+          acc.fees += t.fees; acc.interest += t.interest; acc.rewards += t.rewards; acc.hacks += t.hack;
+        }
+        return acc;
+      },
+
+      fetchRangeBreakdown: async (sinceMs, untilMs, opts) => {
         const { limit, offset } = opts;
         return seedClosedTrades
           .filter((t) => t.closedMs >= sinceMs && t.closedMs <= untilMs)
