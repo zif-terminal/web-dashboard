@@ -57,9 +57,33 @@ function fmtTime(ts: number): string {
         d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-// Short date (no time) for combined-row date spans, e.g. "Jul 8".
-function fmtDate(ts: number): string {
-  return new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' });
+// Always date + HH:MM, e.g. "Jul 12 14:07". Used for combined-row spans so the
+// grouped row carries the TIME, not just the day (#238-1).
+function fmtDateTime(ts: number): string {
+  const d = new Date(ts);
+  return (
+    d.toLocaleDateString([], { month: 'short', day: 'numeric' }) +
+    ' ' +
+    d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  );
+}
+
+// Time SPAN of a combined run (#238-1). minTs = oldest, maxTs = newest event in
+// the run. A run inside the same minute collapses to a single timestamp; a same-day
+// run shows "Jul 12 14:07 – 14:52" (date once); a cross-day run shows the full
+// date+time on both ends.
+function fmtTimeSpan(minTs: number, maxTs: number): string {
+  if (maxTs - minTs < 60_000) return fmtDateTime(maxTs);
+  const dMin = new Date(minTs);
+  const dMax = new Date(maxTs);
+  if (dMin.toDateString() === dMax.toDateString()) {
+    return (
+      fmtDateTime(minTs) +
+      ' – ' +
+      dMax.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    );
+  }
+  return `${fmtDateTime(minTs)} – ${fmtDateTime(maxTs)}`;
 }
 
 // The market chip is only meaningful when a market is present AND it isn't
@@ -86,29 +110,48 @@ const stripPoolText = (s: string): string => s.replace(/-POOL\b/gi, '');
 //           reads as a neutral $0 (never a misleading -$0 / +$0). A thin left-
 //           border accent tints the whole row by event type for at-a-glance scan.
 function RowShell({
-  m, act, time, tags, text, value, isMobile,
+  m, act, actLabel, time, tags, text, detail, value, isMobile,
+  expandable, expanded, onToggle,
 }: {
   m: ActMeta;
   act: string;
+  actLabel?: string; // badge text override (e.g. "FUND+INT" for a mixed accrual run)
   time: string;
   tags: ReactNode;
   text: ReactNode;
+  detail?: ReactNode; // #238-3: per-type mechanical detail line (L4), when applicable
   value: number;
   isMobile: boolean;
+  // #238-2: expand affordance for combined rows — a leading chevron + click-to-toggle.
+  expandable?: boolean;
+  expanded?: boolean;
+  onToggle?: () => void;
 }) {
   return (
     <div
+      onClick={expandable ? onToggle : undefined}
       style={{
         display: 'flex', alignItems: 'flex-start', gap: isMobile ? 10 : 12,
         padding: isMobile ? '9px 10px 9px 11px' : '9px 12px 9px 13px',
         borderRadius: 9, borderLeft: `2px solid ${m.accent}`, background: 'rgba(255,255,255,0.012)',
+        cursor: expandable ? 'pointer' : 'default',
       }}
     >
+      {/* #238-2: expand chevron (combined rows with >1 event). Fixed width so the
+          non-expandable rows still line up (they render a same-width spacer). */}
+      <span
+        style={{
+          width: 12, flexShrink: 0, paddingTop: 2, fontSize: 11, lineHeight: '18px',
+          color: t.mut2, textAlign: 'center', userSelect: 'none',
+        }}
+      >
+        {expandable ? (expanded ? '▾' : '▸') : ''}
+      </span>
       {/* Main column: time-top, then the identity/market chip sub-row, then text. */}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
         {/* L1: type badge + time. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <ActChip act={act} m={m} />
+          <ActChip act={actLabel ?? act} m={m} />
           <Mono style={{ fontSize: 11.5, color: t.mut2 }}>{time}</Mono>
         </div>
         {/* L2: exchange + wallet + account + market chips, stacked beneath (#209). */}
@@ -127,6 +170,8 @@ function RowShell({
             {text}
           </span>
         )}
+        {/* L4: #238-3 per-event mechanical detail (FILL: side/size/price/direction). */}
+        {detail}
       </div>
       {/* RIGHT: value, right-aligned + sign-colored (dust → neutral $0). */}
       <Mono
@@ -138,6 +183,34 @@ function RowShell({
         {k(value)}
       </Mono>
     </div>
+  );
+}
+
+// #238-3: per-event mechanical detail line (L4). Only FILLs carry price/size/side/
+// direction (from the widened mat_activity_stream columns); money events (funding/
+// interest/reward/transfer) carry no extra primitives — their amount is the right-
+// aligned value and the market/account live in the chip row — so we render nothing
+// for them (no empty "fee: —" clutter). NOTE: per-fill FEE is NOT available on
+// mat_activity_stream (fills are gross-of-fees; fee is a separate type='fee' TRANSFER
+// row), so it is intentionally absent here — see report.
+function EventDetail({ r }: { r: ActivityEvent }): ReactNode {
+  // Only rows carrying per-fill primitives (price/quantity) get a mechanical detail
+  // line — that's FILL and CLOSE (a reducing/closing fill), plus LIQ/HACK fills. Gate
+  // on the DATA, not the act label, so closing fills (act='CLOSE') aren't missed.
+  if (r.price == null && r.quantity == null) return null;
+  const bits: string[] = [];
+  if (r.side) bits.push(r.side.toUpperCase());
+  if (r.quantity != null && r.price != null) bits.push(`${fmtSize(r.quantity)} @ ${px(r.price)}`);
+  else if (r.quantity != null) bits.push(fmtSize(r.quantity));
+  else if (r.price != null) bits.push(`@ ${px(r.price)}`);
+  // direction: 'exit' = reducing/closing fill; undefined = opening/adding (entry).
+  bits.push(r.direction === 'exit' ? 'exit' : 'entry');
+  if (r.direction === 'exit') bits.push(`realized ${k(r.pnl)}`);
+  if (bits.length === 0) return null;
+  return (
+    <Mono style={{ fontSize: 11.5, color: t.mut2, whiteSpace: 'normal' }}>
+      {bits.join('  ·  ')}
+    </Mono>
   );
 }
 
@@ -164,6 +237,7 @@ function Row({ r, isMobile }: { r: ActivityEvent; isMobile: boolean }) {
         </>
       }
       text={stripPoolText(r.text)}
+      detail={<EventDetail r={r} />}
     />
   );
 }
@@ -207,6 +281,9 @@ interface CombinedRow {
   minTs: number;
   maxTs: number;
   sample: ActivityEvent; // for the identity tags (constant within a run)
+  // #238-2: the run's constituent events (feed order = newest-first), so a combined
+  // row can EXPAND to reveal the individual events it merged.
+  events: ActivityEvent[];
   // #236b: a FUNDING run now spans markets (market dropped from the key), so track
   // whether the run touched >1 distinct market → the view relabels the market chip.
   markets: Set<string>;
@@ -228,7 +305,13 @@ function groupKey(r: ActivityEvent): string {
   // run of funding events on one account (ZEC + ETH + …) collapses into ONE combined row
   // (value = the summed funding amounts across markets). FILLS stay per-market (position-
   // specific) — market remains in their key.
-  if (r.act === 'FUNDING') return `FUNDING|${acct}`;
+  // #238-4: FUNDING and INTEREST are BOTH account-level cash accrual (not per-position).
+  // Merge them into ONE combine class per account so a consecutive run of funding
+  // AND/OR interest events collapses into a single "accrual" row (value = the summed
+  // net cash across markets + both types) instead of the funding/interest/funding
+  // saw-tooth of tiny rows. Market is dropped from the key (like funding's cross-market
+  // behaviour); the expanded child rows preserve each event's real type + market.
+  if (r.act === 'FUNDING' || r.act === 'INTEREST') return `ACCRUAL|${acct}`;
   const mkt = r.market?.trim() || '';
   return `${r.act}|${acct}|${mkt}`;
 }
@@ -270,6 +353,7 @@ function combine(rows: ActivityEvent[]): CombinedRow[] {
         minTs: r.ts,
         maxTs: r.ts,
         sample: r,
+        events: [r],
         markets: new Set(r.market?.trim() ? [r.market.trim()] : []),
         entryQty: 0,
         entryNotional: 0,
@@ -284,6 +368,7 @@ function combine(rows: ActivityEvent[]): CombinedRow[] {
       cur.netPnl += r.pnl;
       cur.minTs = Math.min(cur.minTs, r.ts);
       cur.maxTs = Math.max(cur.maxTs, r.ts);
+      cur.events.push(r);
       if (r.market?.trim()) cur.markets.add(r.market.trim());
       accFill(cur, r);
     }
@@ -306,57 +391,101 @@ function fmtSize(n: number): string {
 }
 
 function CombinedRowView({ g, isMobile }: { g: CombinedRow; isMobile: boolean }) {
-  const m = actMeta[g.act] ?? actMeta.FILL;
-  const span = g.minTs === g.maxTs ? fmtDate(g.maxTs) : `${fmtDate(g.minTs)} – ${fmtDate(g.maxTs)}`;
-  // #236b: a FUNDING run now spans markets (market dropped from the key). If it touched
-  // more than one distinct market show a neutral "multiple markets" chip instead of one
-  // misleading single-market chip; a single-market funding run keeps its market chip.
+  // #238-2: click-to-expand. Single-event runs need no expander (they carry the same
+  // detail a List row would); multi-event runs reveal their constituent events.
+  const [expanded, setExpanded] = useState(false);
+  const expandable = g.count > 1;
+
+  // #238-4: an ACCRUAL run merges FUNDING and/or INTEREST. Detect what's actually
+  // inside (from the run's events) so the summary + badge stay HONEST about it:
+  //   all funding → "funding"/FUNDING · all interest → "interest"/INTEREST ·
+  //   mixed       → "funding & interest"/FUND+INT.
+  const isAccrual = g.act === 'FUNDING' || g.act === 'INTEREST';
+  const hasFunding = isAccrual && g.events.some((e) => e.act === 'FUNDING');
+  const hasInterest = isAccrual && g.events.some((e) => e.act === 'INTEREST');
+  const mixedAccrual = hasFunding && hasInterest;
+  const accrualWord = mixedAccrual ? 'funding & interest' : hasInterest ? 'interest' : 'funding';
+  // Colour/accent + badge text. A mixed accrual reuses the FUNDING tint (amber) and a
+  // "FUND+INT" badge; a pure run keeps its own type meta/badge.
+  const m = isAccrual ? (mixedAccrual ? actMeta.FUNDING : (actMeta[g.act] ?? actMeta.FILL)) : (actMeta[g.act] ?? actMeta.FILL);
+  const actLabel = mixedAccrual ? 'FUND+INT' : g.act;
+
+  // #238-1: the combined row now carries the TIME span of the run (not just the day).
+  const span = fmtTimeSpan(g.minTs, g.maxTs);
+
+  // #236b: a FUNDING/accrual run spans markets (market dropped from the key). If it
+  // touched more than one distinct market show a neutral "N markets" chip; a single-
+  // market run keeps its market chip.
   const crossMarket = g.markets.size > 1;
   // #236a: size-weighted avg entry / exit price (VWAP) + total size for FILL runs.
   const avgEntry = g.entryQty > 0 ? g.entryNotional / g.entryQty : undefined;
   const avgExit = g.exitQty > 0 ? g.exitNotional / g.exitQty : undefined;
-  const isFill = g.act === 'FILL';
   // Averages sub-clause appended to the FILL text line (only the parts that exist).
   const avgParts: string[] = [];
   if (avgEntry !== undefined) avgParts.push(`avg entry ${px(avgEntry)}`);
   if (avgExit !== undefined) avgParts.push(`avg exit ${px(avgExit)}`);
-  if (isFill && g.totalSize > 0) avgParts.push(`size ${fmtSize(g.totalSize)}`);
-  const summary = `${g.market && !crossMarket ? poolDisplay(g.market).label + ' ' : ''}${g.act.toLowerCase()} · net over ${g.count} event${g.count === 1 ? '' : 's'}`;
+  // total size shows for any run that accumulated fill quantity (FILL or CLOSE runs).
+  if (g.totalSize > 0) avgParts.push(`size ${fmtSize(g.totalSize)}`);
+  const label = isAccrual ? accrualWord : g.act.toLowerCase();
+  const summary = `${g.market && !crossMarket && !isAccrual ? poolDisplay(g.market).label + ' ' : ''}${label} · net over ${g.count} event${g.count === 1 ? '' : 's'}`;
   const text = avgParts.length ? `${summary} · ${avgParts.join(' · ')}` : summary;
   // Grouped rows render in the SAME richer layout: a count "× N events" pill sits
-  // beside the type badge, the date-span replaces the single timestamp, and the
+  // beside the type badge, the time-span replaces the single timestamp, and the
   // net value is the right-aligned figure — same layout language as the list rows.
   return (
-    <RowShell
-      m={m}
-      act={g.act}
-      time={span}
-      value={g.netPnl}
-      isMobile={isMobile}
-      tags={
-        <>
-          <IdentityTags p={g.sample} />
-          {/* #236b: cross-market funding run → a neutral "multiple markets" chip. */}
-          {crossMarket ? (
+    <div>
+      <RowShell
+        m={m}
+        act={g.act}
+        actLabel={actLabel}
+        time={span}
+        value={g.netPnl}
+        isMobile={isMobile}
+        expandable={expandable}
+        expanded={expanded}
+        onToggle={() => setExpanded((v) => !v)}
+        tags={
+          <>
+            <IdentityTags p={g.sample} />
+            {/* #236b: cross-market run → a neutral "multiple markets" chip. */}
+            {crossMarket ? (
+              <span style={{ fontSize: 10.5, fontWeight: 600, color: t.mut, border: `1px solid ${t.border}`, borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>
+                {g.markets.size} markets
+              </span>
+            ) : (
+              /* #228: strip the "-POOL" key from the combined market + append STAKED.
+                 Accrual rows are account-level cash → no single market chip. */
+              !isAccrual && g.market && (() => { const gm = poolDisplay(g.market); return (
+                <>
+                  <ColorChip {...MARKET_CHIP}>{gm.label}</ColorChip>
+                  {gm.staked && <StakedBadge />}
+                </>
+              ); })()
+            )}
             <span style={{ fontSize: 10.5, fontWeight: 600, color: t.mut, border: `1px solid ${t.border}`, borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>
-              {g.markets.size} markets
+              ×{g.count} event{g.count === 1 ? '' : 's'}
             </span>
-          ) : (
-            /* #228: strip the "-POOL" key from the combined market + append STAKED. */
-            g.market && (() => { const gm = poolDisplay(g.market); return (
-              <>
-                <ColorChip {...MARKET_CHIP}>{gm.label}</ColorChip>
-                {gm.staked && <StakedBadge />}
-              </>
-            ); })()
-          )}
-          <span style={{ fontSize: 10.5, fontWeight: 600, color: t.mut, border: `1px solid ${t.border}`, borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>
-            ×{g.count} event{g.count === 1 ? '' : 's'}
-          </span>
-        </>
-      }
-      text={text}
-    />
+          </>
+        }
+        text={text}
+      />
+      {/* #238-2: expanded → the run's individual constituent events, indented under
+          the summary. Each child is the same rich List row (time, market, type, value,
+          + per-event detail), so a mixed accrual run shows its real FUNDING vs INTEREST
+          events and a FILL run shows each fill's side/size/price/direction. */}
+      {expandable && expanded && (
+        <div
+          style={{
+            marginTop: 8, marginLeft: isMobile ? 8 : 22, paddingLeft: isMobile ? 8 : 12,
+            borderLeft: `1px solid ${t.border2}`, display: 'flex', flexDirection: 'column', gap: 8,
+          }}
+        >
+          {g.events.map((e) => (
+            <Row key={e.id} r={e} isMobile={isMobile} />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
