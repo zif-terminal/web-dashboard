@@ -147,6 +147,10 @@ const ACTIVITY_FIELDS = `
   exch
   account
   market
+  price
+  quantity
+  side
+  direction
   exchange_account_id
   exchange_account {
     wallet {

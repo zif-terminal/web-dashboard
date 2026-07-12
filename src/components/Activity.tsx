@@ -4,7 +4,7 @@ import { useStore } from '../store/store';
 import { dataSource } from '../store/useLiveData';
 import { Card, Mono, Segment, StakedBadge } from '../ui/primitives';
 import { t } from '../ui/theme';
-import { k, col, poolDisplay } from '../lib/format';
+import { k, col, poolDisplay, px } from '../lib/format';
 import { useIsMobile } from '../lib/useIsMobile';
 import { IdentityTags, ColorChip, MARKET_CHIP } from '../lib/tags';
 import type { ActivityEvent, ActivityFilter } from '../types';
@@ -207,12 +207,48 @@ interface CombinedRow {
   minTs: number;
   maxTs: number;
   sample: ActivityEvent; // for the identity tags (constant within a run)
+  // #236b: a FUNDING run now spans markets (market dropped from the key), so track
+  // whether the run touched >1 distinct market → the view relabels the market chip.
+  markets: Set<string>;
+  // #236a: FILL VWAP accumulators. Entry = opening/adding fills (direction !== 'exit');
+  // exit = reducing/closing fills (direction === 'exit'). We keep Σqty and Σ(price*qty)
+  // per side → size-weighted avg price, plus total size across the run. Non-FILL rows
+  // carry no price/qty so these stay 0 and no averages render.
+  entryQty: number;
+  entryNotional: number;
+  exitQty: number;
+  exitNotional: number;
+  totalSize: number;
 }
 
 function groupKey(r: ActivityEvent): string {
   const acct = r.exchange_account_id ?? `${r.exch}|${r.wallet}`;
+  // #236b: FUNDING is account-CASH, not per-position — funding on different markets of
+  // the SAME account is the same cash stream. DROP the market segment so a consecutive
+  // run of funding events on one account (ZEC + ETH + …) collapses into ONE combined row
+  // (value = the summed funding amounts across markets). FILLS stay per-market (position-
+  // specific) — market remains in their key.
+  if (r.act === 'FUNDING') return `FUNDING|${acct}`;
   const mkt = r.market?.trim() || '';
   return `${r.act}|${acct}|${mkt}`;
+}
+
+// Fold one event's per-fill price/size into a run's VWAP accumulators (#236a).
+// Entry vs exit is split on position_events.direction: 'exit' = reducing/closing fill,
+// anything else (undefined on entry fills) = opening/adding. Only rows carrying a real
+// price+quantity (FILLs) contribute; money events are no-ops.
+function accFill(g: CombinedRow, r: ActivityEvent) {
+  const qty = r.quantity;
+  const price = r.price;
+  if (qty == null || price == null || !(qty > 0)) return;
+  g.totalSize += qty;
+  if (r.direction === 'exit') {
+    g.exitQty += qty;
+    g.exitNotional += price * qty;
+  } else {
+    g.entryQty += qty;
+    g.entryNotional += price * qty;
+  }
 }
 
 function combine(rows: ActivityEvent[]): CombinedRow[] {
@@ -225,7 +261,7 @@ function combine(rows: ActivityEvent[]): CombinedRow[] {
     // A new run starts whenever the key differs from the IMMEDIATELY preceding
     // event in the ordered stream (not from any earlier occurrence of the key).
     if (!cur || key !== prevKey) {
-      runs.push({
+      const g: CombinedRow = {
         key: `${key}#${seq++}`,
         act: r.act,
         market: r.market?.trim() || '',
@@ -234,12 +270,22 @@ function combine(rows: ActivityEvent[]): CombinedRow[] {
         minTs: r.ts,
         maxTs: r.ts,
         sample: r,
-      });
+        markets: new Set(r.market?.trim() ? [r.market.trim()] : []),
+        entryQty: 0,
+        entryNotional: 0,
+        exitQty: 0,
+        exitNotional: 0,
+        totalSize: 0,
+      };
+      accFill(g, r);
+      runs.push(g);
     } else {
       cur.count += 1;
       cur.netPnl += r.pnl;
       cur.minTs = Math.min(cur.minTs, r.ts);
       cur.maxTs = Math.max(cur.maxTs, r.ts);
+      if (r.market?.trim()) cur.markets.add(r.market.trim());
+      accFill(cur, r);
     }
     prevKey = key;
   }
@@ -249,9 +295,34 @@ function combine(rows: ActivityEvent[]): CombinedRow[] {
   return runs;
 }
 
+// Compact base-unit size (no $). Scales precision to magnitude so a 36,079-unit
+// TNSR run and a 0.42-unit BTC run both read cleanly.
+function fmtSize(n: number): string {
+  const a = Math.abs(n);
+  if (a >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
+  if (a >= 1e3) return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  if (a >= 1) return n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  return n.toLocaleString('en-US', { maximumFractionDigits: 4 });
+}
+
 function CombinedRowView({ g, isMobile }: { g: CombinedRow; isMobile: boolean }) {
   const m = actMeta[g.act] ?? actMeta.FILL;
   const span = g.minTs === g.maxTs ? fmtDate(g.maxTs) : `${fmtDate(g.minTs)} – ${fmtDate(g.maxTs)}`;
+  // #236b: a FUNDING run now spans markets (market dropped from the key). If it touched
+  // more than one distinct market show a neutral "multiple markets" chip instead of one
+  // misleading single-market chip; a single-market funding run keeps its market chip.
+  const crossMarket = g.markets.size > 1;
+  // #236a: size-weighted avg entry / exit price (VWAP) + total size for FILL runs.
+  const avgEntry = g.entryQty > 0 ? g.entryNotional / g.entryQty : undefined;
+  const avgExit = g.exitQty > 0 ? g.exitNotional / g.exitQty : undefined;
+  const isFill = g.act === 'FILL';
+  // Averages sub-clause appended to the FILL text line (only the parts that exist).
+  const avgParts: string[] = [];
+  if (avgEntry !== undefined) avgParts.push(`avg entry ${px(avgEntry)}`);
+  if (avgExit !== undefined) avgParts.push(`avg exit ${px(avgExit)}`);
+  if (isFill && g.totalSize > 0) avgParts.push(`size ${fmtSize(g.totalSize)}`);
+  const summary = `${g.market && !crossMarket ? poolDisplay(g.market).label + ' ' : ''}${g.act.toLowerCase()} · net over ${g.count} event${g.count === 1 ? '' : 's'}`;
+  const text = avgParts.length ? `${summary} · ${avgParts.join(' · ')}` : summary;
   // Grouped rows render in the SAME richer layout: a count "× N events" pill sits
   // beside the type badge, the date-span replaces the single timestamp, and the
   // net value is the right-aligned figure — same layout language as the list rows.
@@ -265,19 +336,26 @@ function CombinedRowView({ g, isMobile }: { g: CombinedRow; isMobile: boolean })
       tags={
         <>
           <IdentityTags p={g.sample} />
-          {/* #228: strip the "-POOL" key from the combined market + append STAKED. */}
-          {g.market && (() => { const gm = poolDisplay(g.market); return (
-            <>
-              <ColorChip {...MARKET_CHIP}>{gm.label}</ColorChip>
-              {gm.staked && <StakedBadge />}
-            </>
-          ); })()}
+          {/* #236b: cross-market funding run → a neutral "multiple markets" chip. */}
+          {crossMarket ? (
+            <span style={{ fontSize: 10.5, fontWeight: 600, color: t.mut, border: `1px solid ${t.border}`, borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>
+              {g.markets.size} markets
+            </span>
+          ) : (
+            /* #228: strip the "-POOL" key from the combined market + append STAKED. */
+            g.market && (() => { const gm = poolDisplay(g.market); return (
+              <>
+                <ColorChip {...MARKET_CHIP}>{gm.label}</ColorChip>
+                {gm.staked && <StakedBadge />}
+              </>
+            ); })()
+          )}
           <span style={{ fontSize: 10.5, fontWeight: 600, color: t.mut, border: `1px solid ${t.border}`, borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>
             ×{g.count} event{g.count === 1 ? '' : 's'}
           </span>
         </>
       }
-      text={`${g.market ? poolDisplay(g.market).label + ' ' : ''}${g.act.toLowerCase()} · net over ${g.count} event${g.count === 1 ? '' : 's'}`}
+      text={text}
     />
   );
 }

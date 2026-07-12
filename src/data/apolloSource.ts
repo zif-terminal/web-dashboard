@@ -384,6 +384,12 @@ const mapActivity = (a: any): ActivityEvent => ({
   walletLabel: rowWalletLabel(a),
   exchange_account_id: (a.exchange_account_id as string | undefined) ?? undefined,
   market: (a.market as string | undefined)?.trim() ?? '',
+  // #236a per-fill primitives — undefined (not 0) on money events so the Combined
+  // VWAP/size accumulators skip them cleanly.
+  price: a.price == null ? undefined : num(a.price),
+  quantity: a.quantity == null ? undefined : num(a.quantity),
+  side: (a.side as string | undefined) ?? undefined,
+  direction: (a.direction as string | undefined) ?? undefined,
 });
 
 // Build the Hasura `where` for the activity feed from an ActivityFilter (#209).

@@ -109,6 +109,15 @@ export interface ActivityEvent {
   walletLabel: string;          // per-user wallet name (user_wallets.label); '' if unset
   exchange_account_id?: string; // grouping/filter key (combine mode)
   market?: string;              // funding/settle/fill market (e.g. "HYPE-PERP"); '' if none
+  // Per-fill primitives (#236a). Populated only on FILL rows from mat_activity_stream
+  // (trades.price/quantity/side + position_events.direction); NULL/undefined on money
+  // events. `direction` is 'exit' for reducing/closing fills, undefined for entry/opening
+  // fills (the WAC realized_pnl LEFT JOIN only matches exit fills). Used to compute the
+  // Combined-view VWAP avg entry/exit + total size.
+  price?: number;               // trade fill price
+  quantity?: number;            // trade fill size (base units)
+  side?: string;                // 'buy' | 'sell'
+  direction?: string;           // 'exit' on reducing fills; undefined on entry fills
 }
 
 // Server-side filter for the activity feed (#209). Each field, when set, pushes a
