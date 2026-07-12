@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, Tab, Timeframe, PerfDim, PerfStatus, LifecycleMap,
+  DriftSnapshot,
 } from '../types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -49,6 +50,9 @@ interface ServerState {
   levels: OrderLevel[];
   orders: RestingOrder[];
   activity: ActivityEvent[];
+  // #237: Drift hack-day snapshots keyed by exchange_account_id. A Drift account
+  // with NO entry here is in the "needs snapshot" state (the Accounts page banner).
+  driftSnapshots: Record<string, DriftSnapshot>;
   // Wall-clock ms of the most recent positions/portfolio push. Drives the
   // "⚠ Stale" header pill — if (Date.now() - lastUpdate) exceeds the staleness
   // window, the live feed is considered stale. 0 = no data yet.
@@ -92,6 +96,10 @@ interface Actions {
   _ingestWallets: (w: Wallet[]) => void;
   _ingestLevels: (l: OrderLevel[], o: RestingOrder[]) => void;
   _ingestActivity: (rows: ActivityEvent[]) => void;
+  // #237: replace the full snapshot map (server refetch) or upsert one row
+  // (optimistic write on submit, reconciled by the next refetch).
+  _ingestDriftSnapshots: (rows: DriftSnapshot[]) => void;
+  _upsertDriftSnapshot: (s: DriftSnapshot) => void;
   // ── optimistic add-wallet "scanning" flow (zif #202) ──
   // Insert a client-side 'detecting' wallet immediately after addWallet succeeds,
   // keyed by address. It shows the scanning spinner until real accounts arrive.
@@ -207,6 +215,7 @@ export const useStore = create<StoreState>((set) => ({
   levels: [],
   orders: [],
   activity: [],
+  driftSnapshots: {},
   lastUpdate: 0,
   // ui
   tab: getInitialTab(),
@@ -309,6 +318,16 @@ export const useStore = create<StoreState>((set) => ({
     return { pendingWallets, wallets: mergeWallets(s._serverWallets, pendingWallets) };
   }),
   _ingestLevels: (levels, orders) => set({ levels, orders }),
+  // #237: fold the snapshot rows into an id-keyed map for O(1) lookup on the
+  // Accounts page. Full-replace on server refetch; single upsert on optimistic submit.
+  _ingestDriftSnapshots: (rows) => set(() => {
+    const map: Record<string, DriftSnapshot> = {};
+    for (const r of rows) map[r.exchangeAccountId] = r;
+    return { driftSnapshots: map };
+  }),
+  _upsertDriftSnapshot: (s) => set((st) => ({
+    driftSnapshots: { ...st.driftSnapshots, [s.exchangeAccountId]: s },
+  })),
   // Merge incoming activity by id (the stream can re-deliver a row), sort ASC by
   // ts, keep the newest 200. Storing ASC means Overview's reverse().slice(0,6) is
   // always the 6 NEWEST events — not wherever a cursor=0 stream happened to be.

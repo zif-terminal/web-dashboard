@@ -14,12 +14,14 @@ import {
   UPDATE_ACCOUNT_LABEL, UPDATE_ACCOUNT_TAGS,
   INSERT_OMNI_RAW_EVENTS,
   SIZE_RECONCILE_QUERY,
+  DRIFT_SNAPSHOTS_QUERY, UPSERT_DRIFT_SNAPSHOT, DRIFT_HACKDAY_TS,
 } from '../graphql/operations';
 import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account, Exchange, Accuracy, ReconcileStatus, Side,
   ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim, Lifecycle, LifecycleMap,
   IncomePeriodRow, IncomeFilter, IncomeGrain, IncomeCategory,
   PositionBreakdown, BreakdownTotals, LedgerTotals, PositionEvent, SizeReconcileRow,
+  DriftSnapshot, DriftHolding,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 import { shortAddr } from '../lib/format';
@@ -217,6 +219,50 @@ const groupAccounts = (rows: any[]): Wallet[] => {
     w.accounts.push(account);
   }
   return [...byWallet.values()];
+};
+
+// ── drift hack-day snapshots (#237, reworked) ────────────────────────────────
+// spot_balance_snapshots rows AT DRIFT_HACKDAY_TS, grouped by exchange_account_id,
+// → domain DriftSnapshot. There is no dedicated hack-snapshot table any more: the
+// hack-day holdings are just ordinary spot_balance_snapshots rows (one per asset)
+// pinned to the canonical hack instant. `usdValue` stays a numeric-as-string
+// (may be negative, for a borrow/short leg) to preserve wire precision.
+const mapSpotSnapshotRow = (r: any): DriftHolding => ({
+  asset: String(r?.asset ?? ''),
+  usdValue: r?.usd_value == null ? '' : String(r.usd_value),
+});
+
+// The "0 / empty account" one-click writes exactly one row: { asset: 'USDC',
+// balance: 0, usd_value: 0 }. Recognise that shape to render the "empty" state;
+// any other row set (including a real USDC-only holding) counts as populated.
+const isEmptyMarkerRows = (rows: any[]): boolean =>
+  rows.length === 1 &&
+  String(rows[0]?.asset ?? '') === 'USDC' &&
+  Number(rows[0]?.balance ?? 0) === 0 &&
+  Number(rows[0]?.usd_value ?? 0) === 0;
+
+// Group the flat spot_balance_snapshots rows (all at DRIFT_HACKDAY_TS) into one
+// DriftSnapshot per exchange_account_id — the shape the Accounts page/store expect.
+const groupDriftSnapshots = (rows: any[]): DriftSnapshot[] => {
+  const byAccount = new Map<string, any[]>();
+  for (const r of rows) {
+    const id = r.exchange_account_id;
+    const arr = byAccount.get(id);
+    if (arr) arr.push(r);
+    else byAccount.set(id, [r]);
+  }
+  return [...byAccount.entries()].map(([exchangeAccountId, accountRows]) => {
+    const isEmpty = isEmptyMarkerRows(accountRows);
+    return {
+      exchangeAccountId,
+      isEmpty,
+      holdings: isEmpty ? [] : accountRows.map(mapSpotSnapshotRow),
+      submittedAt: accountRows.reduce<string | null>((latest, r) => {
+        const c = r?.created_at ?? null;
+        return c && (!latest || c > latest) ? c : latest;
+      }, null),
+    };
+  });
 };
 
 // ── closed trades (inc7b) ────────────────────────────────────────────────────
@@ -919,6 +965,59 @@ export function makeApolloDataSource(client: ApolloClient<any>): DataSource {
         console.error('[omni-upload] Mutation threw:', err);
         return { error: err?.message ?? 'Failed to connect to database' };
       }
+    },
+
+    // ── Drift hack-day snapshots (#237, reworked onto spot_balance_snapshots) ─────
+    // One-shot fetch of the user's hack-day rows (RLS-scoped, filtered to
+    // DRIFT_HACKDAY_TS). Tolerant: on any error (e.g. permissions not yet live)
+    // resolve to [] so the accounts page still renders — a missing snapshot simply
+    // surfaces as the "needs snapshot" state.
+    fetchDriftSnapshots: async (): Promise<DriftSnapshot[]> => {
+      try {
+        const { data } = await client.query({
+          query: DRIFT_SNAPSHOTS_QUERY,
+          variables: { ts: DRIFT_HACKDAY_TS },
+          fetchPolicy: 'network-only',
+        });
+        return groupDriftSnapshots((data?.spot_balance_snapshots as any[]) ?? []);
+      } catch (e) {
+        console.error('[hasura] fetchDriftSnapshots failed', e);
+        return [];
+      }
+    },
+
+    // Upsert the hack-day snapshot for one Drift account as spot_balance_snapshots
+    // rows — one per asset, all pinned to DRIFT_HACKDAY_TS, wallet_type: 'spot'.
+    // The "0 / empty account" one-click writes the single canonical marker row
+    // { asset: 'USDC', balance: 0, usd_value: 0 }. Quantity (`balance`) isn't
+    // collected from the user in this form, so it's always 0 — `usd_value` is the
+    // load-bearing field the backend nets to compute the casualty. Upserts via
+    // on_conflict on (exchange_account_id, asset, wallet_type, timestamp), so a
+    // re-submit refreshes existing per-asset rows rather than duplicating them.
+    submitDriftHackSnapshot: async (accountId, { isEmpty, holdings }) => {
+      const objects = isEmpty
+        ? [{
+            exchange_account_id: accountId,
+            asset: 'USDC',
+            balance: 0,
+            usd_value: 0,
+            timestamp: DRIFT_HACKDAY_TS,
+            wallet_type: 'spot',
+          }]
+        : holdings
+            .filter((h) => h.asset.trim() !== '' && h.usdValue.trim() !== '')
+            .map((h) => ({
+              exchange_account_id: accountId,
+              asset: h.asset.trim(),
+              balance: 0,
+              usd_value: h.usdValue.trim(),
+              timestamp: DRIFT_HACKDAY_TS,
+              wallet_type: 'spot',
+            }));
+      await client.mutate({
+        mutation: UPSERT_DRIFT_SNAPSHOT,
+        variables: { objects },
+      });
     },
   };
 }

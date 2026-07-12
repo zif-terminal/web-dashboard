@@ -5,7 +5,7 @@ import { Card, Mono, StatCard } from '../ui/primitives';
 import { t, exchMeta } from '../ui/theme';
 import { usd, usd0, k, col, shortAddr } from '../lib/format';
 import { useIsMobile } from '../lib/useIsMobile';
-import type { Account, Wallet, ReconcileStatus } from '../types';
+import type { Account, Wallet, ReconcileStatus, DriftSnapshot, DriftHolding } from '../types';
 import { OmniCsvUpload } from './OmniCsvUpload';
 import { ReconcileBreakdown } from './ReconcileBreakdown';
 
@@ -462,10 +462,33 @@ function GapExplainer({ a, align = 'left' }: { a: Account; align?: 'left' | 'rig
   );
 }
 
+// #237: a Drift account with no hack-day snapshot yet. Shows as an amber gap in the
+// status chip until the snapshot is submitted (mirrors the existing gap treatment).
+const DRIFT_NEEDED_META: BadgeMeta = { label: 'Snapshot needed', color: t.amber, bg: 'rgba(251,191,36,.12)', dot: '○', detail: 'hack-day snapshot required' };
+
 function AccountRow({ a, walletLabel: _walletLabel }: { a: Account; walletLabel: string }) {
   const m = useMutations();
-  const info = metaFor(a);
   const isMobile = useIsMobile();
+
+  // #237: Drift hack-day reconciliation. Detect Drift case-insensitively (the DB
+  // stores the display name 'Drift'); the snapshot (if any) comes from the store map.
+  const snapshot = useStore((s) => s.driftSnapshots[a.id]);
+  const isDrift = String(a.exch).toLowerCase() === 'drift';
+  const needsSnapshot = isDrift && !snapshot;
+
+  // The status chip reflects the snapshot state for Drift accounts: amber "Snapshot
+  // needed" until submitted, then a reconciled chip summarising the snapshot.
+  const info: BadgeMeta = needsSnapshot
+    ? DRIFT_NEEDED_META
+    : isDrift && snapshot
+      ? {
+          ...RECONCILE_META.reconciled,
+          label: 'Reconciled',
+          detail: snapshot.isEmpty
+            ? 'hack-day snapshot ✓ · empty'
+            : `hack-day snapshot ✓ · ${snapshot.holdings.length} asset${snapshot.holdings.length === 1 ? '' : 's'}`,
+        }
+      : metaFor(a);
   const [renaming, setRenaming] = useState(false);
   const [renameVal, setRenameVal] = useState(a.name);
   const [tagOpen, setTagOpen] = useState(false);
@@ -660,8 +683,121 @@ function AccountRow({ a, walletLabel: _walletLabel }: { a: Account; walletLabel:
 
       {/* ── #226 Remediation: upload missing fills (incomplete accounts) ── */}
       {isIncomplete(a) && <UploadFillsAffordance a={a} />}
+
+      {/* #237: Drift hack-day snapshot — needed banner → form, or submitted strip. */}
+      {isDrift && <DriftSnapshotBlock a={a} snapshot={snapshot} isMobile={isMobile} />}
     </div>
   );
+}
+
+// ── Drift hack-day snapshot block (#237) ─────────────────────────────────────
+// Renders inside a Drift AccountRow. Two resting states:
+//   • no snapshot   → amber "Hack-day snapshot needed" banner + "Enter snapshot"
+//   • has snapshot  → green "Snapshot submitted" strip + "Edit"
+// Both open the same form: rows of { asset, USD value } (negative allowed for a
+// borrow/short leg), an "Add asset" row, a "0 / empty account" one-click, Submit.
+type HoldingRow = { asset: string; usd: string };
+
+const isValidUsd = (v: string) => v.trim() !== '' && Number.isFinite(Number(v.trim()));
+
+function DriftSnapshotBlock({ a, snapshot, isMobile }: { a: Account; snapshot?: DriftSnapshot; isMobile: boolean }) {
+  const m = useMutations();
+  const [open, setOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const seedRows = (): HoldingRow[] =>
+    snapshot && !snapshot.isEmpty && snapshot.holdings.length
+      ? snapshot.holdings.map((h) => ({ asset: h.asset, usd: h.usdValue }))
+      : [{ asset: '', usd: '' }];
+  const [rows, setRows] = useState<HoldingRow[]>(seedRows);
+
+  const startForm = () => { setRows(seedRows()); setOpen(true); };
+  const setRow = (i: number, patch: Partial<HoldingRow>) =>
+    setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const addRow = () => setRows((rs) => [...rs, { asset: '', usd: '' }]);
+  const removeRow = (i: number) => setRows((rs) => (rs.length > 1 ? rs.filter((_, j) => j !== i) : rs));
+
+  // A row counts once it has BOTH an asset and a parseable USD value (negatives ok).
+  const validRows = rows.filter((r) => r.asset.trim() !== '' && isValidUsd(r.usd));
+  const anyBadUsd = rows.some((r) => r.usd.trim() !== '' && !isValidUsd(r.usd));
+  const canSubmit = validRows.length > 0 && !anyBadUsd && !submitting;
+
+  const submit = (isEmpty: boolean) => {
+    if (submitting) return;
+    setSubmitting(true);
+    const holdings: DriftHolding[] = isEmpty
+      ? []
+      : validRows.map((r) => ({ asset: r.asset.trim(), usdValue: r.usd.trim() }));
+    Promise.resolve(m.submitDriftHackSnapshot(a.id, { isEmpty, holdings }))
+      .finally(() => { setSubmitting(false); setOpen(false); });
+  };
+
+  const submittedStrip = snapshot && !open && (
+    <div style={{ marginTop: 11, display: 'flex', alignItems: 'center', gap: 9, background: 'rgba(52,211,153,.07)', border: `1px solid #24493a`, borderRadius: 11, padding: '10px 13px', flexWrap: 'wrap' }}>
+      <span style={{ color: t.green, fontSize: 13, fontWeight: 700 }}>✓</span>
+      <span style={{ fontSize: 12.5, color: '#cdd4da' }}>
+        Hack-day snapshot submitted{snapshot.isEmpty ? ' — empty account' : ` — ${snapshot.holdings.length} asset${snapshot.holdings.length === 1 ? '' : 's'}`}
+      </span>
+      <span style={{ flex: 1 }} />
+      <button onClick={startForm} style={{ fontFamily: t.sans, fontSize: 12, fontWeight: 600, cursor: 'pointer', background: 'none', color: t.acc, border: `1px solid #2c3550`, borderRadius: 8, padding: '5px 12px' }}>Edit</button>
+    </div>
+  );
+
+  const neededBanner = !snapshot && !open && (
+    <div style={{ marginTop: 11, background: 'rgba(251,191,36,.07)', border: `1px solid #4a3f1e`, borderRadius: 11, padding: '12px 14px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: '#e7d9b0' }}>Hack-day snapshot needed</span>
+        <span style={{ fontSize: 11, color: t.mut }}>Drift can't be auto-reconciled across the hack — enter your hack-day holdings once.</span>
+      </div>
+      <button onClick={startForm} style={{ marginTop: 10, fontFamily: t.sans, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: t.amber, color: '#0e1114', border: 'none', borderRadius: 9, padding: '9px 15px' }}>Enter snapshot</button>
+    </div>
+  );
+
+  const form = open && (
+    <div style={{ marginTop: 11, background: t.panel2, border: `1px solid ${t.border2}`, borderRadius: 11, padding: '13px 14px' }}>
+      <div style={{ fontSize: 12.5, color: '#e7d9b0', marginBottom: 4, fontWeight: 600 }}>Hack-day holdings snapshot</div>
+      <div style={{ fontSize: 11.5, color: t.mut, marginBottom: 12, lineHeight: 1.45 }}>
+        Enter each asset's <b>USD value</b> as shown on Drift (use a negative value for a borrow / short leg). Or mark the account empty.
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {rows.map((r, i) => {
+          const badUsd = r.usd.trim() !== '' && !isValidUsd(r.usd);
+          return (
+            <div key={i} style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 8, alignItems: isMobile ? 'stretch' : 'center' }}>
+              <input
+                value={r.asset}
+                onChange={(e) => setRow(i, { asset: e.target.value })}
+                placeholder="Asset (e.g. SOL)"
+                style={{ ...inputStyle, flex: 1, fontSize: 13, padding: '9px 11px', width: isMobile ? '100%' : undefined, boxSizing: 'border-box' as const }}
+              />
+              <input
+                value={r.usd}
+                onChange={(e) => setRow(i, { usd: e.target.value })}
+                inputMode="decimal"
+                placeholder="USD value"
+                style={{ ...inputStyle, flex: 1, fontFamily: t.mono, fontSize: 13, padding: '9px 11px', width: isMobile ? '100%' : undefined, boxSizing: 'border-box' as const, border: `1px solid ${badUsd ? '#5a2a2c' : '#2c3550'}` }}
+              />
+              <button onClick={() => removeRow(i)} disabled={rows.length === 1} title="Remove row" style={{ ...iconBtn(t.mut2, '#2a323a'), opacity: rows.length === 1 ? 0.4 : 1, cursor: rows.length === 1 ? 'default' : 'pointer', alignSelf: isMobile ? 'flex-end' : 'center' }}><CloseIcon /></button>
+            </div>
+          );
+        })}
+      </div>
+
+      {anyBadUsd && (
+        <div style={{ marginTop: 8, fontSize: 11, color: t.red }}>Enter a valid number for each USD value (negatives allowed).</div>
+      )}
+
+      <button onClick={addRow} style={{ marginTop: 10, fontFamily: t.sans, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: 'none', color: t.acc, border: `1px dashed #3a4350`, borderRadius: 8, padding: '7px 12px' }}>+ Add asset</button>
+
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 9, marginTop: 13, flexWrap: 'wrap' }}>
+        <button onClick={() => submit(false)} disabled={!canSubmit} style={{ fontFamily: t.sans, fontSize: 13, fontWeight: 600, cursor: canSubmit ? 'pointer' : 'default', opacity: canSubmit ? 1 : 0.5, background: t.green, color: '#0e1114', border: 'none', borderRadius: 9, padding: '10px 16px', width: isMobile ? '100%' : undefined }}>{submitting ? 'Submitting…' : 'Submit snapshot'}</button>
+        <button onClick={() => submit(true)} disabled={submitting} style={{ fontFamily: t.sans, fontSize: 13, fontWeight: 600, cursor: submitting ? 'default' : 'pointer', background: 'none', color: '#cdd4da', border: `1px solid #2c3550`, borderRadius: 9, padding: '10px 16px', width: isMobile ? '100%' : undefined }}>0 / empty account</button>
+        <button onClick={() => setOpen(false)} disabled={submitting} style={{ fontFamily: t.sans, fontSize: 13, fontWeight: 600, cursor: submitting ? 'default' : 'pointer', background: 'none', color: t.mut, border: `1px solid #2a323a`, borderRadius: 9, padding: '10px 16px', width: isMobile ? '100%' : undefined }}>Cancel</button>
+      </div>
+    </div>
+  );
+
+  return (<>{neededBanner}{submittedStrip}{form}</>);
 }
 
 // ── #226 Upload-missing-fills affordance ─────────────────────────────────────

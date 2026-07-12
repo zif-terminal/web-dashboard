@@ -889,3 +889,64 @@ export const SET_WALLET_LABEL = gql`
     }
   }
 `;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DRIFT HACK-DAY SNAPSHOTS (#237, reworked per #237-storage-rework). NOT a
+// dedicated table — user-submitted hack-day holdings are rows in the EXISTING
+// `spot_balance_snapshots` table, one row per asset, all pinned to the canonical
+// hack instant HACKDAY_TS (2026-04-01 18:05:00 UTC = 1775066700000ms). That
+// timestamp is what marks a row as a hack-day snapshot (no separate provenance
+// column — Drift's venue-polled balance route is dead, so any spot_balance_snapshots
+// row on a Drift account is necessarily user-submitted). `spot_balance_snapshots` is
+// RLS-scoped for the `user` role via exchange_account → wallet → user_wallets.user_id
+// (same path as exchange_accounts), so this ts-filtered query returns only the
+// current user's rows. A Drift account is in the "needs snapshot" state iff it has
+// NO row at HACKDAY_TS.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// The canonical hack-day instant. Hardcoded — every hack-day snapshot row (read
+// or write) is pinned to this exact timestamp; it is what distinguishes a
+// hack-day snapshot from an ordinary (venue-polled) spot_balance_snapshots row.
+export const DRIFT_HACKDAY_TS = 1775066700000;
+
+export const DRIFT_SNAPSHOTS_QUERY = gql`
+  query DriftHackDaySnapshots($ts: bigint!) {
+    spot_balance_snapshots(where: { timestamp: { _eq: $ts } }) {
+      id
+      exchange_account_id
+      asset
+      balance
+      oracle_price
+      usd_value
+      timestamp
+      wallet_type
+      created_at
+    }
+  }
+`;
+
+// Upsert (one row per asset) via the unique (exchange_account_id, asset,
+// wallet_type, timestamp) index — idx_spot_balance_snapshots_unique. Re-submitting
+// the same account+ts is idempotent per-asset: an asset already on file gets its
+// balance/usd_value/oracle_price refreshed rather than duplicated. (Editing OUT an
+// asset that was previously submitted leaves that asset's old row on file — a
+// known limitation of the upsert-only approach; full reconciliation would need a
+// delete-then-insert, which requires a delete permission not currently granted.)
+export const UPSERT_DRIFT_SNAPSHOT = gql`
+  mutation UpsertDriftHackDaySnapshot(
+    $objects: [spot_balance_snapshots_insert_input!]!
+  ) {
+    insert_spot_balance_snapshots(
+      objects: $objects
+      on_conflict: {
+        constraint: idx_spot_balance_snapshots_unique
+        update_columns: [balance, usd_value, oracle_price]
+      }
+    ) {
+      affected_rows
+      returning {
+        id
+      }
+    }
+  }
+`;

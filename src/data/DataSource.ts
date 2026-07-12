@@ -3,6 +3,7 @@ import type {
   ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim, LifecycleMap,
   IncomePeriodRow, IncomeFilter, IncomeGrain,
   PositionBreakdown, BreakdownTotals, LedgerTotals, PositionEvent, SizeReconcileRow,
+  DriftSnapshot, DriftHolding,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 
@@ -161,4 +162,21 @@ export interface DataSource {
   insertOmniRawEvents(
     objects: OmniRawEventInsert[],
   ): Promise<{ affected_rows: number } | { error: string }>;
+
+  // ── Drift hack-day snapshots (#237, reworked onto spot_balance_snapshots) ────
+  // Fetch every spot_balance_snapshots row at the canonical hack-day timestamp
+  // visible to the current user (RLS-scoped via exchange_account → wallet →
+  // user_wallets), grouped into one DriftSnapshot per exchange_account_id. The
+  // Accounts page derives the "needs snapshot" state as: exch === 'Drift' AND no
+  // snapshot row for that account id. Resolves to [] if there are no rows (or the
+  // permission isn't yet reachable) so the accounts list still renders.
+  fetchDriftSnapshots(): Promise<DriftSnapshot[]>;
+  // Upsert the hack-day snapshot for one Drift account — one spot_balance_snapshots
+  // row per asset, all pinned to the hack-day timestamp. Pass isEmpty=true for the
+  // "0 / empty account" one-click (writes the single { asset: 'USDC', usd_value: 0 }
+  // marker row), or the per-asset USD-value holdings otherwise. Resolves once written.
+  submitDriftHackSnapshot(
+    accountId: string,
+    input: { isEmpty: boolean; holdings: DriftHolding[] },
+  ): Promise<void>;
 }

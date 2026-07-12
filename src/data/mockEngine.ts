@@ -5,6 +5,7 @@ import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account,
   ClosedAgg, ClosedGroupAgg, PerfDim,
   IncomePeriodRow, IncomeFilter, IncomeGrain, IncomeCategory, LedgerTotals,
+  DriftSnapshot,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 import { pnlAt } from '../lib/pnl';
@@ -37,6 +38,8 @@ export class MockEngine {
   private levels: OrderLevel[] = seedLevels.map((l) => ({ ...l }));
   private orders: RestingOrder[] = seedOrders.map((o) => ({ ...o }));
   private wallets: Wallet[] = structuredClone(seedWallets);
+  // #237: in-memory hack-day snapshots keyed by exchange_account_id.
+  private driftSnapshots = new Map<string, DriftSnapshot>();
   private activity: ActivityEvent[] = seedActivity.map((a, i) => ({
     id: 'act' + i, ts: Date.now() - (seedActivity.length - i) * 60000,
     exch: 'Hyperliquid', wallet: 'main', walletLabel: 'Dad Trading',
@@ -459,6 +462,19 @@ export class MockEngine {
       setWalletLabel: (walletId, label) => {
         const w = this.wallets.find((x) => x.id === walletId);
         if (w) { w.label = label; this.pushAccounts(); }
+      },
+
+      // ── Drift hack-day snapshots (#237), in-memory mock ───────────────────────
+      // Backed by a simple id→snapshot map so a mock Drift account shows the
+      // "needs snapshot" banner, then reflects the submitted state after submit.
+      fetchDriftSnapshots: async () => [...this.driftSnapshots.values()].map((s) => ({ ...s })),
+      submitDriftHackSnapshot: async (accountId, { isEmpty, holdings }) => {
+        this.driftSnapshots.set(accountId, {
+          exchangeAccountId: accountId,
+          isEmpty,
+          holdings: isEmpty ? [] : holdings.map((h) => ({ ...h })),
+          submittedAt: new Date().toISOString(),
+        });
       },
       // OMNI CSV upload is a no-op in mock mode — no DB to write to.
       insertOmniRawEvents: async (_objects) => {

@@ -393,6 +393,28 @@ export interface IncomeFilter {
   account?: string;  // exchange_accounts.label (nested path)
 }
 
+// ── Drift hack-day reconciliation snapshot (#237, reworked) ──────────────────
+// Drift accounts (exch === 'Drift') can't be auto-reconciled across the April-2026
+// Drift hack, so the user submits a one-time hack-day holdings snapshot. Each
+// holding is a USD VALUE read off Drift's UI (may be NEGATIVE for a borrow/short
+// leg). `usdValue` is a numeric-as-string to preserve precision on the wire — it
+// maps to a `spot_balance_snapshots` row's `usd_value` column (one row per asset,
+// all pinned to the canonical hack-day timestamp; NOT a dedicated table).
+export interface DriftHolding {
+  asset: string;
+  usdValue: string; // numeric-as-string; may be negative
+}
+
+// One submitted snapshot, keyed by the exchange_account it reconciles (unique — one
+// snapshot per account). `isEmpty` is the "0 / empty account" one-click. A Drift
+// account is in the "needs snapshot" state iff it has NO snapshot row.
+export interface DriftSnapshot {
+  exchangeAccountId: string;
+  isEmpty: boolean;
+  holdings: DriftHolding[];
+  submittedAt?: string | null;
+}
+
 // Short windows + calendar year strings ('2023', '2024', …). Year values are
 // validated at store-init by checking they're 4-digit numeric strings.
 export type Timeframe = 'hour' | 'day' | 'week' | 'month' | 'ytd' | 'all' | (string & {});

@@ -44,6 +44,13 @@ export function useLiveData() {
       dataSource.subscribeLifecycle((m) => st._ingestLifecycle(m)),
     ];
 
+    // #237: one-shot load of the Drift hack-day snapshots (RLS-scoped). Drives the
+    // "needs snapshot" state on the Accounts page. Tolerant — a failure just leaves
+    // the map empty (Drift accounts then show as needing a snapshot).
+    dataSource.fetchDriftSnapshots()
+      .then((rows) => st._ingestDriftSnapshots(rows))
+      .catch(() => {});
+
     // Activity: seed with the NEWEST rows, then stream only events newer than the
     // newest seeded ts (so we never replay history into the "recent" feed).
     let activityCancelled = false;
