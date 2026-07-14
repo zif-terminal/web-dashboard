@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { bucketRows, bucketStart, groupRows, sumTotals, bucketRowsForGroup } from './pnlDaily';
+import { bucketRows, bucketStart, groupRows, sumTotals, bucketRowsForGroup, PNL_COMPONENTS, type ComponentTotals } from './pnlDaily';
+import { mapPnlDaily } from '../data/apolloSource';
 import type { PnlDailyRow } from '../types';
 
 const row = (over: Partial<PnlDailyRow>): PnlDailyRow => ({
@@ -84,5 +85,66 @@ describe('bucketRows — structural reconciliation (the #196 class of bug)', () 
     expect(new Set(keys).size).toBe(keys.length); // every key distinct
     expect(keys).toContain('ea-1');
     expect(keys).toContain('ea-2');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE MISSING INVARIANT (the bug that shipped once): every test above reconciles
+// totalPnl against ITSELF (Σ of a grouping vs Σ of the grand total), so a wrong
+// COMPONENT sails straight through. Nothing asserted that the 7 components add up
+// to the total — which is the entire promise the summary chips make to the user.
+//
+// `mat_pnl_daily.fee_pnl` is a POSITIVE COST and the view SUBTRACTS it:
+//   total_pnl = trade + funding − fee + interest + reward + hack + synthetic
+// The FE renders components as CONTRIBUTIONS and adds them (sumTotals is a +=), so
+// mapPnlDaily must negate fee at the boundary. It didn't: fees rendered as a green
+// "+$23.3K" gain and the chips overshot the header by 2× fees. mockEngine already
+// emitted feePnl negative, so the mock was self-consistent and dev never saw it —
+// only the live Hasura path was wrong. These tests pin the live mapper.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('mapPnlDaily — fee sign convention (Σ components == total)', () => {
+  // A raw mat_pnl_daily row exactly as Hasura returns it: numerics as STRINGS,
+  // fee_pnl POSITIVE, total_pnl already net of that fee.
+  const raw = {
+    id: 'x', exchange_account_id: 'ea-1', exch: 'Hyperliquid', account_label: 'main',
+    asset: 'BTC', market_type: 'perp', day: '2026-04-01',
+    trade_pnl: '1000.50', funding_pnl: '20.25', fee_pnl: '15.75', interest_pnl: '-3.00',
+    reward_pnl: '1.00', hack_pnl: '-500.00', synthetic_pnl: '0',
+    total_pnl: '503.00', // 1000.50 + 20.25 − 15.75 − 3.00 + 1.00 − 500.00
+  };
+
+  it('negates the positive-cost fee_pnl into a signed contribution', () => {
+    expect(mapPnlDaily(raw).feePnl).toBeCloseTo(-15.75, 6);
+  });
+
+  it('the 7 mapped components sum to the mapped total (what the chips promise)', () => {
+    const m = mapPnlDaily(raw);
+    const sum = PNL_COMPONENTS.reduce((s, c) => s + m[c.k], 0);
+    expect(sum).toBeCloseTo(m.totalPnl, 6);
+    expect(m.totalPnl).toBeCloseTo(503.0, 6);
+  });
+
+  it('holds through sumTotals over many rows — the header/chip reconciliation', () => {
+    const grand = sumTotals([raw, raw, raw].map(mapPnlDaily));
+    const sum = PNL_COMPONENTS.reduce((s, c) => s + grand[c.k], 0);
+    expect(sum).toBeCloseTo(grand.totalPnl, 6);
+    expect(grand.feePnl).toBeCloseTo(-47.25, 6); // a COST, never a gain
+  });
+
+  it('holds for every bucket and every group-by slice, not just the grand total', () => {
+    const mapped = [
+      mapPnlDaily(raw),
+      mapPnlDaily({ ...raw, id: 'y', asset: 'ETH', exchange_account_id: 'ea-2', day: '2026-05-02' }),
+    ];
+    const componentsSum = (tot: ComponentTotals) =>
+      PNL_COMPONENTS.reduce((s, c) => s + tot[c.k], 0);
+
+    for (const gran of ['day', 'week', 'month', 'year'] as const)
+      for (const b of bucketRows(mapped, gran))
+        expect(componentsSum(b.totals)).toBeCloseTo(b.totals.totalPnl, 6);
+
+    for (const dim of ['asset', 'exch', 'account'] as const)
+      for (const g of groupRows(mapped, dim))
+        expect(componentsSum(g.totals)).toBeCloseTo(g.totals.totalPnl, 6);
   });
 });

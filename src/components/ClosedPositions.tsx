@@ -132,7 +132,9 @@ const ClosedGroupBlock: React.FC<{
   expanded: boolean;
   onToggle: () => void;
 }> = ({ g, dim, sort, sinceMs, untilMs, expanded, onToggle }) => (
-  <Card style={{ padding: 0, overflow: 'hidden' }}>
+  // data-qa/data-count: lets the FE deploy gate assert the closed-positions section
+  // holds REAL rows (and how many), rather than merely that a heading exists.
+  <Card data-qa="closed-group" data-count={g.count} style={{ padding: 0, overflow: 'hidden' }}>
     <div
       onClick={onToggle}
       style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '14px 16px', cursor: 'pointer', flexWrap: 'wrap' }}

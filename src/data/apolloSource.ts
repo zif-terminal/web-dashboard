@@ -383,10 +383,28 @@ const mapPositionEvent = (r: any): PositionEvent => ({
 });
 
 // ── daily PnL rollup (#250) ──────────────────────────────────────────────────
-// mat_pnl_daily row → domain PnlDailyRow. Pure pass-through + numeric coercion —
-// the 7 component sums + total are already-reconciled server buckets (same sign
-// convention as position_pnl), no client money math.
-const mapPnlDaily = (r: any): PnlDailyRow => ({
+// mat_pnl_daily row → domain PnlDailyRow.
+//
+// SIGN CONVENTION — the one place client money math happens, and it is a NEGATION,
+// not an aggregation. `mat_pnl_daily.fee_pnl` is stored as a POSITIVE COST
+// magnitude, and the view's own total SUBTRACTS it:
+//
+//   total_pnl = trade + funding − fee + interest + reward + hack + synthetic
+//
+// (verified against prod: 7,690/7,690 rows satisfy the minus-fee identity, 0 satisfy
+// the all-plus one). Every FE surface — the summary chips, the values-table Fees
+// column, the chart tooltip — renders each component as its CONTRIBUTION to the
+// total and expects the 7 to add up to it (see lib/pnlDaily.sumTotals, which is a
+// plain +=). So the contribution of fees is −fee_pnl, and we negate HERE, at the
+// boundary, exactly once.
+//
+// Passing fee_pnl through unnegated (the bug this replaces) rendered fees as a
+// green "+$23.3K" GAIN and made the chips overshoot the header by 2× fees
+// (747,105.91 vs the true 700,581.53). It never showed up in dev because
+// mockEngine already emits feePnl NEGATIVE and totals additively — the mock was
+// self-consistent, so only the live path was wrong. The regression test for this is
+// the "Σ components == totalPnl" invariant in lib/pnlDaily.test.ts.
+export const mapPnlDaily = (r: any): PnlDailyRow => ({
   id: r.id,
   exchangeAccountId: r.exchange_account_id,
   exch: (r.exch as string | undefined)?.trim() ?? '',
@@ -396,7 +414,7 @@ const mapPnlDaily = (r: any): PnlDailyRow => ({
   day: r.day,
   tradePnl: num(r.trade_pnl),
   fundingPnl: num(r.funding_pnl),
-  feePnl: num(r.fee_pnl),
+  feePnl: -num(r.fee_pnl), // positive-cost column → signed contribution (see above)
   interestPnl: num(r.interest_pnl),
   rewardPnl: num(r.reward_pnl),
   hackPnl: num(r.hack_pnl),

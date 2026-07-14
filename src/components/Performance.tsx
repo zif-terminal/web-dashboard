@@ -3,7 +3,7 @@ import { useStore } from '../store/store';
 import { dataSource } from '../store/useLiveData';
 import { Card, Mono, Chip, Segment } from '../ui/primitives';
 import { t, exchMeta } from '../ui/theme';
-import { k, col } from '../lib/format';
+import { k, col, usd } from '../lib/format';
 import { useIsMobile } from '../lib/useIsMobile';
 import { windowBounds } from '../data/perfWindow';
 import {
@@ -119,9 +119,14 @@ export function Performance() {
         down by day, week, month or year, and by asset, exchange or account.
       </p>
 
-      {/* Range selector */}
+      {/* Range selector.
+          NOTE the data-qa hooks on the three control rows below: the Week/Month
+          labels are shared by the range chips AND the granularity segment, and
+          None/Asset/Exchange are shared with the Closed-positions group-by — so an
+          unscoped by-name lookup is ambiguous. These let the deploy gate address
+          each control unambiguously. They add no DOM and no styling. */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, alignItems: 'center' }}>
+        <div data-qa="range-row" style={{ display: 'flex', flexWrap: 'wrap', gap: 7, alignItems: 'center' }}>
           {RANGE_MODES.map((r) => (
             <Chip key={r.k} active={rangeMode === r.k} onClick={() => setRangeMode(r.k)}>{r.label}</Chip>
           ))}
@@ -147,14 +152,19 @@ export function Performance() {
         <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.05em', color: t.mut, marginBottom: 6 }}>
           TOTAL PNL {rangeLabel(rangeMode)}
         </div>
-        <Mono style={{ fontSize: 'clamp(30px,6vw,44px)', fontWeight: 600, letterSpacing: '-.02em', color: loading ? t.mut2 : col(grand.totalPnl), display: 'block', marginBottom: 16 }}>
+        {/* Money figures render COMPACT (k() → "+$700.6K"), which hides ±$50 of
+            precision. `title` exposes the exact dollars on hover — a real UX win on
+            a money page, and it is what lets the deploy gate assert these numbers
+            CENT-EXACT against the DB instead of eyeballing a rounded string. The
+            `data-qa` hooks make the probe's selectors stable. */}
+        <Mono data-qa="total-pnl" title={usd(grand.totalPnl)} style={{ fontSize: 'clamp(30px,6vw,44px)', fontWeight: 600, letterSpacing: '-.02em', color: loading ? t.mut2 : col(grand.totalPnl), display: 'block', marginBottom: 16 }}>
           {loading ? '—' : k(grand.totalPnl)}
         </Mono>
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(auto-fit,minmax(120px,1fr))', gap: 10 }}>
           {cards.map((c) => (
             <div key={c.label} style={{ border: `1px solid ${t.border}`, borderRadius: 9, padding: '9px 12px', background: 'rgba(0,0,0,.15)' }}>
               <div style={{ fontSize: 10, letterSpacing: '.04em', color: t.mut2, textTransform: 'uppercase' }}>{c.label}</div>
-              <Mono style={{ fontSize: 15, fontWeight: 600, marginTop: 3, color: loading ? t.mut2 : col(c.v), display: 'block' }}>
+              <Mono data-qa="chip" data-label={c.label} title={usd(c.v)} style={{ fontSize: 15, fontWeight: 600, marginTop: 3, color: loading ? t.mut2 : col(c.v), display: 'block' }}>
                 {loading ? '—' : k(c.v)}
               </Mono>
             </div>
@@ -163,7 +173,7 @@ export function Performance() {
       </Card>
 
       {/* (2) Granularity control */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+      <div data-qa="gran-row" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
         <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>Over time</h2>
         <span style={{ flex: 1, minWidth: 8 }} />
         <Segment options={GRANS} value={anaGran} onChange={(g) => setAnaGran(g as PnlGranularity)} />
@@ -181,7 +191,7 @@ export function Performance() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '30px 0 14px' }}>
         <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>Breakdown</h2>
         <span style={{ flex: 1, minWidth: 8 }} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div data-qa="group-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 12.5, color: t.mut2 }}>Group by</span>
           <Segment options={GROUP_BYS} value={anaGroupBy} onChange={(g) => setAnaGroupBy(g as PnlGroupBy)} />
         </div>
@@ -247,10 +257,10 @@ const PnlValuesTable: React.FC<{ buckets: BucketRow[]; grand: ReturnType<typeof 
       ) : (
         <>
           {buckets.map((b) => (
-            <div key={b.bucketStart} style={{ display: 'grid', gridTemplateColumns: VGRID, gap: 8, padding: 13, borderBottom: '1px solid #161c21', alignItems: 'center' }}>
+            <div key={b.bucketStart} data-qa="bucket-row" data-bucket={b.bucketStart} style={{ display: 'grid', gridTemplateColumns: VGRID, gap: 8, padding: 13, borderBottom: '1px solid #161c21', alignItems: 'center' }}>
               <Mono style={{ fontSize: 13, fontWeight: 600 }}>{b.label}</Mono>
-              {PNL_COMPONENTS.map((c) => <Num key={c.k} v={b.totals[c.k]} />)}
-              <Num v={b.totals.totalPnl} bold />
+              {PNL_COMPONENTS.map((c) => <Num key={c.k} v={b.totals[c.k]} qa={`bucket-${c.k}`} />)}
+              <Num v={b.totals.totalPnl} bold qa="bucket-total" />
             </div>
           ))}
           <div style={{ display: 'grid', gridTemplateColumns: VGRID, gap: 8, padding: 14 }}>
@@ -285,7 +295,7 @@ const GroupBreakdownRow: React.FC<{
         <span style={{ fontSize: 15, fontWeight: 600 }}>{g.label}</span>
         {dim === 'account' && g.exch && <Mono style={{ fontSize: 11, color: t.mut2 }}>{g.exch}</Mono>}
         <span style={{ flex: 1, minWidth: 8 }} />
-        <Mono style={{ fontSize: 16, fontWeight: 700, color: col(g.totals.totalPnl) }}>{k(g.totals.totalPnl)}</Mono>
+        <Mono data-qa="group-total" data-group-key={g.key} title={usd(g.totals.totalPnl)} style={{ fontSize: 16, fontWeight: 700, color: col(g.totals.totalPnl) }}>{k(g.totals.totalPnl)}</Mono>
       </div>
       {expanded && (
         <div style={{ borderTop: `1px solid ${t.border2}`, background: '#12161a', padding: '14px 14px 6px' }}>
@@ -299,8 +309,8 @@ const GroupBreakdownRow: React.FC<{
   );
 };
 
-const Num: React.FC<{ v: number; bold?: boolean }> = ({ v, bold }) => (
-  <Mono style={{ fontSize: bold ? 14 : 13, fontWeight: bold ? 600 : 400, textAlign: 'right', color: col(v) }}>{k(v)}</Mono>
+const Num: React.FC<{ v: number; bold?: boolean; qa?: string }> = ({ v, bold, qa }) => (
+  <Mono data-qa={qa} title={usd(v)} style={{ fontSize: bold ? 14 : 13, fontWeight: bold ? 600 : 400, textAlign: 'right', color: col(v) }}>{k(v)}</Mono>
 );
 
 const DateInput: React.FC<{ label: string; value: string; onChange: (v: string) => void }> = ({ label, value, onChange }) => (
