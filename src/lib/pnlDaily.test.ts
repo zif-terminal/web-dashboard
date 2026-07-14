@@ -11,7 +11,7 @@ const row = (over: Partial<PnlDailyRow>): PnlDailyRow => ({
   asset: 'BTC',
   marketType: 'perp',
   day: '2026-01-01',
-  tradePnl: 0, fundingPnl: 0, feePnl: 0, interestPnl: 0, rewardPnl: 0, hackPnl: 0, syntheticPnl: 0, totalPnl: 0,
+  tradePnl: 0, fundingPnl: 0, feePnl: 0, interestPnl: 0, rewardPnl: 0, hackPnl: 0, totalPnl: 0,
   ...over,
 });
 
@@ -91,11 +91,11 @@ describe('bucketRows — structural reconciliation (the #196 class of bug)', () 
 // ─────────────────────────────────────────────────────────────────────────────
 // THE MISSING INVARIANT (the bug that shipped once): every test above reconciles
 // totalPnl against ITSELF (Σ of a grouping vs Σ of the grand total), so a wrong
-// COMPONENT sails straight through. Nothing asserted that the 7 components add up
+// COMPONENT sails straight through. Nothing asserted that the 6 components add up
 // to the total — which is the entire promise the summary chips make to the user.
 //
 // `mat_pnl_daily.fee_pnl` is a POSITIVE COST and the view SUBTRACTS it:
-//   total_pnl = trade + funding − fee + interest + reward + hack + synthetic
+//   total_pnl = trade + funding − fee + interest + reward + hack
 // The FE renders components as CONTRIBUTIONS and adds them (sumTotals is a +=), so
 // mapPnlDaily must negate fee at the boundary. It didn't: fees rendered as a green
 // "+$23.3K" gain and the chips overshot the header by 2× fees. mockEngine already
@@ -109,7 +109,7 @@ describe('mapPnlDaily — fee sign convention (Σ components == total)', () => {
     id: 'x', exchange_account_id: 'ea-1', exch: 'Hyperliquid', account_label: 'main',
     asset: 'BTC', market_type: 'perp', day: '2026-04-01',
     trade_pnl: '1000.50', funding_pnl: '20.25', fee_pnl: '15.75', interest_pnl: '-3.00',
-    reward_pnl: '1.00', hack_pnl: '-500.00', synthetic_pnl: '0',
+    reward_pnl: '1.00', hack_pnl: '-500.00',
     total_pnl: '503.00', // 1000.50 + 20.25 − 15.75 − 3.00 + 1.00 − 500.00
   };
 
@@ -117,7 +117,7 @@ describe('mapPnlDaily — fee sign convention (Σ components == total)', () => {
     expect(mapPnlDaily(raw).feePnl).toBeCloseTo(-15.75, 6);
   });
 
-  it('the 7 mapped components sum to the mapped total (what the chips promise)', () => {
+  it('the 6 mapped components sum to the mapped total (what the chips promise)', () => {
     const m = mapPnlDaily(raw);
     const sum = PNL_COMPONENTS.reduce((s, c) => s + m[c.k], 0);
     expect(sum).toBeCloseTo(m.totalPnl, 6);

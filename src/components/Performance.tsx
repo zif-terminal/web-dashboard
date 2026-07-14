@@ -7,20 +7,21 @@ import { k, col, usd } from '../lib/format';
 import { useIsMobile } from '../lib/useIsMobile';
 import { windowBounds } from '../data/perfWindow';
 import {
-  PNL_COMPONENTS, bucketRows, bucketRowsForGroup, groupRows, sumTotals,
-  type BucketRow, type GroupRow,
+  PNL_COMPONENTS, bucketRows, groupRows, sumTotals,
+  type GroupRow,
 } from '../lib/pnlDaily';
 import { PnlChart } from './PnlChart';
 import { ClosedPositionsSection } from './ClosedPositions';
 import type { PnlDailyRow, PnlGranularity, PnlGroupBy } from '../types';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Analytics (#250 rebuild). Per .loops/CONTRACT-analytics-250.md and Jaison's
-// spec verbatim: "total pnl = trade pnl (partial fills count) +- funding,
-// rewards, interest - hacks, fee. I want this shown per day, per week, per month
-// and per year ... give me graph for this. I then also want the same per asset,
-// per exchange, per account ... bottom: closed position section, groupable and
-// sortable the same way the positions in the overview section can be."
+// Analytics (#250 rebuild; chart scroll/zoom + layout pass #252). Per
+// .loops/CONTRACT-analytics-250.md and Jaison's spec verbatim: "total pnl =
+// trade pnl (partial fills count) +- funding, rewards, interest - hacks, fee. I
+// want this shown per day, per week, per month and per year ... give me graph
+// for this. I then also want the same per asset, per exchange, per account ...
+// bottom: closed position section, groupable and sortable the same way the
+// positions in the overview section can be."
 //
 // THE ARCHITECTURE (do not relitigate): fetch `mat_pnl_daily` rows ONCE for the
 // selected range, then derive EVERY slice (granularity × group-by) from those
@@ -28,6 +29,27 @@ import type { PnlDailyRow, PnlGranularity, PnlGroupBy } from '../types';
 // group-by changes are useMemo re-slices — ZERO refetch. This is what makes bug
 // #196 (a per-group aggregate silently disagreeing with the header) structurally
 // impossible here: every breakdown is a GROUP BY over one identical row set.
+//
+// #252 layout changes (Jaison, verbatim, on top of the chart-only ask):
+// "remove the per day and the breakdown section. per day or week or blah totals
+// is just a long list with no more data than the graph. breakdown section seems
+// the same as the closed positions section below what am i missing?" +
+// "what is the synthetic column? why did you put that?" — three changes:
+//   1. The per-bucket VALUES TABLE is gone. Every number in it already lives in
+//      the chart + its hover tooltip; the table was a duplicate, not a summary.
+//   2. The `synthetic` component (a dead "netflow reconciliation plug" concept,
+//      always 0 in prod) has been removed entirely — from PNL_COMPONENTS, the
+//      GraphQL query, and every type — per the owner's kill decision (see
+//      lib/pnlDaily.ts). It no longer exists as a chip, column, or field.
+//   3. The per-group breakdown is no longer an expandable card with its OWN
+//      chart + its OWN values table (that nested duplication was the real bloat
+//      Jaison was reacting to). It's now one compact ranked table: a row per
+//      group, columns = the 6 components + total. It is NOT the same surface as
+//      Closed positions below: this table sources mat_pnl_daily (ALL realized
+//      PnL for the range — the Drift hack, funding/interest accrued on
+//      positions that are still OPEN, and partial-close PnL on still-open
+//      positions), where Closed positions sources only fully-closed trades.
+//      Closed positions structurally cannot show any of what this table shows.
 // ─────────────────────────────────────────────────────────────────────────────
 
 type RangeMode = 'week' | 'month' | 'ytd' | 'all' | 'custom';
@@ -66,14 +88,18 @@ function rangeBounds(mode: RangeMode, custom: { from: string; to: string }, now 
 /** epoch-ms → UTC 'YYYY-MM-DD', matching mat_pnl_daily.day's own UTC-day grain. */
 const toDayUTC = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
 
+/** Cent-round, for the machine-readable bucket payload the deploy gate reads
+ *  (see the data-qa="chart-buckets" node below). Keeps float noise out of the
+ *  comparison without hiding a real discrepancy — a bucketing bug is off by
+ *  thousands, not by a fraction of a cent. */
+const round2 = (v: number): number => Math.round(v * 100) / 100;
+
 export function Performance() {
   const isMobile = useIsMobile();
   const anaGran = useStore((s) => s.anaGran);
   const setAnaGran = useStore((s) => s.setAnaGran);
   const anaGroupBy = useStore((s) => s.anaGroupBy);
   const setAnaGroupBy = useStore((s) => s.setAnaGroupBy);
-  const perfExpanded = useStore((s) => s.perfExpanded);
-  const togglePerf = useStore((s) => s.togglePerf);
 
   // ── range selector — default ALL ────────────────────────────────────────────
   // Was 'ytd', on the contract's "default to something sane ... let the user widen
@@ -112,10 +138,15 @@ export function Performance() {
 
   const grand = useMemo(() => sumTotals(rows), [rows]);
   const bucketsAsc = useMemo(() => bucketRows(rows, anaGran), [rows, anaGran]);
-  const bucketsDesc = useMemo(() => [...bucketsAsc].reverse(), [bucketsAsc]);
   const groups = useMemo(() => groupRows(rows, anaGroupBy), [rows, anaGroupBy]);
 
-  const cards = PNL_COMPONENTS.map((c) => ({ label: c.label, v: grand[c.k] }));
+  // Every component chip sums into the total regardless; only chips reading
+  // exactly $0 are hidden from view (see the #252 note above — this is a
+  // display filter, not a data filter, so the chips-sum-to-header invariant
+  // still holds identically). Skip the filter while loading so the row of
+  // chips doesn't flash-empty-then-repopulate before the fetch resolves.
+  const allCards = PNL_COMPONENTS.map((c) => ({ label: c.label, v: grand[c.k] }));
+  const cards = loading ? allCards : allCards.filter((c) => c.v !== 0);
 
   return (
     <div>
@@ -155,7 +186,8 @@ export function Performance() {
         </div>
       )}
 
-      {/* (1) Summary header — big TOTAL + one chip per component, visibly summing to it. */}
+      {/* (1) Summary header — big TOTAL + one chip per NON-ZERO component,
+          visibly summing to it (a zero-value chip is hidden, not the total). */}
       <Card style={{ padding: '20px 22px', marginBottom: 26, background: 'linear-gradient(160deg,#191e29,#15191e)', border: '1px solid #2c3550' }}>
         <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.05em', color: t.mut, marginBottom: 6 }}>
           TOTAL PNL {rangeLabel(rangeMode)}
@@ -187,15 +219,39 @@ export function Performance() {
         <Segment options={GRANS} value={anaGran} onChange={(g) => setAnaGran(g as PnlGranularity)} />
       </div>
 
-      {/* (3) Chart */}
+      {/* (3) Chart — the full picture (see PnlChart.tsx for the #252 scroll/zoom
+          + default-visible-window treatment). No per-bucket values table below
+          it anymore; the chart + its hover tooltip already carry that detail. */}
       <Card style={{ padding: '14px 16px', marginBottom: 18 }}>
-        <PnlChart rows={bucketsAsc} />
+        <PnlChart rows={bucketsAsc} gran={anaGran} />
       </Card>
 
-      {/* (4) Values table — one row per bucket, one column per component + total. */}
-      <PnlValuesTable buckets={bucketsDesc} grand={grand} loading={loading} />
+      {/* The EXACT bucket array the chart above is drawing, as machine-readable
+          JSON. The chart is a <canvas> and #252 removed the per-bucket values
+          table, so without this there is NO way for the deploy gate to read the
+          page's per-bucket ATTRIBUTION — only its totals.
+          That distinction is the whole point (#251): a mis-bucketing bug moves
+          money BETWEEN buckets while every total stays perfectly stable, so a
+          total-only gate is blind to it by construction — which is how #251's
+          non-deterministic per-day attribution passed every check we had for
+          months. qa/analytics250-money.mjs asserts these values against
+          per-bucket sums snapshotted from POSTGRES (date_trunc) — an
+          independent implementation of "which week/month is this day in", NOT a
+          re-run of lib/pnlDaily.ts's own bucketStart(). Zero visual footprint. */}
+      <div
+        data-qa="chart-buckets"
+        data-gran={anaGran}
+        hidden
+      >
+        {JSON.stringify(bucketsAsc.map((b) => [b.bucketStart, round2(b.totals.totalPnl), round2(b.totals.hackPnl)]))}
+      </div>
 
-      {/* (5) Group by — re-slices the SAME rows, no refetch. */}
+      {/* (4) Breakdown — group-by re-slices the SAME mat_pnl_daily rows fetched
+          once for Analytics, no refetch. See the #252 note at the top of this
+          file for why this compact ranked table is not a duplicate of Closed
+          positions below: this sources ALL realized PnL (incl. the Drift hack
+          and funding/interest on still-open positions); Closed positions
+          sources only fully-closed trades. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '30px 0 14px' }}>
         <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>Breakdown</h2>
         <span style={{ flex: 1, minWidth: 8 }} />
@@ -207,27 +263,11 @@ export function Performance() {
 
       {anaGroupBy === 'none' ? (
         <p style={{ fontSize: 12.5, color: t.mut2 }}>Pick Asset, Exchange or Account above to break the totals down further.</p>
-      ) : loading ? (
-        <div style={{ padding: '20px 0', fontSize: 12.5, color: t.mut }}>Loading…</div>
-      ) : groups.length === 0 ? (
-        <div style={{ padding: '20px 0', fontSize: 12.5, color: t.mut2 }}>No PnL activity in this range.</div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {groups.map((g) => (
-            <GroupBreakdownRow
-              key={g.key}
-              g={g}
-              dim={anaGroupBy}
-              gran={anaGran}
-              rows={rows}
-              expanded={!!perfExpanded[`ana:${anaGroupBy}:${g.key}`]}
-              onToggle={() => togglePerf(`ana:${anaGroupBy}:${g.key}`)}
-            />
-          ))}
-        </div>
+        <GroupBreakdownTable groups={groups} dim={anaGroupBy} loading={loading} />
       )}
 
-      {/* (6) Closed positions — reuses the existing closed-trades machinery +
+      {/* (5) Closed positions — reuses the existing closed-trades machinery +
           Overview's Positions grouping/sorting pattern (see ClosedPositions.tsx). */}
       <ClosedPositionsSection sinceMs={bounds.sinceMs} untilMs={bounds.untilMs} />
     </div>
@@ -244,75 +284,46 @@ function rangeLabel(mode: RangeMode): string {
   }
 }
 
-// ── (4) Values table ─────────────────────────────────────────────────────────
+// ── (4) Breakdown table — one row per group, columns = the 6 components +
+// total, sorted by |total| descending (groupRows' own order — biggest movers
+// first, matching Positions' group ordering elsewhere in the app). Flat, no
+// nesting, no per-row chart/expansion — see the #252 note above for why. ─────
 const VGRID = '1.3fr repeat(7,1fr) 1.1fr';
 
-const PnlValuesTable: React.FC<{ buckets: BucketRow[]; grand: ReturnType<typeof sumTotals>; loading: boolean }> = ({ buckets, grand, loading }) => (
-  <Card style={{ padding: '4px 6px', overflowX: 'auto', border: 'none', background: 'transparent', borderRadius: 0 }}>
-    <div style={{ minWidth: 900 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: VGRID, gap: 8, padding: '13px 14px 11px', borderBottom: `1px solid ${t.border}` }}>
-        {['Period', ...PNL_COMPONENTS.map((c) => c.label), 'Total'].map((c, i) => (
-          <span key={i} style={{ fontSize: 10.5, letterSpacing: '.05em', color: t.mut2, textTransform: 'uppercase', textAlign: i === 0 ? 'left' : 'right' }}>{c}</span>
-        ))}
-      </div>
-      {loading ? (
-        <div style={{ padding: '20px 14px', textAlign: 'center', fontSize: 12.5, color: t.mut }}>Loading…</div>
-      ) : buckets.length === 0 ? (
-        <div style={{ padding: '30px 14px', textAlign: 'center' }}>
-          <div style={{ fontSize: 13.5, fontWeight: 600, color: t.mut }}>No PnL activity in this range</div>
-          <div style={{ fontSize: 12, color: t.mut2, marginTop: 5 }}>Try a wider range above.</div>
-        </div>
-      ) : (
-        <>
-          {buckets.map((b) => (
-            <div key={b.bucketStart} data-qa="bucket-row" data-bucket={b.bucketStart} style={{ display: 'grid', gridTemplateColumns: VGRID, gap: 8, padding: 13, borderBottom: '1px solid #161c21', alignItems: 'center' }}>
-              <Mono style={{ fontSize: 13, fontWeight: 600 }}>{b.label}</Mono>
-              {PNL_COMPONENTS.map((c) => <Num key={c.k} v={b.totals[c.k]} qa={`bucket-${c.k}`} />)}
-              <Num v={b.totals.totalPnl} bold qa="bucket-total" />
-            </div>
-          ))}
-          <div style={{ display: 'grid', gridTemplateColumns: VGRID, gap: 8, padding: 14 }}>
-            <span style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: '.03em', color: t.mut, textTransform: 'uppercase' }}>Total</span>
-            {PNL_COMPONENTS.map((c) => <Num key={c.k} v={grand[c.k]} bold />)}
-            <Num v={grand.totalPnl} bold />
-          </div>
-        </>
-      )}
-    </div>
-  </Card>
-);
-
-// ── (5) Group breakdown row — header (dot · label · total) that expands to the
-// SAME per-bucket values table + a small chart, scoped to that group. Pure
-// re-slice of the already-fetched rows (bucketRowsForGroup) — no refetch. ─────
-const GroupBreakdownRow: React.FC<{
-  g: GroupRow;
-  dim: PnlGroupBy;
-  gran: PnlGranularity;
-  rows: PnlDailyRow[];
-  expanded: boolean;
-  onToggle: () => void;
-}> = ({ g, dim, gran, rows, expanded, onToggle }) => {
-  const groupBuckets = useMemo(() => (expanded ? bucketRowsForGroup(rows, dim, g.key, gran) : []), [expanded, rows, dim, g.key, gran]);
-  const dot = dim === 'exch' ? exchMeta[g.key]?.dot : dim === 'account' ? exchMeta[g.exch ?? '']?.dot : undefined;
+const GroupBreakdownTable: React.FC<{ groups: GroupRow[]; dim: PnlGroupBy; loading: boolean }> = ({ groups, dim, loading }) => {
+  const nameCol = dim === 'account' ? 'Account' : dim === 'exch' ? 'Exchange' : 'Asset';
   return (
-    <Card style={{ padding: 0, overflow: 'hidden' }}>
-      <div onClick={onToggle} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '14px 16px', cursor: 'pointer', flexWrap: 'wrap' }}>
-        <Mono style={{ fontSize: 11, color: t.mut2, width: 9 }}>{expanded ? '▾' : '▸'}</Mono>
-        <span style={{ width: 9, height: 9, borderRadius: 3, background: dot ?? t.acc, flexShrink: 0 }} />
-        <span style={{ fontSize: 15, fontWeight: 600 }}>{g.label}</span>
-        {dim === 'account' && g.exch && <Mono style={{ fontSize: 11, color: t.mut2 }}>{g.exch}</Mono>}
-        <span style={{ flex: 1, minWidth: 8 }} />
-        <Mono data-qa="group-total" data-group-key={g.key} title={usd(g.totals.totalPnl)} style={{ fontSize: 16, fontWeight: 700, color: col(g.totals.totalPnl) }}>{k(g.totals.totalPnl)}</Mono>
-      </div>
-      {expanded && (
-        <div style={{ borderTop: `1px solid ${t.border2}`, background: '#12161a', padding: '14px 14px 6px' }}>
-          <Card style={{ padding: '10px 12px', marginBottom: 14 }}>
-            <PnlChart rows={groupBuckets} height={160} />
-          </Card>
-          <PnlValuesTable buckets={[...groupBuckets].reverse()} grand={g.totals} loading={false} />
+    <Card style={{ padding: '4px 6px', overflowX: 'auto' }}>
+      <div style={{ minWidth: 900 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: VGRID, gap: 8, padding: '13px 14px 11px', borderBottom: `1px solid ${t.border}` }}>
+          {[nameCol, ...PNL_COMPONENTS.map((c) => c.label), 'Total'].map((c, i) => (
+            <span key={i} style={{ fontSize: 10.5, letterSpacing: '.05em', color: t.mut2, textTransform: 'uppercase', textAlign: i === 0 ? 'left' : 'right' }}>{c}</span>
+          ))}
         </div>
-      )}
+        {loading ? (
+          <div style={{ padding: '20px 14px', textAlign: 'center', fontSize: 12.5, color: t.mut }}>Loading…</div>
+        ) : groups.length === 0 ? (
+          <div style={{ padding: '30px 14px', textAlign: 'center' }}>
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: t.mut }}>No PnL activity in this range</div>
+            <div style={{ fontSize: 12, color: t.mut2, marginTop: 5 }}>Try a wider range above.</div>
+          </div>
+        ) : (
+          groups.map((g) => {
+            const dot = dim === 'exch' ? exchMeta[g.key]?.dot : dim === 'account' ? exchMeta[g.exch ?? '']?.dot : undefined;
+            return (
+              <div key={g.key} data-qa="group-row-item" data-group-key={g.key} style={{ display: 'grid', gridTemplateColumns: VGRID, gap: 8, padding: 13, borderBottom: '1px solid #161c21', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                  {dot && <span style={{ width: 8, height: 8, borderRadius: 3, background: dot, flexShrink: 0 }} />}
+                  <Mono style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.label}</Mono>
+                  {dim === 'account' && g.exch && <span style={{ fontSize: 10.5, color: t.mut2, flexShrink: 0 }}>{g.exch}</span>}
+                </div>
+                {PNL_COMPONENTS.map((c) => <Num key={c.k} v={g.totals[c.k]} />)}
+                <Num v={g.totals.totalPnl} bold qa="group-total" />
+              </div>
+            );
+          })
+        )}
+      </div>
     </Card>
   );
 };

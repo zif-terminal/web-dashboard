@@ -435,12 +435,11 @@ export interface PnlDailyRow {
   interestPnl: number;
   rewardPnl: number;
   hackPnl: number;
-  syntheticPnl: number;
   totalPnl: number; // same sign convention as position_pnl — server-computed, no client re-derivation
 }
 
 export type PnlComponent =
-  | 'tradePnl' | 'fundingPnl' | 'feePnl' | 'interestPnl' | 'rewardPnl' | 'hackPnl' | 'syntheticPnl';
+  | 'tradePnl' | 'fundingPnl' | 'feePnl' | 'interestPnl' | 'rewardPnl' | 'hackPnl';
 export type PnlGranularity = 'day' | 'week' | 'month' | 'year';
 export type PnlGroupBy = 'none' | 'asset' | 'exch' | 'account';
 

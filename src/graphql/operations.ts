@@ -981,7 +981,6 @@ export const PNL_DAILY_QUERY = gql`
       interest_pnl
       reward_pnl
       hack_pnl
-      synthetic_pnl
       total_pnl
     }
   }

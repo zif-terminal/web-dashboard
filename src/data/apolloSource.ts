@@ -389,12 +389,12 @@ const mapPositionEvent = (r: any): PositionEvent => ({
 // not an aggregation. `mat_pnl_daily.fee_pnl` is stored as a POSITIVE COST
 // magnitude, and the view's own total SUBTRACTS it:
 //
-//   total_pnl = trade + funding − fee + interest + reward + hack + synthetic
+//   total_pnl = trade + funding − fee + interest + reward + hack
 //
 // (verified against prod: 7,690/7,690 rows satisfy the minus-fee identity, 0 satisfy
 // the all-plus one). Every FE surface — the summary chips, the values-table Fees
 // column, the chart tooltip — renders each component as its CONTRIBUTION to the
-// total and expects the 7 to add up to it (see lib/pnlDaily.sumTotals, which is a
+// total and expects the 6 to add up to it (see lib/pnlDaily.sumTotals, which is a
 // plain +=). So the contribution of fees is −fee_pnl, and we negate HERE, at the
 // boundary, exactly once.
 //
@@ -418,7 +418,6 @@ export const mapPnlDaily = (r: any): PnlDailyRow => ({
   interestPnl: num(r.interest_pnl),
   rewardPnl: num(r.reward_pnl),
   hackPnl: num(r.hack_pnl),
-  syntheticPnl: num(r.synthetic_pnl),
   totalPnl: num(r.total_pnl),
 });
 

@@ -10,7 +10,7 @@
 import type { PnlComponent, PnlDailyRow, PnlGranularity, PnlGroupBy } from '../types';
 
 // Component display order — matches Jaison's spec verbatim: "trade pnl ... funding,
-// rewards, interest ... hacks, fee[s] ... synthetic". One chip per component; the
+// rewards, interest ... hacks, fee[s]". One chip per component; the
 // chips visibly sum to the header total.
 export const PNL_COMPONENTS: { k: PnlComponent; label: string }[] = [
   { k: 'tradePnl', label: 'Trade' },
@@ -19,7 +19,6 @@ export const PNL_COMPONENTS: { k: PnlComponent; label: string }[] = [
   { k: 'interestPnl', label: 'Interest' },
   { k: 'feePnl', label: 'Fees' },
   { k: 'hackPnl', label: 'Hacks' },
-  { k: 'syntheticPnl', label: 'Synthetic' },
 ];
 
 export interface ComponentTotals {
@@ -29,12 +28,11 @@ export interface ComponentTotals {
   interestPnl: number;
   rewardPnl: number;
   hackPnl: number;
-  syntheticPnl: number;
   totalPnl: number;
 }
 
 export const ZERO_TOTALS: ComponentTotals = {
-  tradePnl: 0, fundingPnl: 0, feePnl: 0, interestPnl: 0, rewardPnl: 0, hackPnl: 0, syntheticPnl: 0, totalPnl: 0,
+  tradePnl: 0, fundingPnl: 0, feePnl: 0, interestPnl: 0, rewardPnl: 0, hackPnl: 0, totalPnl: 0,
 };
 
 function addInto(acc: ComponentTotals, r: PnlDailyRow): void {
@@ -44,7 +42,6 @@ function addInto(acc: ComponentTotals, r: PnlDailyRow): void {
   acc.interestPnl += r.interestPnl;
   acc.rewardPnl += r.rewardPnl;
   acc.hackPnl += r.hackPnl;
-  acc.syntheticPnl += r.syntheticPnl;
   acc.totalPnl += r.totalPnl;
 }
 

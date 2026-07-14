@@ -262,8 +262,7 @@ export class MockEngine {
         const interestPnl = Math.round(rand(seed + 4) * 5 * 100) / 100;
         const rewardPnl = Math.round(rand(seed + 5) * 8 * 100) / 100;
         const hackPnl = 0;
-        const syntheticPnl = 0;
-        const totalPnl = tradePnl + fundingPnl + feePnl + interestPnl + rewardPnl + hackPnl + syntheticPnl;
+        const totalPnl = tradePnl + fundingPnl + feePnl + interestPnl + rewardPnl + hackPnl;
         rows.push({
           id: `pnl-${c.eaId}-${c.asset}-${day}`,
           exchangeAccountId: c.eaId,
@@ -272,7 +271,7 @@ export class MockEngine {
           asset: c.asset,
           marketType: c.marketType,
           day,
-          tradePnl, fundingPnl, feePnl, interestPnl, rewardPnl, hackPnl, syntheticPnl, totalPnl,
+          tradePnl, fundingPnl, feePnl, interestPnl, rewardPnl, hackPnl, totalPnl,
         });
       }
     }
@@ -288,7 +287,7 @@ export class MockEngine {
       marketType: 'spot',
       day: hackDay,
       tradePnl: 0, fundingPnl: 0, feePnl: 0, interestPnl: 0, rewardPnl: 0,
-      hackPnl: -342670.32, syntheticPnl: 0, totalPnl: -342670.32,
+      hackPnl: -342670.32, totalPnl: -342670.32,
     });
     this.synthPnlDaily = rows;
     return rows;
