@@ -415,6 +415,35 @@ export interface DriftSnapshot {
   submittedAt?: string | null;
 }
 
+// ── Daily PnL rollup (#250 Analytics rebuild) ─────────────────────────────────
+// One row of `mat_pnl_daily`: the finest-useful-grain server-side rollup —
+// (exchange_account_id, asset, market_type, day). ONE fetch per selected range;
+// the FE derives EVERY slice (day/week/month/year × none/asset/exchange/account)
+// from these SAME rows in memory (lib/pnlDaily.ts) — never a per-group query
+// (that class of bug, #196, is what this structurally prevents).
+export interface PnlDailyRow {
+  id: string;
+  exchangeAccountId: string;
+  exch: string;          // venue display name (Hyperliquid / Lighter / Drift / Variational)
+  accountLabel: string;  // exchange_accounts.label / account identifier, for display
+  asset: string;          // base asset, e.g. BTC
+  marketType: string;     // spot / perp / pool
+  day: string;            // UTC day of the EVENT, 'YYYY-MM-DD'
+  tradePnl: number;
+  fundingPnl: number;
+  feePnl: number;
+  interestPnl: number;
+  rewardPnl: number;
+  hackPnl: number;
+  syntheticPnl: number;
+  totalPnl: number; // same sign convention as position_pnl — server-computed, no client re-derivation
+}
+
+export type PnlComponent =
+  | 'tradePnl' | 'fundingPnl' | 'feePnl' | 'interestPnl' | 'rewardPnl' | 'hackPnl' | 'syntheticPnl';
+export type PnlGranularity = 'day' | 'week' | 'month' | 'year';
+export type PnlGroupBy = 'none' | 'asset' | 'exch' | 'account';
+
 // Short windows + calendar year strings ('2023', '2024', …). Year values are
 // validated at store-init by checking they're 4-digit numeric strings.
 export type Timeframe = 'hour' | 'day' | 'week' | 'month' | 'ytd' | 'all' | (string & {});

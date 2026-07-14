@@ -5,7 +5,7 @@ import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account,
   ClosedAgg, ClosedGroupAgg, PerfDim,
   IncomePeriodRow, IncomeFilter, IncomeGrain, IncomeCategory, LedgerTotals,
-  DriftSnapshot,
+  DriftSnapshot, PnlDailyRow,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 import { pnlAt } from '../lib/pnl';
@@ -225,6 +225,73 @@ export class MockEngine {
     }
     this.synthIncome = [...byKey.values()];
     return this.synthIncome;
+  }
+
+  // ── Daily PnL rollup (#250 Analytics rebuild) mock parity ───────────────────
+  // Deterministic synthetic mat_pnl_daily-shaped rows spanning ~400 days back
+  // across a few (exchange_account, asset) combos, so the mock engine exercises
+  // the SAME single-fetch-then-reslice code path as live (day/week/month/year ×
+  // none/asset/exchange/account, all derived client-side from these rows).
+  private synthPnlDaily?: PnlDailyRow[];
+  private pnlDailyHistory(): PnlDailyRow[] {
+    if (this.synthPnlDaily) return this.synthPnlDaily;
+    const DAY = 86_400_000;
+    const rand = (n: number) => {
+      const x = Math.sin(n * 12.9898) * 43758.5453;
+      return x - Math.floor(x);
+    };
+    const combos: { eaId: string; exch: string; accountLabel: string; asset: string; marketType: string }[] = [
+      { eaId: 'ea-mock-1', exch: 'Hyperliquid', accountLabel: 'main', asset: 'BTC', marketType: 'perp' },
+      { eaId: 'ea-mock-1', exch: 'Hyperliquid', accountLabel: 'main', asset: 'ETH', marketType: 'perp' },
+      { eaId: 'ea-mock-2', exch: 'Lighter', accountLabel: 'ARB', asset: 'SOL', marketType: 'perp' },
+      { eaId: 'ea-mock-3', exch: 'Drift', accountLabel: 'vault', asset: 'HYPE', marketType: 'spot' },
+    ];
+    const now = Date.now();
+    const rows: PnlDailyRow[] = [];
+    for (let dayBack = 0; dayBack < 400; dayBack++) {
+      const ts = now - dayBack * DAY;
+      const day = new Date(ts).toISOString().slice(0, 10);
+      for (const c of combos) {
+        const seed = dayBack * 7 + c.asset.length + c.eaId.length;
+        // Skip most days (an event grain, not a dense series) — mirrors "no zero
+        // rows" (the contract: a row exists only on a day with ANY pnl activity).
+        if (rand(seed) > 0.35) continue;
+        const tradePnl = Math.round((rand(seed + 1) - 0.45) * 800 * 100) / 100;
+        const fundingPnl = Math.round((rand(seed + 2) - 0.5) * 40 * 100) / 100;
+        const feePnl = -Math.round(rand(seed + 3) * 15 * 100) / 100;
+        const interestPnl = Math.round(rand(seed + 4) * 5 * 100) / 100;
+        const rewardPnl = Math.round(rand(seed + 5) * 8 * 100) / 100;
+        const hackPnl = 0;
+        const syntheticPnl = 0;
+        const totalPnl = tradePnl + fundingPnl + feePnl + interestPnl + rewardPnl + hackPnl + syntheticPnl;
+        rows.push({
+          id: `pnl-${c.eaId}-${c.asset}-${day}`,
+          exchangeAccountId: c.eaId,
+          exch: c.exch,
+          accountLabel: c.accountLabel,
+          asset: c.asset,
+          marketType: c.marketType,
+          day,
+          tradePnl, fundingPnl, feePnl, interestPnl, rewardPnl, hackPnl, syntheticPnl, totalPnl,
+        });
+      }
+    }
+    // Seed the Drift hack as its own row, same convention as fetchLedgerTotals'
+    // demo hack — April 1 of the current year, so the Hacks chip renders nonzero.
+    const hackDay = `${new Date().getUTCFullYear()}-04-01`;
+    rows.push({
+      id: 'pnl-hack-drift',
+      exchangeAccountId: 'ea-mock-3',
+      exch: 'Drift',
+      accountLabel: 'vault',
+      asset: 'USDC',
+      marketType: 'spot',
+      day: hackDay,
+      tradePnl: 0, fundingPnl: 0, feePnl: 0, interestPnl: 0, rewardPnl: 0,
+      hackPnl: -342670.32, syntheticPnl: 0, totalPnl: -342670.32,
+    });
+    this.synthPnlDaily = rows;
+    return rows;
   }
 
   // ── DataSource surface ──
@@ -476,6 +543,14 @@ export class MockEngine {
           submittedAt: new Date().toISOString(),
         });
       },
+      // ── Daily PnL rollup (#250) mock parity — filter the synthetic series to
+      // the inclusive ['YYYY-MM-DD', 'YYYY-MM-DD'] range (string compare works —
+      // both bounds are zero-padded ISO dates).
+      fetchPnlDaily: async (sinceDay, untilDay) =>
+        this.pnlDailyHistory()
+          .filter((r) => r.day >= sinceDay && r.day <= untilDay)
+          .map((r) => ({ ...r })),
+
       // OMNI CSV upload is a no-op in mock mode — no DB to write to.
       insertOmniRawEvents: async (_objects) => {
         return { affected_rows: 0 };

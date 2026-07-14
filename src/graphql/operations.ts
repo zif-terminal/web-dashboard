@@ -950,3 +950,39 @@ export const UPSERT_DRIFT_SNAPSHOT = gql`
     }
   }
 `;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ANALYTICS REBUILD (#250). ONE query for the daily PnL rollup over the selected
+// range — see .loops/CONTRACT-analytics-250.md. Grain: (exchange_account_id,
+// asset, market_type, day). The FE derives every day/week/month/year ×
+// none/asset/exchange/account slice from this ONE row set in memory
+// (lib/pnlDaily.ts) — no per-group aggregate queries (that is the #196 bug class).
+// `day` is a Postgres `date` column → Hasura's `date` scalar, compared here as
+// 'YYYY-MM-DD' strings (UTC, matching the column's own UTC-day semantics).
+// RLS-scoped via exchange_account → wallet → user_wallets → user (same path as
+// mat_positions).
+// ─────────────────────────────────────────────────────────────────────────────
+export const PNL_DAILY_QUERY = gql`
+  query PnlDaily($since: date!, $until: date!) {
+    mat_pnl_daily(
+      where: { day: { _gte: $since, _lte: $until } }
+      order_by: { day: asc }
+    ) {
+      id
+      exchange_account_id
+      exch
+      account_label
+      asset
+      market_type
+      day
+      trade_pnl
+      funding_pnl
+      fee_pnl
+      interest_pnl
+      reward_pnl
+      hack_pnl
+      synthetic_pnl
+      total_pnl
+    }
+  }
+`;

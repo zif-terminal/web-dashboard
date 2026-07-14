@@ -15,13 +15,14 @@ import {
   INSERT_OMNI_RAW_EVENTS,
   SIZE_RECONCILE_QUERY,
   DRIFT_SNAPSHOTS_QUERY, UPSERT_DRIFT_SNAPSHOT, DRIFT_HACKDAY_TS,
+  PNL_DAILY_QUERY,
 } from '../graphql/operations';
 import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account, Exchange, Accuracy, ReconcileStatus, Side,
   ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim, Lifecycle, LifecycleMap,
   IncomePeriodRow, IncomeFilter, IncomeGrain, IncomeCategory,
   PositionBreakdown, BreakdownTotals, LedgerTotals, PositionEvent, SizeReconcileRow,
-  DriftSnapshot, DriftHolding,
+  DriftSnapshot, DriftHolding, PnlDailyRow,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 import { shortAddr } from '../lib/format';
@@ -379,6 +380,28 @@ const mapPositionEvent = (r: any): PositionEvent => ({
   text: '',
   amount: num(r.amount),
   market: (r.market as string | undefined)?.trim() ?? '',
+});
+
+// ── daily PnL rollup (#250) ──────────────────────────────────────────────────
+// mat_pnl_daily row → domain PnlDailyRow. Pure pass-through + numeric coercion —
+// the 7 component sums + total are already-reconciled server buckets (same sign
+// convention as position_pnl), no client money math.
+const mapPnlDaily = (r: any): PnlDailyRow => ({
+  id: r.id,
+  exchangeAccountId: r.exchange_account_id,
+  exch: (r.exch as string | undefined)?.trim() ?? '',
+  accountLabel: (r.account_label as string | undefined)?.trim() ?? '',
+  asset: r.asset,
+  marketType: (r.market_type as string | undefined) ?? '',
+  day: r.day,
+  tradePnl: num(r.trade_pnl),
+  fundingPnl: num(r.funding_pnl),
+  feePnl: num(r.fee_pnl),
+  interestPnl: num(r.interest_pnl),
+  rewardPnl: num(r.reward_pnl),
+  hackPnl: num(r.hack_pnl),
+  syntheticPnl: num(r.synthetic_pnl),
+  totalPnl: num(r.total_pnl),
 });
 
 // ── closed-trades aggregates (#184) ──────────────────────────────────────────
@@ -1018,6 +1041,19 @@ export function makeApolloDataSource(client: ApolloClient<any>): DataSource {
         mutation: UPSERT_DRIFT_SNAPSHOT,
         variables: { objects },
       });
+    },
+
+    // ── Daily PnL rollup (#250 Analytics rebuild) ───────────────────────────────
+    // ONE query per selected range; 'network-only' so switching ranges always
+    // reflects the latest data. Granularity/group-by are pure re-slices of this
+    // same row set (lib/pnlDaily.ts) — never refetched.
+    fetchPnlDaily: async (sinceDay, untilDay): Promise<PnlDailyRow[]> => {
+      const { data } = await client.query({
+        query: PNL_DAILY_QUERY,
+        variables: { since: sinceDay, until: untilDay },
+        fetchPolicy: 'network-only',
+      });
+      return ((data?.mat_pnl_daily as any[]) ?? []).map(mapPnlDaily);
     },
   };
 }

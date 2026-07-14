@@ -3,7 +3,7 @@ import type {
   ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim, LifecycleMap,
   IncomePeriodRow, IncomeFilter, IncomeGrain,
   PositionBreakdown, BreakdownTotals, LedgerTotals, PositionEvent, SizeReconcileRow,
-  DriftSnapshot, DriftHolding,
+  DriftSnapshot, DriftHolding, PnlDailyRow,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 
@@ -179,4 +179,11 @@ export interface DataSource {
     accountId: string,
     input: { isEmpty: boolean; holdings: DriftHolding[] },
   ): Promise<void>;
+
+  // ── Daily PnL rollup (#250 Analytics rebuild) ───────────────────────────────
+  // ONE fetch of `mat_pnl_daily` rows over [sinceDay, untilDay] (inclusive,
+  // 'YYYY-MM-DD' UTC bounds on the `day` column). The caller derives every
+  // granularity/group-by slice from this single row set (lib/pnlDaily.ts) — no
+  // refetch on granularity or group-by changes, and no per-group query (#196).
+  fetchPnlDaily(sinceDay: string, untilDay: string): Promise<PnlDailyRow[]>;
 }

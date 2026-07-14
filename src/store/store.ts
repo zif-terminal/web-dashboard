@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, Tab, Timeframe, PerfDim, PerfStatus, LifecycleMap,
-  DriftSnapshot,
+  DriftSnapshot, PnlGranularity, PnlGroupBy,
 } from '../types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -73,6 +73,15 @@ interface UiState {
   // #212-analytics: epoch-ms of the PRIOR app open (the "since you last checked"
   // anchor). 0 until the first markChecked() OR when there's no stored history.
   prevLastCheckedMs: number;
+  // #250 Analytics rebuild: bucket granularity + breakdown dimension for the
+  // mat_pnl_daily chart/table (persisted, same convention as posGroup/posSort).
+  anaGran: PnlGranularity;
+  anaGroupBy: PnlGroupBy;
+  // #250: group/sort for the bottom "Closed positions" section — reuses the
+  // EXACT dimension set Overview's Positions section groups by (exch/asset/
+  // wallet), per Jaison's "same way ... follow the same design".
+  closedGroup: 'exch' | 'asset' | 'wallet';
+  closedSort: 'date' | 'pl' | 'size';
 }
 
 interface Actions {
@@ -84,6 +93,10 @@ interface Actions {
   toggleExpand: (id: string) => void;
   setPosGroup: (g: UiState['posGroup']) => void;
   setPosSort: (s: UiState['posSort']) => void;
+  setAnaGran: (g: PnlGranularity) => void;
+  setAnaGroupBy: (g: PnlGroupBy) => void;
+  setClosedGroup: (g: UiState['closedGroup']) => void;
+  setClosedSort: (s: UiState['closedSort']) => void;
   setTestPrice: (id: string, price: number) => void;
   setShock: (v: number) => void;
   // #212-analytics: snapshot the prior "last checked" ms into prevLastCheckedMs,
@@ -182,6 +195,34 @@ function getInitialPerfStatus(): PerfStatus {
   return VALID_PERF_STATUSES.includes(stored as PerfStatus) ? (stored as PerfStatus) : 'all';
 }
 
+const VALID_ANA_GRANS: readonly PnlGranularity[] = ['day', 'week', 'month', 'year'];
+function getInitialAnaGran(): PnlGranularity {
+  if (typeof localStorage === 'undefined') return 'month';
+  const stored = localStorage.getItem('zif.anaGran');
+  return VALID_ANA_GRANS.includes(stored as PnlGranularity) ? (stored as PnlGranularity) : 'month';
+}
+
+const VALID_ANA_GROUPS: readonly PnlGroupBy[] = ['none', 'asset', 'exch', 'account'];
+function getInitialAnaGroupBy(): PnlGroupBy {
+  if (typeof localStorage === 'undefined') return 'none';
+  const stored = localStorage.getItem('zif.anaGroupBy');
+  return VALID_ANA_GROUPS.includes(stored as PnlGroupBy) ? (stored as PnlGroupBy) : 'none';
+}
+
+const VALID_CLOSED_GROUPS: readonly UiState['closedGroup'][] = ['exch', 'asset', 'wallet'];
+function getInitialClosedGroup(): UiState['closedGroup'] {
+  if (typeof localStorage === 'undefined') return 'exch';
+  const stored = localStorage.getItem('zif.closedGroup');
+  return VALID_CLOSED_GROUPS.includes(stored as UiState['closedGroup']) ? (stored as UiState['closedGroup']) : 'exch';
+}
+
+const VALID_CLOSED_SORTS: readonly UiState['closedSort'][] = ['date', 'pl', 'size'];
+function getInitialClosedSort(): UiState['closedSort'] {
+  if (typeof localStorage === 'undefined') return 'date';
+  const stored = localStorage.getItem('zif.closedSort');
+  return VALID_CLOSED_SORTS.includes(stored as UiState['closedSort']) ? (stored as UiState['closedSort']) : 'date';
+}
+
 function getInitialShock(): number {
   if (typeof localStorage === 'undefined') return -20;
   const stored = localStorage.getItem('zif.shock');
@@ -226,6 +267,10 @@ export const useStore = create<StoreState>((set) => ({
   expanded: {},
   posGroup: getInitialPosGroup(),
   posSort: getInitialPosSort(),
+  anaGran: getInitialAnaGran(),
+  anaGroupBy: getInitialAnaGroupBy(),
+  closedGroup: getInitialClosedGroup(),
+  closedSort: getInitialClosedSort(),
   testPrice: {},
   shock: getInitialShock(),
   // #212-analytics: seeded from storage at init so the pulse has an anchor even
@@ -266,6 +311,22 @@ export const useStore = create<StoreState>((set) => ({
   setPosSort: (posSort) => {
     if (typeof localStorage !== 'undefined') localStorage.setItem('zif.posSort', posSort);
     set({ posSort });
+  },
+  setAnaGran: (anaGran) => {
+    if (typeof localStorage !== 'undefined') localStorage.setItem('zif.anaGran', anaGran);
+    set({ anaGran });
+  },
+  setAnaGroupBy: (anaGroupBy) => {
+    if (typeof localStorage !== 'undefined') localStorage.setItem('zif.anaGroupBy', anaGroupBy);
+    set({ anaGroupBy });
+  },
+  setClosedGroup: (closedGroup) => {
+    if (typeof localStorage !== 'undefined') localStorage.setItem('zif.closedGroup', closedGroup);
+    set({ closedGroup });
+  },
+  setClosedSort: (closedSort) => {
+    if (typeof localStorage !== 'undefined') localStorage.setItem('zif.closedSort', closedSort);
+    set({ closedSort });
   },
   setTestPrice: (id, price) => set((s) => ({ testPrice: { ...s.testPrice, [id]: price } })),
   setShock: (shock) => {
