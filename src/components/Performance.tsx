@@ -75,9 +75,17 @@ export function Performance() {
   const perfExpanded = useStore((s) => s.perfExpanded);
   const togglePerf = useStore((s) => s.togglePerf);
 
-  // ── range selector — default YTD (contract: "default the range to something
-  // sane ... let the user widen it" given full-history row count is unknown) ──
-  const [rangeMode, setRangeMode] = useState<RangeMode>('ytd');
+  // ── range selector — default ALL ────────────────────────────────────────────
+  // Was 'ytd', on the contract's "default to something sane ... let the user widen
+  // it" reasoning, written when the full-history row count was still unknown. It is
+  // now known and it is small (7,690 rows / 746 day-buckets for the WHOLE book), so
+  // the reason to narrow the default is gone — and YTD turned out to be a bad
+  // headline: the one-off April-2026 Drift hack (-$342,670.38) sits inside it, so
+  // YTD renders -$29,790.21. Opening Analytics on a big red number that is dominated
+  // by a hack says nothing about how the book is trading. All-time (+$700,577.33) is
+  // the honest headline for "TOTAL PNL", and it is the identity Jaison's spec asks
+  // for. YTD is one click away.
+  const [rangeMode, setRangeMode] = useState<RangeMode>('all');
   const [custom, setCustom] = useState<{ from: string; to: string }>({ from: '', to: '' });
   const bounds = useMemo(() => rangeBounds(rangeMode, custom), [rangeMode, custom]);
   const sinceDay = toDayUTC(bounds.sinceMs);

@@ -1062,14 +1062,25 @@ export function makeApolloDataSource(client: ApolloClient<any>): DataSource {
     },
 
     // ── Daily PnL rollup (#250 Analytics rebuild) ───────────────────────────────
-    // ONE query per selected range; 'network-only' so switching ranges always
-    // reflects the latest data. Granularity/group-by are pure re-slices of this
+    // ONE query per selected range. Granularity/group-by are pure re-slices of this
     // same row set (lib/pnlDaily.ts) — never refetched.
+    //
+    // fetchPolicy 'no-cache', NOT 'network-only'. Both always hit the network, but
+    // network-only still WRITES the result through InMemoryCache — and this is the
+    // app's largest payload by far: the default All range is 7,690 rows / ~3.7 MB of
+    // JSON, and normalizing every one of those objects (they each have an `id`, so
+    // Apollo gives each its own cache entry) cost seconds on the initial paint and
+    // then RETAINED the whole set in the cache for the rest of the session. Nothing
+    // ever reads mat_pnl_daily back out of the cache — Performance.tsx copies the
+    // result straight into React state — so that work was pure overhead, and the
+    // retention is exactly the shape of heap growth that has bitten this dashboard
+    // before. 'no-cache' skips normalization and lets the rows be GC'd with the
+    // component.
     fetchPnlDaily: async (sinceDay, untilDay): Promise<PnlDailyRow[]> => {
       const { data } = await client.query({
         query: PNL_DAILY_QUERY,
         variables: { since: sinceDay, until: untilDay },
-        fetchPolicy: 'network-only',
+        fetchPolicy: 'no-cache',
       });
       return ((data?.mat_pnl_daily as any[]) ?? []).map(mapPnlDaily);
     },
