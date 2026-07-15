@@ -24,11 +24,18 @@ import type { PnlDailyRow, PnlGranularity, PnlGroupBy } from '../types';
 // positions in the overview section can be."
 //
 // THE ARCHITECTURE (do not relitigate): fetch `mat_pnl_daily` rows ONCE for the
-// selected range, then derive EVERY slice (granularity × group-by) from those
-// SAME rows via pure in-memory functions (lib/pnlDaily.ts). Granularity and
+// selected range, then derive the header total and the group-by breakdown from
+// those SAME rows via pure in-memory functions (lib/pnlDaily.ts). Granularity and
 // group-by changes are useMemo re-slices — ZERO refetch. This is what makes bug
 // #196 (a per-group aggregate silently disagreeing with the header) structurally
 // impossible here: every breakdown is a GROUP BY over one identical row set.
+//
+// ONE EXCEPTION (the over-time CHART): the chart is deliberately DECOUPLED from
+// the range selector — it ALWAYS draws the full history (scroll/zoom/fit-all in
+// PnlChart handle focusing on a sub-window). So it has its OWN one-time fetch of
+// the entire `mat_pnl_daily` set (`allRows`, fetched once on mount, never on
+// range change); the range-scoped `rows` fetch below still drives the header
+// total and the breakdown. Granularity still re-slices the chart's all-time set.
 //
 // #252 layout changes (Jaison, verbatim, on top of the chart-only ask):
 // "remove the per day and the breakdown section. per day or week or blah totals
@@ -52,8 +59,9 @@ import type { PnlDailyRow, PnlGranularity, PnlGroupBy } from '../types';
 //      Closed positions structurally cannot show any of what this table shows.
 // ─────────────────────────────────────────────────────────────────────────────
 
-type RangeMode = 'week' | 'month' | 'ytd' | 'all' | 'custom';
+type RangeMode = 'day' | 'week' | 'month' | 'ytd' | 'all' | 'custom';
 const RANGE_MODES: { k: RangeMode; label: string }[] = [
+  { k: 'day', label: 'Day' },
   { k: 'week', label: 'Week' },
   { k: 'month', label: 'Month' },
   { k: 'ytd', label: 'YTD' },
@@ -136,8 +144,25 @@ export function Performance() {
       });
   }, [sinceDay, untilDay]);
 
+  // ── The over-time CHART is decoupled from the range: it always shows the FULL
+  // history. Fetch the whole set ONCE on mount (the 'All' range already pulls this
+  // exact ~7,690-row payload with no-cache, so it's known-safe) and DON'T refetch
+  // it when the range chip changes — its own state, its own mount-only effect. ──
+  const [allRows, setAllRows] = useState<PnlDailyRow[]>([]);
+  useEffect(() => {
+    const untilDay = toDayUTC(Date.now());
+    let alive = true;
+    dataSource.fetchPnlDaily('2000-01-01', untilDay)
+      .then((r) => { if (alive) setAllRows(r); })
+      .catch((e) => { console.error('[analytics] fetchPnlDaily (all-time chart) failed', e); });
+    return () => { alive = false; };
+  }, []);
+
   const grand = useMemo(() => sumTotals(rows), [rows]);
-  const bucketsAsc = useMemo(() => bucketRows(rows, anaGran), [rows, anaGran]);
+  // Header total (grand) + breakdown (groups) stay on the range-filtered `rows`;
+  // ONLY the chart's buckets come from the all-time `allRows` set. Granularity
+  // (Day/Week/Month/Year) still re-slices these all-time buckets.
+  const bucketsAsc = useMemo(() => bucketRows(allRows, anaGran), [allRows, anaGran]);
   const groups = useMemo(() => groupRows(rows, anaGroupBy), [rows, anaGroupBy]);
 
   // Every component chip sums into the total regardless; only chips reading
@@ -261,6 +286,11 @@ export function Performance() {
         </div>
       </div>
 
+      {/* C2: clarify the residual between this table and Closed positions below. */}
+      <p style={{ fontSize: 12.5, color: t.mut2, margin: '0 0 14px' }}>
+        Realized PnL in range (includes funding + partial-close PnL on still-open positions). Closed positions below shows only fully-closed trades' lifetime totals.
+      </p>
+
       {anaGroupBy === 'none' ? (
         <p style={{ fontSize: 12.5, color: t.mut2 }}>Pick Asset, Exchange or Account above to break the totals down further.</p>
       ) : (
@@ -269,13 +299,23 @@ export function Performance() {
 
       {/* (5) Closed positions — reuses the existing closed-trades machinery +
           Overview's Positions grouping/sorting pattern (see ClosedPositions.tsx). */}
-      <ClosedPositionsSection sinceMs={bounds.sinceMs} untilMs={bounds.untilMs} />
+      {/* C1: use the SAME UTC-day-floored window as the Breakdown above. The
+          breakdown filters mat_pnl_daily by whole UTC day (day >= sinceDay),
+          while this list filters closed trades by exact ms; passing the raw
+          bounds.sinceMs/untilMs made the two disagree at the boundary. Floor to
+          the day so both describe the identical [sinceDay 00:00 .. untilDay
+          23:59:59] UTC window. */}
+      <ClosedPositionsSection
+        sinceMs={Date.parse(sinceDay + 'T00:00:00Z')}
+        untilMs={Date.parse(untilDay + 'T23:59:59Z')}
+      />
     </div>
   );
 }
 
 function rangeLabel(mode: RangeMode): string {
   switch (mode) {
+    case 'day': return '· today';
     case 'week': return '· this week';
     case 'month': return '· this month';
     case 'ytd': return '· YTD';
