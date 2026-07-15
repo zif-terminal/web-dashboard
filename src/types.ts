@@ -1,0 +1,455 @@
+// ── Domain types ────────────────────────────────────────────────────────────
+// These mirror the shape of the GraphQL documents in src/graphql/operations.ts.
+// In real mode they come from Hasura; in mock mode the engine emits the same shapes.
+
+export type Side = 'LONG' | 'SHORT';
+export type Exchange = 'Hyperliquid' | 'Lighter' | 'Drift' | 'Variational' | 'Binance';
+export type LadderKind = 'tp' | 'sl';
+export type Accuracy = 'synced' | 'gap' | 'mismatch' | 'pending' | 'nokey';
+
+// #223 SINGLE source of truth for the reconciliation badge, computed by the
+// backend (mat_accounts.reconcile_status) with ONE code-defined rule — NO
+// ad-hoc client thresholds. Priority: NOT data_complete → 'incomplete';
+// else abs(gap_amount) <= $5 TOL → 'reconciled'; else → 'gap'.
+export type ReconcileStatus = 'incomplete' | 'reconciled' | 'gap';
+
+export interface Position {
+  id: string;
+  // exchange_account_id (mat_positions column). Part of the lifecycleKey() used to
+  // attach the exchange-style mat_open_lifecycle enrichment (Stream B, zif #212).
+  // Optional so mock seeds (no lifecycle data) can omit it — the detail then just
+  // omits the exchange-style fields.
+  exchangeAccountId?: string;
+  asset: string;
+  exch: Exchange;
+  wallet: string;       // account label (exchange_accounts.label — e.g. "main", "ARB")
+  walletLabel: string;  // per-user friendly WALLET label (user_wallets.label — e.g. "Dad Trading"); '' if unset
+  side: Side;
+  units: number;
+  entry: number;
+  mark: number;       // live — updated by subscription
+  liq: number;
+  lev: number;
+  type: string;       // PERP / spot
+  unreal: number;     // live
+  realized: number;
+  staked?: boolean;   // true for staked-pool bags (mat_positions.asset ended in -POOL);
+  // rendered with a STAKED badge and grouped under the base asset (zif #189). Optional
+  // so mock seeds (which never stake) omit it; the live apolloSource always sets it.
+}
+
+// ── Open-lifecycle (Stream B, zif #212) ──────────────────────────────────────
+// One row of `mat_open_lifecycle`: the exchange-style, PER-OPEN-LIFECYCLE view of
+// a live position — the numbers "as the exchange shows them". Crucially `realized`
+// is scoped to the CURRENT open instance (if the asset went flat and reopened, it
+// is ONLY this lifecycle's realized, NOT the all-time figure that Position.realized
+// carries). Merged onto the matching Position (by exchange_account_id + market_type
+// + base asset) to enrich the expanded position detail.
+//
+// avg_entry / mark / unrealized are NULL for DB-only venues (Variational / Drift)
+// that have no live price — hence nullable — so the UI shows realized/fees/funding
+// and gracefully omits unrealized there.
+export interface Lifecycle {
+  exchangeAccountId: string;
+  market: string;         // exchange market symbol, e.g. "HYPE-PERP" / "LIT-POOL"
+  marketType: string;     // 'perp' | 'spot' — matches Position.type
+  side: Side;
+  size: number;           // lifecycle size (units)
+  startTime: number;      // epoch-ms the current lifecycle opened
+  avgEntry: number | null;// null for no-live-price venues
+  mark: number | null;    // null for no-live-price venues
+  unrealized: number | null; // null for no-live-price venues
+  fees: number;           // total fees this lifecycle
+  funding: number;        // net funding this lifecycle
+  realized: number;       // realized PnL SCOPED TO THIS LIFECYCLE (fresh, not all-time)
+}
+
+// Lifecycle rows keyed by the join key `lifecycleKey(eaid, marketType, baseAsset)`
+// so a Position can O(1) look up its exchange-style enrichment.
+export type LifecycleMap = Record<string, Lifecycle>;
+
+export interface OrderLevel {
+  id: string;
+  positionId: string;
+  kind: LadderKind;
+  price: number;
+  size: number;       // % of position
+}
+
+export interface RestingOrder {
+  id: string;
+  positionId: string;
+  kind: string;       // 'Limit' | 'Stop' | ...
+  action: string;
+  price: number;
+  size: number;
+  color: string;
+}
+
+export interface Portfolio {
+  value: number;
+  change24h: number;
+  changePct: number;
+  netLong: number;
+  gross: number;
+  risks: number;
+  unrealTotal: number;
+}
+
+export interface ActivityEvent {
+  id: string;
+  ts: number;         // cursor for streaming subscription
+  act: string;        // CLOSE / FILL / FUNDING / LIQ ...
+  text: string;
+  pnl: number;
+  // Identity + market tags (#209). All optional-ish so mock seeds can omit them;
+  // the live apolloSource fills them from the widened mat_activity_stream columns.
+  exch: string;                 // exchanges.display_name (e.g. "Hyperliquid"); '' if absent
+  wallet: string;               // account label (exchange_accounts.label); '' if absent
+  walletLabel: string;          // per-user wallet name (user_wallets.label); '' if unset
+  exchange_account_id?: string; // grouping/filter key (combine mode)
+  market?: string;              // funding/settle/fill market (e.g. "HYPE-PERP"); '' if none
+  // Per-fill primitives (#236a). Populated only on FILL rows from mat_activity_stream
+  // (trades.price/quantity/side + position_events.direction); NULL/undefined on money
+  // events. `direction` is 'exit' for reducing/closing fills, undefined for entry/opening
+  // fills (the WAC realized_pnl LEFT JOIN only matches exit fills). Used to compute the
+  // Combined-view VWAP avg entry/exit + total size.
+  price?: number;               // trade fill price
+  quantity?: number;            // trade fill size (base units)
+  side?: string;                // 'buy' | 'sell'
+  direction?: string;           // 'exit' on reducing fills; undefined on entry fills
+}
+
+// Server-side filter for the activity feed (#209). Each field, when set, pushes a
+// `where` clause into the paginated/recent queries so the filter applies across
+// the WHOLE feed (not just loaded rows). '' / undefined = no constraint for that
+// dimension. `wallet` matches the per-user user_wallets.label via the nested path.
+export interface ActivityFilter {
+  exch?: string;      // exchanges.display_name
+  wallet?: string;    // user_wallets.label (nested path)
+  account?: string;   // exchange_accounts.label (the `account` column)
+  act?: string;       // event type
+}
+
+export interface ClosedTrade {
+  id: string;
+  asset: string;
+  exch: Exchange;
+  wallet: string;       // account label (exchange_accounts.label — e.g. "main", "ARB")
+  walletLabel: string;  // per-user friendly WALLET label (user_wallets.label — e.g. "Dad Trading"); '' if unset
+  side: Side;
+  closedMs: number;     // raw epoch-ms of close (for year filtering)
+  endDays: number;
+  dur: number;
+  size: number;
+  entry: number;
+  exit: number;
+  pnl: number;
+  fees: number;
+  funding: number;
+  rewards: number;
+  interest: number;
+  hack: number;
+  total: number;
+  // #212-analytics: true when this closed position was liquidated. The ONLY exit
+  // trigger derivable from ingested data (Lighter tx_signature + Variational omni
+  // liquidation rows — see mat_closed_trades.is_liquidation). HL/Drift liq not
+  // ingested → false. SL/TP/limit/manual are NOT derivable anywhere and are never
+  // fabricated (design doc §C).
+  isLiquidation: boolean;
+}
+
+// ── Performance server-side aggregates (#184) ────────────────────────────────
+// One reconciled money bucket. Sourced from mat_closed_trades_aggregate SUMs —
+// NO new client money math (Realized net = total; the rest are the raw component
+// SUMs). `count` is the number of closed trades folded into this bucket.
+export interface ClosedAgg {
+  count: number;
+  pnl: number;
+  funding: number;
+  fees: number;
+  rewards: number;
+  interest: number;
+  hack: number;
+  total: number; // realized net (pnl + fees + funding + rewards + interest)
+}
+
+// One per-group breakdown row for the closed side (open positions are folded in
+// on the client from the live WS store). `key` is the display/group key that
+// matches the client's existing exch/asset/wallet grouping.
+export interface ClosedGroupAgg extends ClosedAgg {
+  key: string;        // display/group key (exch name | asset | wallet group key)
+  // Opaque value the caller passes back to fetchClosedPage to page THIS group's
+  // rows. For exch/asset it equals `key`; for wallet it is the account-label the
+  // live `where: { wallet: { _eq } }` predicate keys on (the mock uses the display
+  // key). Treat it as opaque — do not reconstruct it.
+  groupValue: string;
+  walletLabel: string; // per-user wallet label (wallet dim only; '' otherwise)
+  wallet: string;      // account label (wallet dim only; '' otherwise)
+}
+
+// Single-query closed-window breakdown (perf: N→1 round-trips). One fetch pulls
+// every closed trade's grouping + reconciled money columns for the window; the
+// client computes the grand total AND all three dimension breakdowns in one pass.
+// Toggling group-by (exch/asset/wallet/none) selects a precomputed map — NO refetch.
+// The per-group sums equal `agg` by construction (they reconcile exactly).
+export interface ClosedWindow {
+  agg: ClosedAgg;                     // grand total over the whole window
+  byExch: ClosedGroupAgg[];           // breakdown grouped by exchange
+  byAsset: ClosedGroupAgg[];          // breakdown grouped by asset
+  byWallet: ClosedGroupAgg[];         // breakdown grouped by wallet group key
+}
+
+// Real-now window bounds (epoch-ms) for the server-side closed_ts _gte/_lte
+// filter. Computed from Date.now() at call time — the #177 anchor fix.
+export interface WinBounds {
+  sinceMs: number;
+  untilMs: number;
+}
+
+export interface Account {
+  id: string;
+  walletId: string;
+  name: string;
+  exch: Exchange;
+  type: 'main' | 'sub';
+  value: number;
+  pnl: number;
+  accuracy: Accuracy;
+  dataComplete: boolean;
+  // Reconciliation gap magnitude (#222): the netflow residual
+  // equity − realized − unrealized + net_flow, i.e. how far the dashboard's
+  // computed value is from the exchange's reported balance. ≈0 when reconciled;
+  // sign = dashboard is that much higher (+) / lower (−) than the exchange.
+  gapAmount: number;
+  // #223 backend-computed reconciliation status — the SINGLE source of truth
+  // for the badge/color/copy and whether a gap is shown. See ReconcileStatus.
+  reconcileStatus: ReconcileStatus;
+  needsApi: boolean;
+  apiProvided: boolean;
+  apiSkipped: boolean;
+  keyMask?: string;
+  hidden: boolean;
+  tags: string[];
+  // #224 identifiers for copy-to-clipboard in expanded account detail.
+  // walletAddress: full wallet address (wallets.address).
+  // accountIdentifier: exchange-given address/id (exchange_accounts.account_identifier).
+  walletAddress: string;
+  accountIdentifier: string;
+  // #226 Check-2 net-flow terms — the reconciliation breakdown (Section A). All ride
+  // ACCOUNTS_SUB (mat_accounts). Identity: equity = netDeposits + realized + unrealized
+  // + residual, where residual == gapAmount, equity == value, realized == pnl (already
+  // on Account). netDeposits = −net_flow (money-IN display sign). Optional so mock
+  // seeds can omit them; the live apolloSource always fills them.
+  unrealized?: number;
+  netDeposits?: number;
+  // #232 net_flow (money-OUT positive: withdrawals + fees − deposits). netFlow =
+  // −netDeposits. Kept explicitly so the flow breakout can show the value that
+  // LEFT the account, not just the netted deposits figure.
+  netFlow?: number;
+}
+
+// #226 One per-(account,asset,kind) SIZE reconciliation row (Check-1, price-independent).
+// Lazy-fetched on account expand from mat_size_reconcile. derivedQty = zif's event-ledger
+// quantity (positions.quantity); venueQty = exchange-reported (live_positions.size for
+// perps, spot_balance_snapshots.balance for spot/-POOL). qtyDiff = derived − venue.
+//   venueMissing=true  → derived-only  (PHANTOM: a position the venue doesn't report)
+//   derivedMissing=true → venue-only   (UN-INGESTED: venue holds it, zif hasn't booked it)
+export interface SizeReconcileRow {
+  asset: string;
+  kind: 'perp' | 'spot';
+  derivedQty: number;
+  venueQty: number;
+  qtyDiff: number;
+  venueMark: number | null;   // spot mark (oracle_price); null for perps / unpriced venues
+  valueDiff: number | null;   // qtyDiff * venueMark; null when unpriced
+  venueAsOf: number | null;   // snapshot freshness (epoch-ms); null if venue-only-missing
+  derivedMissing: boolean;
+  venueMissing: boolean;
+}
+
+export interface Wallet {
+  id: string;
+  address: string;
+  label: string;
+  // 'detecting' = just added, gateway discovery in flight (client-side optimistic
+  // "scanning…" row, keyed by address, held until this wallet's accounts land in
+  // ACCOUNTS_SUB); 'noaccts' = discovery timed out with zero accounts (graceful,
+  // non-error end state); 'ready' = real, persisted accounts from ACCOUNTS_SUB.
+  status: 'detecting' | 'noaccts' | 'ready';
+  accounts: Account[];
+  // True for a client-side optimistic wallet (not yet in ACCOUNTS_SUB). The store's
+  // wallet merge drops the pending twin the moment a real wallet with the same
+  // address arrives, so this is only ever set on the scanning/no-accounts twin.
+  pending?: boolean;
+}
+
+// ── Per-position breakdown (#223 Analytics rebuild) ──────────────────────────
+// One row of `mat_position_breakdown`: a per-position PnL rollup (source:
+// position_pnl buckets, SAME sign convention as mat_closed_trades). Covers
+// fully-closed positions AND still-OPEN positions with realized PnL from partial
+// closes (isPartial). All ts are epoch-ms. The 7 money fields are already-
+// reconciled buckets — NO new client money math (net = the DB's net_pnl). The
+// Analytics header SUMs these same rows, so header totals == list Σ to the cent.
+export interface PositionBreakdown {
+  id: string;
+  asset: string;
+  exch: string;         // exchanges.display_name
+  wallet: string;       // account label (exchange_accounts.label)
+  walletLabel: string;  // per-user wallet label (user_wallets.label); '' if unset
+  isPartial: boolean;   // true = OPEN position with realized (partial close); false = COMPLETE
+  earliestEventMs: number; // min contributing-event ts (epoch-ms)
+  lastEventMs: number;     // close / max-event ts (epoch-ms) — the sort key (DESC)
+  netPnl: number;
+  tradePnl: number;
+  funding: number;
+  fees: number;
+  interest: number;
+  rewards: number;
+  hacks: number;
+}
+
+// Grand-total aggregate of mat_position_breakdown over a window (drives the
+// Analytics header cards). The SUMs are the already-reconciled per-position
+// buckets — net == Σ netPnl. `count` = positions folded in.
+export interface BreakdownTotals {
+  count: number;
+  netPnl: number;
+  tradePnl: number;
+  funding: number;
+  fees: number;
+  interest: number;
+  rewards: number;
+  hacks: number;
+}
+
+// ── Analytics header totals (#228) ────────────────────────────────────────────
+// The 7-card header sums the FULL LEDGER (mat_ledger) over the selected range —
+// the TRUE period P&L per category — NOT the per-position breakdown. This picks up
+// ledger-only events the per-position rollup misses: the −$342,670 Drift hack
+// (transfers.type='hack' → category 'hack'), plus standalone funding/interest/
+// rewards not tied to a position. category → card: realized_trade→Trade PnL,
+// funding→Funding, fee→Fees, reward→Rewards, interest→Interest, hack→Hacks.
+// Net PnL = Σ of the INCOME categories only (realized_trade+funding+fee+reward+
+// interest); `transfer` (non_taxable) and `hack` (casualty_loss) are EXCLUDED from
+// Net per tax_category (matches the Income-page taxonomy). RLS-scoped by the view.
+export interface LedgerTotals {
+  netPnl: number;   // Σ income cats only (excludes transfer + hack)
+  tradePnl: number; // realized_trade
+  funding: number;
+  fees: number;     // fee (signed — expenses are negative)
+  rewards: number;
+  interest: number;
+  hacks: number;    // hack (casualty_loss) — shown as its own card, NOT in netPnl
+}
+
+// One contributing event of a position, for the expand-row detail (#223 D).
+// Sourced from mat_activity_stream filtered to the position's exchange_account +
+// market, ts DESC. type · date · amount, in the app's activity row style.
+export interface PositionEvent {
+  id: string;
+  ts: number;      // epoch-ms
+  type: string;    // act badge (FILL / FUNDING / FEE / SETTLE / …)
+  text: string;
+  amount: number;  // signed USD (pnl column)
+  market: string;
+}
+
+// ── Income over time (EPIC #212, Stream C) ────────────────────────────────────
+// One row of `mat_income_periods`: the server-side pre-bucketed rollup of one
+// category's signed USD amount for one (period_type, period_start) bucket, scoped
+// to one exchange_account. The view is RLS-scoped; the FE groups rows by
+// period_start then category (NO client re-bucketing — the server pre-bucketed).
+//
+// category taxonomy (matches mat_ledger):
+//   realized_trade | funding | fee | reward | interest | hack | transfer
+// tax_category:
+//   capital | ordinary_income | expense | casualty_loss | non_taxable
+// Income surfaces MUST exclude the non-income categories (transfer/hack) from the
+// "income" total — follow tax_category (non_taxable / casualty_loss are not income).
+export type IncomeCategory =
+  | 'realized_trade' | 'funding' | 'fee' | 'reward' | 'interest' | 'hack' | 'transfer';
+export type IncomeGrain = 'day' | 'week' | 'month' | 'year';
+
+export interface IncomePeriodRow {
+  exchangeAccountId: string;
+  exch: string;            // venue (exchanges.name)
+  periodType: IncomeGrain; // 'day' | 'week' | 'month' | 'year'
+  periodStart: number;     // epoch-ms UTC bucket start (server-computed)
+  category: IncomeCategory;
+  taxCategory: string;     // capital | ordinary_income | expense | casualty_loss | non_taxable
+  amount: number;          // signed USD, SUM over the bucket
+  eventCount: number;
+}
+
+// Server-side filter for the income query (#211 parity with Activity). Each set
+// field pushes a `where` clause so the filter applies across the whole rollup
+// (RLS-scoped). '' / undefined = no constraint. `wallet` matches the per-user
+// user_wallets.label via the nested exchange_account chain; `account` matches the
+// exchange_accounts.label (the account name in the store's account list).
+export interface IncomeFilter {
+  exch?: string;     // exchanges.name / display
+  wallet?: string;   // user_wallets.label (nested path)
+  account?: string;  // exchange_accounts.label (nested path)
+}
+
+// ── Drift hack-day reconciliation snapshot (#237, reworked) ──────────────────
+// Drift accounts (exch === 'Drift') can't be auto-reconciled across the April-2026
+// Drift hack, so the user submits a one-time hack-day holdings snapshot. Each
+// holding is a USD VALUE read off Drift's UI (may be NEGATIVE for a borrow/short
+// leg). `usdValue` is a numeric-as-string to preserve precision on the wire — it
+// maps to a `spot_balance_snapshots` row's `usd_value` column (one row per asset,
+// all pinned to the canonical hack-day timestamp; NOT a dedicated table).
+export interface DriftHolding {
+  asset: string;
+  usdValue: string; // numeric-as-string; may be negative
+}
+
+// One submitted snapshot, keyed by the exchange_account it reconciles (unique — one
+// snapshot per account). `isEmpty` is the "0 / empty account" one-click. A Drift
+// account is in the "needs snapshot" state iff it has NO snapshot row.
+export interface DriftSnapshot {
+  exchangeAccountId: string;
+  isEmpty: boolean;
+  holdings: DriftHolding[];
+  submittedAt?: string | null;
+}
+
+// ── Daily PnL rollup (#250 Analytics rebuild) ─────────────────────────────────
+// One row of `mat_pnl_daily`: the finest-useful-grain server-side rollup —
+// (exchange_account_id, asset, market_type, day). ONE fetch per selected range;
+// the FE derives EVERY slice (day/week/month/year × none/asset/exchange/account)
+// from these SAME rows in memory (lib/pnlDaily.ts) — never a per-group query
+// (that class of bug, #196, is what this structurally prevents).
+export interface PnlDailyRow {
+  id: string;
+  exchangeAccountId: string;
+  exch: string;          // venue display name (Hyperliquid / Lighter / Drift / Variational)
+  accountLabel: string;  // exchange_accounts.label / account identifier, for display
+  asset: string;          // base asset, e.g. BTC
+  marketType: string;     // spot / perp / pool
+  day: string;            // UTC day of the EVENT, 'YYYY-MM-DD'
+  tradePnl: number;
+  fundingPnl: number;
+  feePnl: number;
+  interestPnl: number;
+  rewardPnl: number;
+  hackPnl: number;
+  totalPnl: number; // same sign convention as position_pnl — server-computed, no client re-derivation
+}
+
+export type PnlComponent =
+  | 'tradePnl' | 'fundingPnl' | 'feePnl' | 'interestPnl' | 'rewardPnl' | 'hackPnl';
+export type PnlGranularity = 'day' | 'week' | 'month' | 'year';
+export type PnlGroupBy = 'none' | 'asset' | 'exch' | 'account';
+
+// Short windows + calendar year strings ('2023', '2024', …). Year values are
+// validated at store-init by checking they're 4-digit numeric strings.
+export type Timeframe = 'hour' | 'day' | 'week' | 'month' | 'ytd' | 'all' | (string & {});
+export type PerfDim = 'exch' | 'asset' | 'wallet' | 'none';
+export type PerfStatus = 'all' | 'open' | 'closed';
+// #208: 'positions' removed as a top-level tab — the Positions view is now a
+// section rendered inline at the bottom of Overview.
+// #212-analytics: 'income' REMOVED — the Income period rollup was folded into the
+// renamed Analytics page (key stays 'performance'; label relabelled to "Analytics").
+export type Tab = 'overview' | 'performance' | 'activity' | 'plan' | 'accounts';
