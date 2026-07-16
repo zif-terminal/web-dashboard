@@ -4,7 +4,7 @@ import { Card, Mono, Segment } from '../ui/primitives';
 import { t, exchMeta } from '../ui/theme';
 import { k, kc, col, px, usd, shortAddr } from '../lib/format';
 import { exchChipStyle, WALLET_CHIP, ACCOUNT_CHIP, ColorChip, walletLabelOf, accountLabelOf } from '../lib/tags';
-import { distToLiq } from '../lib/pnl';
+import { distToLiq, hasDisplayableLiq } from '../lib/pnl';
 import { lifecycleKey } from '../data/DataSource';
 import { ExitPlanner } from './ExitPlanner';
 import { useIsMobile } from '../lib/useIsMobile';
@@ -406,6 +406,9 @@ function PositionRow({ p, groupNegPL }: { p: Position; groupNegPL: number }) {
   const isMobile = useIsMobile();
   const dist = distToLiq(p);
   const perp = isPerp(p);
+  // Display-only: an unreachably-far cross-margin liq is shown as "—" (matching
+  // the exchange's own FE). The raw p.liq is untouched; risk gating is unaffected.
+  const showLiq = hasDisplayableLiq(p);
 
   // "Has a protective stop" = at least one resting order with action 'Stop loss'
   // (the reduce-only stop for this position).
@@ -493,7 +496,7 @@ function PositionRow({ p, groupNegPL }: { p: Position; groupNegPL: number }) {
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(auto-fit,minmax(110px,1fr))', gap: 12, marginBottom: orders.length ? 12 : 16 }}>
             <Meta label="Entry" v={px(p.entry)} />
             <Meta label="Now" v={px(p.mark)} />
-            <Meta label="Liquidation" v={perp && p.liq ? px(p.liq) : '—'} color={perp && p.liq ? t.amber : undefined} />
+            <Meta label="Liquidation" v={showLiq ? px(p.liq) : '—'} color={showLiq ? t.amber : undefined} />
             <Meta label="Leverage" v={perp && p.lev > 0 ? `${p.lev}×` : '—'} />
             <Meta label="Unrealized" v={k(p.unreal)} color={col(p.unreal)} />
             <Meta label="Realized" v={k(p.realized)} color={col(p.realized)} />

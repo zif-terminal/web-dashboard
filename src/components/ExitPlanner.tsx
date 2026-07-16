@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store/store';
 import { useMutations } from '../store/useMutations';
 import { priceBounds } from '../lib/series';
-import { pnlAt, ladderSummary } from '../lib/pnl';
+import { pnlAt, ladderSummary, hasDisplayableLiq } from '../lib/pnl';
 import { px, kc, k, col, pricePrecision } from '../lib/format';
 import { t } from '../ui/theme';
 import { useIsMobile } from '../lib/useIsMobile';
@@ -332,7 +332,10 @@ function drawOverlay(
     ctx.textAlign = 'left'; ctx.font = `600 9px ${t.mono}`; ctx.fillStyle = color; ctx.fillText(label, lx, yy);
   };
   tagLine(p.entry, '#8b95a0', 'ENTRY ' + fmtPrice(p.entry), [4, 3]);
-  if (p.liq > 0) tagLine(p.liq, t.amber, 'LIQ ' + fmtPrice(p.liq), [5, 3]);
+  // Display-only far-liq guard: skip an unreachably-far cross-margin liq so we
+  // don't draw a LIQ line hundreds of × off the chart (matches the "—" shown in
+  // the Positions liq field). Raw p.liq is untouched.
+  if (hasDisplayableLiq(p)) tagLine(p.liq, t.amber, 'LIQ ' + fmtPrice(p.liq), [5, 3]);
 
   // ── draggable exit levels ──
   const drawLevel = (l: OrderLevel, i: number, color: string) => {
