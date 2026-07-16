@@ -5,7 +5,7 @@ import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account,
   ClosedAgg, ClosedGroupAgg, PerfDim,
   IncomePeriodRow, IncomeFilter, IncomeGrain, IncomeCategory, LedgerTotals,
-  DriftSnapshot, PnlDailyRow,
+  DriftSnapshot, PnlDailyRow, EventStreamRow, EventFilter, PnlComponent,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 import { pnlAt } from '../lib/pnl';
@@ -460,36 +460,45 @@ export class MockEngine {
         return acc;
       },
 
-      // ── Range breakdown (2026-07-11 range-scope fix) mock parity ──────────────
-      // Positions with a P/L event in the window — the SAME shape the live
-      // mat_position_range_breakdown function returns. Mock seeds are all COMPLETE
-      // (no partial-close seed data). Totals aggregate + paginated page, so the list
-      // Total (from the aggregate) == the pages' Σ.
-      fetchRangeBreakdownTotals: async (sinceMs, untilMs) => {
-        const inWin = seedClosedTrades.filter((t) => t.closedMs >= sinceMs && t.closedMs <= untilMs);
-        const acc = { count: 0, netPnl: 0, tradePnl: 0, funding: 0, fees: 0, interest: 0, rewards: 0, hacks: 0 };
-        for (const t of inWin) {
-          acc.count += 1;
-          acc.netPnl += t.total; acc.tradePnl += t.pnl; acc.funding += t.funding;
-          acc.fees += t.fees; acc.interest += t.interest; acc.rewards += t.rewards; acc.hacks += t.hack;
-        }
-        return acc;
-      },
-
-      fetchRangeBreakdown: async (sinceMs, untilMs, opts) => {
-        const { limit, offset } = opts;
-        return seedClosedTrades
-          .filter((t) => t.closedMs >= sinceMs && t.closedMs <= untilMs)
-          .slice()
-          .sort((a, b) => (b.closedMs - a.closedMs) || a.id.localeCompare(b.id))
-          .slice(offset, offset + limit)
-          .map((t) => ({
-            id: t.id, asset: t.asset, exch: t.exch, wallet: t.wallet, walletLabel: t.walletLabel,
-            isPartial: false,
-            earliestEventMs: t.closedMs - t.dur * 86_400_000,
-            lastEventMs: t.closedMs,
-            netPnl: t.total, tradePnl: t.pnl, funding: t.funding, fees: t.fees,
-            interest: t.interest, rewards: t.rewards, hacks: t.hack,
+      // ── Event-stream drill-down (#256) mock parity ────────────────────────────
+      // Synthesize ONE event per in-range daily-rollup row (carrying all 6 buckets),
+      // then narrow to the clicked scope. net(events) == Σ totalPnl over the scope, so
+      // the drill visibly sums to the breakdown row exactly as the live view does.
+      // (mock feePnl is the SIGNED contribution (negative); EventStreamRow.feePnl is the
+      // POSITIVE-COST magnitude, so we store −feePnl — mirrors the live column.)
+      fetchEventStream: async (sinceDay: string, untilDay: string, filter: EventFilter, limit: number): Promise<EventStreamRow[]> => {
+        const bucketField: Record<PnlComponent, keyof PnlDailyRow> = {
+          tradePnl: 'tradePnl', fundingPnl: 'fundingPnl', feePnl: 'feePnl',
+          interestPnl: 'interestPnl', rewardPnl: 'rewardPnl', hackPnl: 'hackPnl',
+        };
+        return this.pnlDailyHistory()
+          .filter((r) => r.day >= sinceDay && r.day <= untilDay)
+          .filter((r) => (filter.asset === undefined || r.asset === filter.asset)
+            && (filter.exch === undefined || r.exch === filter.exch)
+            && (filter.accountId === undefined || r.exchangeAccountId === filter.accountId)
+            && (filter.bucket === undefined || r[bucketField[filter.bucket]] !== 0))
+          .sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : 0))
+          .slice(0, limit)
+          .map((r) => ({
+            id: `evt-${r.id}`,
+            eventId: `evt-${r.id}`,
+            day: r.day,
+            createdMs: Date.parse(r.day + 'T00:00:00Z'),
+            eventType: r.tradePnl !== 0 ? 'trade' : r.fundingPnl !== 0 ? 'funding' : r.hackPnl !== 0 ? 'hack' : 'accrual',
+            direction: r.tradePnl >= 0 ? 'buy' : 'sell',
+            quantity: 0,
+            asset: r.asset,
+            marketType: r.marketType,
+            exch: r.exch,
+            accountLabel: r.accountLabel,
+            exchangeAccountId: r.exchangeAccountId,
+            status: 'closed',
+            tradePnl: r.tradePnl,
+            fundingPnl: r.fundingPnl,
+            feePnl: -r.feePnl, // signed contribution → positive-cost magnitude
+            interestPnl: r.interestPnl,
+            rewardPnl: r.rewardPnl,
+            hackPnl: r.hackPnl,
           }));
       },
 

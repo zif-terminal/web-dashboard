@@ -9,7 +9,7 @@ import {
   CLOSED_DISTINCT_EXCH_QUERY, CLOSED_DISTINCT_ASSET_QUERY, CLOSED_DISTINCT_WALLET_QUERY,
   CLOSED_GROUP_AGG_EXCH_QUERY, CLOSED_GROUP_AGG_ASSET_QUERY, CLOSED_GROUP_AGG_WALLET_QUERY,
   INCOME_PERIODS_QUERY,
-  LEDGER_TOTALS_QUERY, RANGE_BREAKDOWN_QUERY, RANGE_BREAKDOWN_TOTALS_QUERY, POSITION_EVENTS_QUERY,
+  LEDGER_TOTALS_QUERY, EVENT_STREAM_QUERY, POSITION_EVENTS_QUERY,
   UPSERT_ORDER_LEVEL, ADD_ORDER_LEVEL, REMOVE_ORDER_LEVEL, SET_WALLET_LABEL,
   UPDATE_ACCOUNT_LABEL, UPDATE_ACCOUNT_TAGS,
   INSERT_OMNI_RAW_EVENTS,
@@ -17,12 +17,13 @@ import {
   DRIFT_SNAPSHOTS_QUERY, UPSERT_DRIFT_SNAPSHOT, DRIFT_HACKDAY_TS,
   PNL_DAILY_QUERY,
 } from '../graphql/operations';
+import { EVENT_BUCKET_COLUMN } from '../lib/pnlDaily';
 import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account, Exchange, Accuracy, ReconcileStatus, Side,
   ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim, Lifecycle, LifecycleMap,
   IncomePeriodRow, IncomeFilter, IncomeGrain, IncomeCategory,
-  PositionBreakdown, BreakdownTotals, LedgerTotals, PositionEvent, SizeReconcileRow,
-  DriftSnapshot, DriftHolding, PnlDailyRow,
+  LedgerTotals, PositionEvent, SizeReconcileRow,
+  DriftSnapshot, DriftHolding, PnlDailyRow, EventStreamRow, EventFilter,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 import { shortAddr } from '../lib/format';
@@ -313,45 +314,31 @@ const mapClosedTrade = (r: any): ClosedTrade => {
   };
 };
 
-// ── per-position breakdown (#223 Analytics rebuild) ──────────────────────────
-// mat_position_breakdown row → domain PositionBreakdown. Columns are already 1:1
-// with the type; we only coerce numerics + resolve the per-user wallet label off
-// the exchange_account→wallet→user_wallets chain (RLS-scoped, ≤1 row). The 7 money
-// fields are the DB's already-reconciled buckets — NO client money math.
-const mapBreakdown = (r: any): PositionBreakdown => ({
+// ── event-stream drill-down (#256 Stage B) ───────────────────────────────────
+// agg_event_stream row → domain EventStreamRow (#256 drill-down). The 6 buckets are
+// the DB's already-reconciled per-event decomposition — NO client money math; the
+// signed net (with fee subtracted) is derived where rendered (lib/pnlDaily.eventNet).
+const mapEventStreamRow = (r: any): EventStreamRow => ({
   id: r.id,
+  eventId: r.event_id,
+  day: r.day,
+  createdMs: r.created_at ? Date.parse(r.created_at) : 0,
+  eventType: (r.event_type as string | undefined)?.trim() ?? '',
+  direction: (r.direction as string | undefined)?.trim() ?? '',
+  quantity: num(r.quantity),
   asset: r.asset ?? '',
+  marketType: (r.market_type as string | undefined) ?? '',
   exch: (r.exch as string | undefined)?.trim() ?? '',
-  wallet: (r.account as string | undefined)?.trim() ?? '',
-  walletLabel: (r.exchange_account?.wallet?.user_wallets?.[0]?.label as string | undefined)?.trim() ?? '',
-  isPartial: !!r.is_partial,
-  earliestEventMs: num(r.earliest_event_ts),
-  lastEventMs: num(r.last_event_ts),
-  netPnl: num(r.net_pnl),
+  accountLabel: (r.account_label as string | undefined)?.trim() ?? '',
+  exchangeAccountId: r.exchange_account_id,
+  status: (r.status as string | undefined)?.trim() ?? '',
   tradePnl: num(r.trade_pnl),
-  funding: num(r.funding),
-  fees: num(r.fees),
-  interest: num(r.interest),
-  rewards: num(r.rewards),
-  hacks: num(r.hacks),
+  fundingPnl: num(r.funding_pnl),
+  feePnl: num(r.fee_pnl), // POSITIVE-COST magnitude — negated only when netted (eventNet)
+  interestPnl: num(r.interest_pnl),
+  rewardPnl: num(r.reward_pnl),
+  hackPnl: num(r.hack_pnl),
 });
-
-// mat_position_range_breakdown_aggregate { aggregate { count sum {...} } } → BreakdownTotals.
-// The Σ over the whole in-range set — NOT client money math, the DB aggregates the same
-// range-scoped per-position buckets the pages walk.
-const mapBreakdownTotals = (agg: any): BreakdownTotals => {
-  const s = agg?.sum ?? {};
-  return {
-    count: num(agg?.count),
-    netPnl: num(s.net_pnl),
-    tradePnl: num(s.trade_pnl),
-    funding: num(s.funding),
-    fees: num(s.fees),
-    interest: num(s.interest),
-    rewards: num(s.rewards),
-    hacks: num(s.hacks),
-  };
-};
 
 // LEDGER_TOTALS_QUERY result → LedgerTotals (#228). Each aliased aggregate is that
 // category's SUM(amount) over the window (already signed USD). Net = Σ INCOME cats
@@ -850,30 +837,24 @@ export function makeApolloDataSource(client: ApolloClient<any>): DataSource {
       return mapLedgerTotals(data);
     },
 
-    // Grand-total aggregate over the whole in-range set (count + Σ) — drives the list
-    // Total row + subtitle. 'network-only' — always fresh. Reconciles to the header's
-    // category cards minus ledger-only events tied to no position.
-    fetchRangeBreakdownTotals: async (sinceMs, untilMs): Promise<BreakdownTotals> => {
+    // ── Event-stream drill-down (#256 Stage B) ────────────────────────────────
+    // The events that sum to a clicked breakdown row. Builds the agg_event_stream
+    // `where` from the day bounds + the clicked scope (bucket / asset / exch /
+    // account). 'no-cache' — drill scopes vary, the payload is transient (copied
+    // straight into component state) and never read back from the cache, so skip
+    // normalization (same reasoning as fetchPnlDaily).
+    fetchEventStream: async (sinceDay, untilDay, filter, limit): Promise<EventStreamRow[]> => {
+      const and: any[] = [{ day: { _gte: sinceDay, _lte: untilDay } }];
+      if (filter.bucket) and.push({ [EVENT_BUCKET_COLUMN[filter.bucket]]: { _neq: 0 } });
+      if (filter.asset !== undefined) and.push({ asset: { _eq: filter.asset } });
+      if (filter.exch !== undefined) and.push({ exch: { _eq: filter.exch } });
+      if (filter.accountId !== undefined) and.push({ exchange_account_id: { _eq: filter.accountId } });
       const { data } = await client.query({
-        query: RANGE_BREAKDOWN_TOTALS_QUERY,
-        variables: { since: Math.floor(sinceMs), until: Math.floor(untilMs) },
-        fetchPolicy: 'network-only',
-      });
-      return mapBreakdownTotals(data?.mat_position_range_breakdown_aggregate?.aggregate);
-    },
-
-    // One PAGE of the range-scoped breakdown list (last in-range event DESC, id tiebreak).
-    // Each row carries its IN-RANGE per-category contribution. The caller bumps offset for
-    // the 50%-scroll prefetch. 'no-cache' so re-selecting a window always reflects the
-    // latest data and never collides in the normalized cache.
-    fetchRangeBreakdown: async (sinceMs, untilMs, opts): Promise<PositionBreakdown[]> => {
-      const { limit, offset } = opts;
-      const { data } = await client.query({
-        query: RANGE_BREAKDOWN_QUERY,
-        variables: { since: Math.floor(sinceMs), until: Math.floor(untilMs), limit, offset },
+        query: EVENT_STREAM_QUERY,
+        variables: { where: { _and: and }, limit },
         fetchPolicy: 'no-cache',
       });
-      return ((data?.position_breakdown as any[]) ?? []).map(mapBreakdown);
+      return ((data?.agg_event_stream as any[]) ?? []).map(mapEventStreamRow);
     },
 
     // ALL contributing events for one position (ts DESC) — the expand-row detail.
