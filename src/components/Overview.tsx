@@ -5,6 +5,8 @@ import { Card, Mono, StatCard } from '../ui/primitives';
 import { t } from '../ui/theme';
 import { k, kc, usd, col } from '../lib/format';
 import { useIsMobile } from '../lib/useIsMobile';
+import { realizedNet } from '../lib/income';
+import type { IncomeCategory } from '../types';
 import { PositionsSection } from './Positions';
 
 // #212-analytics: compact "since you last checked" pulse. Funding + net income
@@ -30,14 +32,14 @@ function usePulse(prevLastCheckedMs: number) {
     ])
       .then(([rows, win]) => {
         if (cancelled) return;
-        let fund = 0, net = 0;
-        const INCOME = new Set(['realized_trade', 'funding', 'fee', 'reward', 'interest']);
-        for (const r of rows) {
-          if (r.category === 'funding') fund += r.amount;
-          if (INCOME.has(r.category)) net += r.amount;
-        }
-        setFunding(fund);
-        setNetIncome(net);
+        // #201: fold the raw ledger rows into per-category sums, then derive the
+        // realized net from the SAME realizedNet helper the live/mock LedgerTotals
+        // mappers use (income cats only; transfer + hack excluded) — no local copy
+        // of the income-category set / net formula.
+        const byCat: Partial<Record<IncomeCategory, number>> = {};
+        for (const r of rows) byCat[r.category] = (byCat[r.category] ?? 0) + r.amount;
+        setFunding(byCat.funding ?? 0);
+        setNetIncome(realizedNet(byCat));
         setExits(win.agg.count);
         setReady(true);
       })

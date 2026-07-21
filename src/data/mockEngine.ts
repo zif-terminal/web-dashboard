@@ -9,6 +9,7 @@ import type {
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 import { pnlAt } from '../lib/pnl';
+import { realizedNet } from '../lib/income';
 import {
   seedPositions, seedLevels, seedOrders, seedWallets, seedClosedTrades, seedActivity,
 } from './mockSeed';
@@ -445,11 +446,11 @@ export class MockEngine {
           if (r.periodType !== 'day') continue;
           if (r.periodStart < sinceMs || r.periodStart > untilMs) continue;
           switch (r.category) {
-            case 'realized_trade': acc.tradePnl += r.amount; acc.netPnl += r.amount; break;
-            case 'funding': acc.funding += r.amount; acc.netPnl += r.amount; break;
-            case 'fee': acc.fees += r.amount; acc.netPnl += r.amount; break;
-            case 'reward': acc.rewards += r.amount; acc.netPnl += r.amount; break;
-            case 'interest': acc.interest += r.amount; acc.netPnl += r.amount; break;
+            case 'realized_trade': acc.tradePnl += r.amount; break;
+            case 'funding': acc.funding += r.amount; break;
+            case 'fee': acc.fees += r.amount; break;
+            case 'reward': acc.rewards += r.amount; break;
+            case 'interest': acc.interest += r.amount; break;
             case 'hack': acc.hacks += r.amount; break; // NOT in netPnl
             // transfer: excluded from both
           }
@@ -457,6 +458,9 @@ export class MockEngine {
         // Seed a demo hack (April 1 of the current year) so the card renders nonzero.
         const hackTs = Date.UTC(new Date().getUTCFullYear(), 3, 1);
         if (hackTs >= sinceMs && hackTs <= untilMs) acc.hacks += -342670.32;
+        // #201: derive netPnl from the SAME realizedNet helper the live path uses
+        // (income cats only; hack excluded) so mock + live can't drift.
+        acc.netPnl = realizedNet({ realized_trade: acc.tradePnl, funding: acc.funding, fee: acc.fees, reward: acc.rewards, interest: acc.interest });
         return acc;
       },
 

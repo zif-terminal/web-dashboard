@@ -17,6 +17,26 @@ export const INCOME_CATS: { c: IncomeCategory; label: string; short: string }[] 
 ];
 export const INCOME_CAT_SET = new Set<IncomeCategory>(INCOME_CATS.map((x) => x.c));
 
+// ─────────────────────────────────────────────────────────────────────────────
+// realizedNet — THE single definition of "realized PnL net" (#201).
+//
+// Realized net = the signed sum of the five INCOME categories only
+// (realized_trade + funding + fee + reward + interest). `transfer` and `hack`
+// are NOT income (per tax_category) and never contribute — a hack surfaces on
+// its own card, a transfer is a plain flow. Every field is already SIGNED (fees
+// arrive as a negative amount), so this is a plain sum, never a negation.
+//
+// This replaces three hand-inlined copies of the same formula (the live
+// LedgerTotals mapper, the mock LedgerTotals reducer, and the Overview
+// net-income fold) so they can never drift apart. Callers pass whatever subset
+// of the five components they hold, keyed by IncomeCategory; missing keys are 0.
+// ─────────────────────────────────────────────────────────────────────────────
+export function realizedNet(byCat: Partial<Record<IncomeCategory, number>>): number {
+  let net = 0;
+  for (const { c } of INCOME_CATS) net += byCat[c] ?? 0;
+  return net;
+}
+
 export const GRAINS: { k: IncomeGrain; label: string }[] = [
   { k: 'day', label: 'Day' },
   { k: 'week', label: 'Week' },
