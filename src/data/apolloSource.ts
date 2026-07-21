@@ -18,6 +18,7 @@ import {
   PNL_DAILY_QUERY,
 } from '../graphql/operations';
 import { EVENT_BUCKET_COLUMN } from '../lib/pnlDaily';
+import { realizedNet } from '../lib/income';
 import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account, Exchange, Accuracy, ReconcileStatus, Side,
   ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim, Lifecycle, LifecycleMap,
@@ -354,7 +355,9 @@ const mapLedgerTotals = (d: any): LedgerTotals => {
   const hacks = catSum(d, 'hack');
   return {
     tradePnl, funding, fees, rewards, interest, hacks,
-    netPnl: tradePnl + funding + fees + rewards + interest,
+    // #201: single source of truth for "realized net" (income cats only; hack +
+    // transfer excluded). See lib/income.realizedNet.
+    netPnl: realizedNet({ realized_trade: tradePnl, funding, fee: fees, reward: rewards, interest }),
   };
 };
 
