@@ -46,6 +46,12 @@ export function useLiveTradeToasts(): [TradeToast[], (id: string) => void] {
 
   useEffect(() => {
     const cursor = mountTs.current;
+    // Auto-dismiss timers are scheduled inside the subscription callback below.
+    // Track their handles so the effect cleanup can clear any still-pending ones
+    // on unmount — otherwise a toast that arrived just before unmount leaks a
+    // setTimeout that fires setToasts on a torn-down component (#194 follow-up:
+    // cleanup lifted into the effect body).
+    const timers = new Set<ReturnType<typeof setTimeout>>();
 
     const unsub = dataSource.subscribeActivity(cursor, (rows: ActivityEvent[]) => {
       const fresh: TradeToast[] = [];
@@ -70,14 +76,22 @@ export function useLiveTradeToasts(): [TradeToast[], (id: string) => void] {
         return next;
       });
 
-      // Schedule auto-dismiss for each new toast.
+      // Schedule auto-dismiss for each new toast, tracking each handle so a
+      // pending timer can be cleared on unmount (and self-evicting from the set
+      // once it fires so the set doesn't grow unbounded over a long session).
       for (const t of fresh) {
-        setTimeout(() => dismiss(t.id), DISMISS_MS);
+        const handle = setTimeout(() => {
+          timers.delete(handle);
+          dismiss(t.id);
+        }, DISMISS_MS);
+        timers.add(handle);
       }
     });
 
     return () => {
       unsub();
+      for (const handle of timers) clearTimeout(handle);
+      timers.clear();
     };
   }, [dismiss]);
 
