@@ -2,7 +2,14 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { installChunkReloadHandler } from './lib/chunkReload';
 import { t } from './ui/theme';
+
+// #199: recover a tab left open across a deploy — a stale/404'd chunk fetch
+// (failed dynamic import or re-requested hashed asset) auto-reloads to the
+// current bundle instead of silently hanging. Installed before render so the
+// listener is live for the very first chunk request.
+installChunkReloadHandler();
 
 // Global resets (the only non-inline CSS we need).
 const css = `
