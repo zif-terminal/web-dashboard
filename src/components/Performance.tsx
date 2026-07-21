@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store/store';
+import { useAuth } from '../data/authStore';
 import { dataSource } from '../store/useLiveData';
 import { Card, Mono, Chip, Segment } from '../ui/primitives';
 import { t, exchMeta } from '../ui/theme';
@@ -137,7 +138,16 @@ export function Performance() {
   const [rows, setRows] = useState<PnlDailyRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [errored, setErrored] = useState(false);
+  const [chartErrored, setChartErrored] = useState(false);
   const reqRef = useRef(0);
+  // #200: the session token is a fetch dependency. A fetch that fails on an
+  // expired token used to leave the page blank until the user manually
+  // re-logged-in; now a token refresh (re-login mints a NEW token) re-runs BOTH
+  // fetches automatically. `retryNonce` is the manual-retry counterpart (the
+  // banner's Retry button) so recovery never requires a full page reload.
+  const token = useAuth((s) => s.token);
+  const [retryNonce, setRetryNonce] = useState(0);
+  const retry = () => setRetryNonce((n) => n + 1);
   useEffect(() => {
     const my = ++reqRef.current;
     setLoading(true);
@@ -148,7 +158,7 @@ export function Performance() {
         console.error('[analytics] fetchPnlDaily failed', e);
         if (my === reqRef.current) { setRows([]); setErrored(true); setLoading(false); }
       });
-  }, [sinceDay, untilDay]);
+  }, [sinceDay, untilDay, token, retryNonce]);
 
   // ── The over-time CHART is decoupled from the range: it always shows the FULL
   // history. Fetch the whole set ONCE on mount (the 'All' range already pulls this
@@ -158,11 +168,18 @@ export function Performance() {
   useEffect(() => {
     const untilDay = toDayUTC(Date.now());
     let alive = true;
+    setChartErrored(false);
     dataSource.fetchPnlDaily('2000-01-01', untilDay)
       .then((r) => { if (alive) setAllRows(r); })
-      .catch((e) => { console.error('[analytics] fetchPnlDaily (all-time chart) failed', e); });
+      .catch((e) => {
+        console.error('[analytics] fetchPnlDaily (all-time chart) failed', e);
+        // #200: previously this mount-only fetch swallowed the error and the
+        // chart stayed empty forever (until a full relogin). Surface it and let
+        // the token-refresh / Retry re-run below recover it.
+        if (alive) setChartErrored(true);
+      });
     return () => { alive = false; };
-  }, []);
+  }, [token, retryNonce]);
 
   const grand = useMemo(() => sumTotals(rows), [rows]);
   // Header total (grand) + breakdown (groups) stay on the range-filtered `rows`;
@@ -210,10 +227,19 @@ export function Performance() {
         )}
       </div>
 
-      {errored && (
+      {(errored || chartErrored) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(248,113,113,.08)', border: '1px solid #5a2a2c', borderRadius: 11, padding: '10px 15px', marginBottom: 18 }}>
           <span style={{ color: '#f87171', fontSize: 14 }}>⚠</span>
-          <span style={{ fontSize: 13, color: '#f5c5c5' }}>Couldn't load Analytics data. It may not be available yet — try reloading in a bit.</span>
+          <span style={{ fontSize: 13, color: '#f5c5c5', flex: 1 }}>
+            Couldn't load Analytics data — your session may have expired, or it isn't available yet.
+          </span>
+          <button
+            data-qa="analytics-retry"
+            onClick={retry}
+            style={{ fontFamily: t.sans, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: '1px solid #5a2a2c', borderRadius: 7, padding: '5px 12px', background: 'rgba(248,113,113,.12)', color: '#f5c5c5', whiteSpace: 'nowrap', flexShrink: 0 }}
+          >
+            Retry
+          </button>
         </div>
       )}
 
