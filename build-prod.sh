@@ -16,6 +16,14 @@ OUT_DIR="${OUT_DIR:-dist.new}"
 
 cd "$SCRIPT_DIR"
 
+# #198: the production build MUST gate on the typechecker. `vite build` uses
+# esbuild, which strips types WITHOUT checking them — so a build that only ran
+# `vite build` shipped whether or not `tsc` passed. Run `tsc -b` first and let
+# `set -e` abort the whole build on any type error (identical gate to the
+# committed `npm run build` = `tsc -b && vite build` recipe).
+echo "▶ Typechecking (tsc -b — build gates on this)..."
+npx --yes tsc -b
+
 echo "▶ Building zif-app (production) → ${OUT_DIR}/"
 npx --yes vite build \
   --mode production \
