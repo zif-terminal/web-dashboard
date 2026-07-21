@@ -2,8 +2,8 @@ import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, ActivityFilter, ClosedTrade, Account,
   ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim, LifecycleMap,
   IncomePeriodRow, IncomeFilter, IncomeGrain,
-  PositionBreakdown, BreakdownTotals, LedgerTotals, PositionEvent, SizeReconcileRow,
-  DriftSnapshot, DriftHolding, PnlDailyRow,
+  LedgerTotals, PositionEvent, SizeReconcileRow,
+  DriftSnapshot, DriftHolding, PnlDailyRow, EventStreamRow, EventFilter,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 
@@ -113,23 +113,19 @@ export interface DataSource {
   // header is full period P&L, the list is the positions within the range.
   fetchLedgerTotals(sinceMs: number, untilMs: number): Promise<LedgerTotals>;
 
-  // Grand-total aggregate of the range-scoped breakdown over [since, until] — count + Σ
-  // of the same rows the pages walk. Drives the list Total row + subtitle count.
-  // Reconciles to the header's category cards minus ledger-only events tied to no
-  // position (2026-07-11 range-scope fix, Opt 1).
-  fetchRangeBreakdownTotals(sinceMs: number, untilMs: number): Promise<BreakdownTotals>;
-
-  // One PAGE of the range-scoped per-position breakdown list (2026-07-11 range-scope fix,
-  // Opt 1): positions with a P/L-generating event (realized fill / funding / fee /
-  // interest / reward / hack) in [since, until], each row carrying its IN-RANGE
-  // per-category CONTRIBUTION (Σ of that position's ledger events in the window) — NOT
-  // lifetime. COMPLETE (fully closed) + PARTIAL (open with realized in range), newest
-  // first. Sourced from mat_position_range_breakdown; auto-loaded on 50%-scroll.
-  fetchRangeBreakdown(
-    sinceMs: number,
-    untilMs: number,
-    opts: { limit: number; offset: number },
-  ): Promise<PositionBreakdown[]>;
+  // ── Event-stream drill-down (#256 Stage B) ──────────────────────────────────
+  // The events that SUM TO a clicked breakdown row: agg_event_stream rows within
+  // [sinceDay, untilDay] (inclusive UTC-day bounds on the `day` column) narrowed to
+  // the clicked scope (a bucket type, and/or asset / exch / exchange_account_id).
+  // Each row carries the 6 processor buckets so the client shows each event's
+  // contribution and their Σ (== the breakdown row's total; see eventNet). Bounded
+  // by `limit` (drill scopes are narrow) and newest-first. RLS-scoped by the view.
+  fetchEventStream(
+    sinceDay: string,
+    untilDay: string,
+    filter: EventFilter,
+    limit: number,
+  ): Promise<EventStreamRow[]>;
 
   // ALL contributing events for one position (#223 D: expand a row), ts DESC —
   // every fill/funding/fee/interest/reward/settlement of that position, from

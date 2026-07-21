@@ -586,102 +586,46 @@ export const CLOSED_WINDOW_QUERY = gql`
 `;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PER-POSITION RANGE BREAKDOWN  (Analytics list — 2026-07-11 range-scope fix, Opt 1).
+// EVENT STREAM DRILL-DOWN  (#256 Stage B — the unified breakdown's "click a row to
+// see the events that sum to it").
 //
-// THE BUG THIS FIXES: the old list read `mat_position_breakdown` (LIFETIME per-position
-// buckets) merely FILTERED by last_event_ts. So at 1hr an open position whose last
-// funding tick landed in the window rendered its FULL-LIFE realized P/L (e.g. TAO
-// +$9.4K) and the Total row showed +$19.5K — flatly contradicting the ~$0 range header.
+// Source: `agg_event_stream` — the per-event decomposition view. Each row is ONE
+// contributing event carrying the 6 processor PnL buckets (trade / funding / fee /
+// interest / reward / hack) from position_event_pnl, plus its type / direction /
+// quantity / asset / market_type / account labels / position status. The buckets
+// obey the SAME sign convention as agg_pnl_daily (fee_pnl is a POSITIVE COST the
+// total SUBTRACTS), so an event's net contribution is
+//   trade + funding − fee + interest + reward + hack
+// and SUM(net) over a scope EXACTLY equals that scope's agg_pnl_daily total (verified
+// against prod: asset / exch / account group keys reconcile 0-mismatch). RLS-scoped
+// to the user via exchange_account → wallet → user_wallets → user_id.
 //
-// THE FIX (realized-only): the list is now sourced from the SQL function
-// `mat_position_range_breakdown(p_since, p_until)` which GROUPs the categorized money
-// ledger BY POSITION over [since, until]. Each row is that position's CONTRIBUTION
-// WITHIN THE RANGE — Σ of its ledger events (realized fill / funding / fee / interest /
-// reward / hack) whose ts ∈ [since, until]. A position with no in-range P/L event does
-// NOT appear (1hr with no activity → empty). earliest/last_event_ts are the in-range
-// min/max event ts (NOT the lifetime span).
-//
-// WHY IT RECONCILES TO THE HEADER: the function's per-category sums come from the SAME
-// rows the header sums (`mat_ledger`, category by category) — internally via
-// `mat_position_ledger` (= mat_ledger + a derived position_id, no fan-out). So
-//   Σ(list, category C over range) == Σ(mat_ledger, C over range) − (unattributed C rows)
-// where "unattributed" = ledger-only events tied to no position (the −$342,670 Drift
-// hack, standalone income). That documented remainder is the ONLY legitimate gap between
-// the list Total and the header cards; the footnote explains it.
-//
-// RETURNS SETOF mat_position_breakdown → identical column shape (mapBreakdown reused) and
-// INHERITS mat_position_breakdown's user RLS (exchange_account.wallet.user_wallets.user_id
-// = X-Hasura-User-Id) — verified served under X-Hasura-Role: user. Hasura exposes it as a
-// queryable set (where/order_by/limit/offset) PLUS a `_aggregate` field:
-//   1. PAGE     — mat_position_range_breakdown(args, order_by last_event_ts desc, limit,
-//                 offset): one 50-row page, auto-loaded on 50%-scroll (small payload).
-//   2. TOTALS   — mat_position_range_breakdown_aggregate(args): count + Σ over ALL the
-//                 user's in-range positions in ONE round-trip. The list Total row reads
-//                 THIS (the whole in-range set), so it reconciles to the header's
-//                 category cards minus ledger-only events tied to no position.
-// (We paginate server-side + total via the aggregate — NOT a full pull — because a heavy
-// book has ~1k in-range positions; an all-rows fetch was a 400KB/5s payload.)
-// ─────────────────────────────────────────────────────────────────────────────
-
-// Shared selection set — matches the PositionBreakdown mapper 1:1.
-const BREAKDOWN_FIELDS = `
-  id
-  asset
-  exch
-  account
-  is_partial
-  earliest_event_ts
-  last_event_ts
-  net_pnl
-  trade_pnl
-  funding
-  fees
-  interest
-  rewards
-  hacks
-  exchange_account {
-    wallet {
-      user_wallets {
-        label
-      }
-    }
-  }
-`;
-
-// One PAGE of the range breakdown list (last in-range event DESC, id tiebreak) — positions
-// with a P/L-generating event in [since, until], each carrying its in-range per-category
-// contribution. Auto-loaded on 50%-scroll; the caller bumps offset.
-export const RANGE_BREAKDOWN_QUERY = gql`
-  query RangeBreakdown($since: bigint!, $until: bigint!, $limit: Int!, $offset: Int!) {
-    position_breakdown: mat_position_range_breakdown(
-      args: { p_since: $since, p_until: $until }
-      order_by: [{ last_event_ts: desc }, { id: desc }]
-      limit: $limit
-      offset: $offset
-    ) {
-      ${BREAKDOWN_FIELDS}
-    }
-  }
-`;
-
-// Grand-total aggregate over the WHOLE in-range set — drives the list Total row + the
-// subtitle position count. count + Σ of the same rows the pages walk. Reconciles to the
-// header's category cards minus ledger-only events tied to no position.
-export const RANGE_BREAKDOWN_TOTALS_QUERY = gql`
-  query RangeBreakdownTotals($since: bigint!, $until: bigint!) {
-    mat_position_range_breakdown_aggregate(args: { p_since: $since, p_until: $until }) {
-      aggregate {
-        count
-        sum {
-          net_pnl
-          trade_pnl
-          funding
-          fees
-          interest
-          rewards
-          hacks
-        }
-      }
+// The caller passes a fully-built `where` (day bounds + the clicked scope: an asset /
+// exch / exchange_account_id equality, and/or a single bucket `_neq 0` for a by-type
+// row). Bounded by `limit` (drill scopes are narrow; a hit limit shows a "partial sum"
+// note client-side) and ordered newest-first.
+export const EVENT_STREAM_QUERY = gql`
+  query EventStream($where: agg_event_stream_bool_exp!, $limit: Int!) {
+    agg_event_stream(where: $where, order_by: { created_at: desc }, limit: $limit) {
+      id
+      event_id
+      day
+      created_at
+      event_type
+      direction
+      quantity
+      asset
+      market_type
+      exch
+      account_label
+      exchange_account_id
+      status
+      trade_pnl
+      funding_pnl
+      fee_pnl
+      interest_pnl
+      reward_pnl
+      hack_pnl
     }
   }
 `;
@@ -962,9 +906,16 @@ export const UPSERT_DRIFT_SNAPSHOT = gql`
 // RLS-scoped via exchange_account → wallet → user_wallets → user (same path as
 // mat_positions).
 // ─────────────────────────────────────────────────────────────────────────────
+//
+// STAGE B (#256) REPOINT: the source is now `agg_pnl_daily` (the read-time view
+// the analytics-consolidation work canonicalised — identical column shape to the
+// old mat_pnl_daily, ties to the money identity). We keep the response KEY as
+// `mat_pnl_daily` via a GraphQL field ALIAS so apolloSource (`data.mat_pnl_daily`)
+// and the reallogin QA gate (which reads `data.mat_pnl_daily`) are untouched, and
+// the operationName stays `PnlDaily` (the gate matches on it).
 export const PNL_DAILY_QUERY = gql`
   query PnlDaily($since: date!, $until: date!) {
-    mat_pnl_daily(
+    mat_pnl_daily: agg_pnl_daily(
       where: { day: { _gte: $since, _lte: $until } }
       order_by: { day: asc }
     ) {

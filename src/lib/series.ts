@@ -1,4 +1,5 @@
 import type { Position } from '../types';
+import { hasDisplayableLiq } from './pnl';
 
 export interface Candle { o: number; h: number; l: number; c: number; v: number; }
 
@@ -33,7 +34,9 @@ export function getSeries(p: Position): Candle[] {
 /** Price range for the exit-planner ladder, based only on real position prices. */
 export function priceBounds(p: Position): { mn: number; mx: number } {
   const candidates = [p.entry, p.mark];
-  if (p.liq > 0) candidates.push(p.liq);
+  // Only fold a DISPLAYABLE liq into the y-range — an unreachably-far cross-margin
+  // liq would otherwise blow the exit-planner scale out by hundreds of ×.
+  if (hasDisplayableLiq(p)) candidates.push(p.liq);
   let mn = Math.min(...candidates), mx = Math.max(...candidates);
   // Ensure a visible range even if entry ≈ mark (e.g. just opened)
   const spread = mx - mn || p.mark * 0.05;

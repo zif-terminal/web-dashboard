@@ -7,12 +7,13 @@ import { k, col, usd } from '../lib/format';
 import { useIsMobile } from '../lib/useIsMobile';
 import { windowBounds } from '../data/perfWindow';
 import {
-  PNL_COMPONENTS, bucketRows, groupRows, sumTotals,
-  type GroupRow,
+  PNL_COMPONENTS, bucketRows, groupRows, sumTotals, eventNet, eventContribution,
+  type GroupRow, type ComponentTotals,
 } from '../lib/pnlDaily';
 import { PnlChart } from './PnlChart';
-import { ClosedPositionsSection } from './ClosedPositions';
-import type { PnlDailyRow, PnlGranularity, PnlGroupBy } from '../types';
+import type {
+  PnlDailyRow, PnlGranularity, PnlGroupBy, PnlComponent, EventStreamRow, EventFilter,
+} from '../types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Analytics (#250 rebuild; chart scroll/zoom + layout pass #252). Per
@@ -77,11 +78,16 @@ const GRANS: { k: PnlGranularity; label: string }[] = [
 ];
 
 const GROUP_BYS: { k: PnlGroupBy; label: string }[] = [
-  { k: 'none', label: 'None' },
+  { k: 'none', label: 'Type' },
   { k: 'asset', label: 'Asset' },
   { k: 'exch', label: 'Exchange' },
   { k: 'account', label: 'Account' },
 ];
+
+// How many drill-down events to pull per expanded row. Drill scopes are narrow (one
+// type / asset / exch / account within the range), but funding is dense, so cap the
+// pull; if a scope hits the cap the drill footer flags the Σ as partial.
+const EVENT_LIMIT = 1000;
 
 // Resolve a range mode → concrete [sinceMs, untilMs] from the real-now clock.
 function rangeBounds(mode: RangeMode, custom: { from: string; to: string }, now = Date.now()): { sinceMs: number; untilMs: number } {
@@ -271,13 +277,15 @@ export function Performance() {
         {JSON.stringify(bucketsAsc.map((b) => [b.bucketStart, round2(b.totals.totalPnl), round2(b.totals.hackPnl)]))}
       </div>
 
-      {/* (4) Breakdown — group-by re-slices the SAME mat_pnl_daily rows fetched
-          once for Analytics, no refetch. See the #252 note at the top of this
-          file for why this compact ranked table is not a duplicate of Closed
-          positions below: this sources ALL realized PnL (incl. the Drift hack
-          and funding/interest on still-open positions); Closed positions
-          sources only fully-closed trades. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '30px 0 14px' }}>
+      {/* (4) Breakdown — the UNIFIED section (#256). One list of everything the book
+          made or lost in range: by TYPE (trade / funding / rewards / interest / fees /
+          hacks — which folds in partial + full closes) or grouped by asset / exchange /
+          account. Clicking ANY row drills into the agg_event_stream EVENTS that sum to
+          it. This replaces the old separate Breakdown + Closed-positions sections:
+          closed trades are just the trade-type events on closed positions, reachable by
+          drilling. Every number here comes from the SAME agg_pnl_daily rows fetched once
+          (no refetch on group-by); only the on-demand drill hits the network. */}
+      <div data-qa="breakdown-section" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '30px 0 14px' }}>
         <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>Breakdown</h2>
         <span style={{ flex: 1, minWidth: 8 }} />
         <div data-qa="group-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -286,29 +294,15 @@ export function Performance() {
         </div>
       </div>
 
-      {/* C2: clarify the residual between this table and Closed positions below. */}
       <p style={{ fontSize: 12.5, color: t.mut2, margin: '0 0 14px' }}>
-        Realized PnL in range (includes funding + partial-close PnL on still-open positions). Closed positions below shows only fully-closed trades' lifetime totals.
+        Everything realized in range — trades (partial + full closes), funding, rewards, interest, fees and hacks. Click any row to see the underlying events that sum to it.
       </p>
 
       {anaGroupBy === 'none' ? (
-        <p style={{ fontSize: 12.5, color: t.mut2 }}>Pick Asset, Exchange or Account above to break the totals down further.</p>
+        <TypeBreakdownTable totals={grand} loading={loading} sinceDay={sinceDay} untilDay={untilDay} />
       ) : (
-        <GroupBreakdownTable groups={groups} dim={anaGroupBy} loading={loading} />
+        <GroupBreakdownTable groups={groups} dim={anaGroupBy} loading={loading} sinceDay={sinceDay} untilDay={untilDay} />
       )}
-
-      {/* (5) Closed positions — reuses the existing closed-trades machinery +
-          Overview's Positions grouping/sorting pattern (see ClosedPositions.tsx). */}
-      {/* C1: use the SAME UTC-day-floored window as the Breakdown above. The
-          breakdown filters mat_pnl_daily by whole UTC day (day >= sinceDay),
-          while this list filters closed trades by exact ms; passing the raw
-          bounds.sinceMs/untilMs made the two disagree at the boundary. Floor to
-          the day so both describe the identical [sinceDay 00:00 .. untilDay
-          23:59:59] UTC window. */}
-      <ClosedPositionsSection
-        sinceMs={Date.parse(sinceDay + 'T00:00:00Z')}
-        untilMs={Date.parse(untilDay + 'T23:59:59Z')}
-      />
     </div>
   );
 }
@@ -324,14 +318,61 @@ function rangeLabel(mode: RangeMode): string {
   }
 }
 
-// ── (4) Breakdown table — one row per group, columns = the 6 components +
-// total, sorted by |total| descending (groupRows' own order — biggest movers
-// first, matching Positions' group ordering elsewhere in the app). Flat, no
-// nesting, no per-row chart/expansion — see the #252 note above for why. ─────
+// ── (4a) By-TYPE breakdown — one row per PnL component (trade / funding / rewards /
+// interest / fees / hacks). Each row's value is that component's contribution to the
+// header total; the 6 rows visibly sum to TOTAL PNL. Clicking a row drills into the
+// events that contribute to that bucket (agg_event_stream, <col> _neq 0). ──────────
+const TypeBreakdownTable: React.FC<{ totals: ComponentTotals; loading: boolean; sinceDay: string; untilDay: string }> = ({ totals, loading, sinceDay, untilDay }) => {
+  const perfExpanded = useStore((s) => s.perfExpanded);
+  const togglePerf = useStore((s) => s.togglePerf);
+  const rows = PNL_COMPONENTS.map((c) => ({ comp: c.k, label: c.label, v: totals[c.k] })).filter((r) => r.v !== 0);
+  return (
+    <Card style={{ padding: '4px 6px', overflow: 'hidden' }}>
+      {loading ? (
+        <div style={{ padding: '20px 14px', textAlign: 'center', fontSize: 12.5, color: t.mut }}>Loading…</div>
+      ) : rows.length === 0 ? (
+        <EmptyBreakdown />
+      ) : (
+        rows.map((r) => {
+          const key = `bd:type:${r.comp}`;
+          const expanded = !!perfExpanded[key];
+          return (
+            <div key={r.comp}>
+              <div
+                role="button"
+                data-qa="breakdown-row" data-row-key={`type:${r.comp}`}
+                onClick={() => togglePerf(key)}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '13px 14px', borderBottom: '1px solid #161c21', cursor: 'pointer' }}
+              >
+                <Mono style={{ fontSize: 11, color: t.mut2, width: 9 }}>{expanded ? '▾' : '▸'}</Mono>
+                <span style={{ fontSize: 13.5, fontWeight: 600 }}>{r.label}</span>
+                <span style={{ flex: 1 }} />
+                <Num v={r.v} bold qa="row-total" />
+              </div>
+              {expanded && (
+                <EventDrill
+                  sinceDay={sinceDay} untilDay={untilDay}
+                  filter={{ bucket: r.comp }} mode={r.comp} expected={r.v}
+                />
+              )}
+            </div>
+          );
+        })
+      )}
+    </Card>
+  );
+};
+
+// ── (4b) Grouped breakdown — one row per asset / exchange / account, columns = the 6
+// components + total, sorted by |total| descending. Clicking a row drills into ALL of
+// that group's events (agg_event_stream scoped to the group), whose NET sums to the
+// row Total. Replaces the old flat table + the separate Closed-positions section. ────
 const VGRID = '1.3fr repeat(7,1fr) 1.1fr';
 
-const GroupBreakdownTable: React.FC<{ groups: GroupRow[]; dim: PnlGroupBy; loading: boolean }> = ({ groups, dim, loading }) => {
+const GroupBreakdownTable: React.FC<{ groups: GroupRow[]; dim: PnlGroupBy; loading: boolean; sinceDay: string; untilDay: string }> = ({ groups, dim, loading, sinceDay, untilDay }) => {
   const nameCol = dim === 'account' ? 'Account' : dim === 'exch' ? 'Exchange' : 'Asset';
+  const perfExpanded = useStore((s) => s.perfExpanded);
+  const togglePerf = useStore((s) => s.togglePerf);
   return (
     <Card style={{ padding: '4px 6px', overflowX: 'auto' }}>
       <div style={{ minWidth: 900 }}>
@@ -343,22 +384,38 @@ const GroupBreakdownTable: React.FC<{ groups: GroupRow[]; dim: PnlGroupBy; loadi
         {loading ? (
           <div style={{ padding: '20px 14px', textAlign: 'center', fontSize: 12.5, color: t.mut }}>Loading…</div>
         ) : groups.length === 0 ? (
-          <div style={{ padding: '30px 14px', textAlign: 'center' }}>
-            <div style={{ fontSize: 13.5, fontWeight: 600, color: t.mut }}>No PnL activity in this range</div>
-            <div style={{ fontSize: 12, color: t.mut2, marginTop: 5 }}>Try a wider range above.</div>
-          </div>
+          <EmptyBreakdown />
         ) : (
           groups.map((g) => {
             const dot = dim === 'exch' ? exchMeta[g.key]?.dot : dim === 'account' ? exchMeta[g.exch ?? '']?.dot : undefined;
+            const key = `bd:${dim}:${g.key}`;
+            const expanded = !!perfExpanded[key];
+            // Scope the drill to this group: asset/exch by their key, account by the
+            // exchange_account_id (groupKeyOf uses the id for the 'account' dim).
+            const filter: EventFilter = dim === 'asset' ? { asset: g.key } : dim === 'exch' ? { exch: g.key } : { accountId: g.key };
             return (
-              <div key={g.key} data-qa="group-row-item" data-group-key={g.key} style={{ display: 'grid', gridTemplateColumns: VGRID, gap: 8, padding: 13, borderBottom: '1px solid #161c21', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                  {dot && <span style={{ width: 8, height: 8, borderRadius: 3, background: dot, flexShrink: 0 }} />}
-                  <Mono style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.label}</Mono>
-                  {dim === 'account' && g.exch && <span style={{ fontSize: 10.5, color: t.mut2, flexShrink: 0 }}>{g.exch}</span>}
+              <div key={g.key}>
+                <div
+                  role="button"
+                  data-qa="breakdown-row" data-row-key={`${dim}:${g.key}`}
+                  onClick={() => togglePerf(key)}
+                  style={{ display: 'grid', gridTemplateColumns: VGRID, gap: 8, padding: 13, borderBottom: '1px solid #161c21', alignItems: 'center', cursor: 'pointer' }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                    <Mono style={{ fontSize: 11, color: t.mut2, width: 9, flexShrink: 0 }}>{expanded ? '▾' : '▸'}</Mono>
+                    {dot && <span style={{ width: 8, height: 8, borderRadius: 3, background: dot, flexShrink: 0 }} />}
+                    <Mono style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.label}</Mono>
+                    {dim === 'account' && g.exch && <span style={{ fontSize: 10.5, color: t.mut2, flexShrink: 0 }}>{g.exch}</span>}
+                  </div>
+                  {PNL_COMPONENTS.map((c) => <Num key={c.k} v={g.totals[c.k]} />)}
+                  <Num v={g.totals.totalPnl} bold qa="group-total" />
                 </div>
-                {PNL_COMPONENTS.map((c) => <Num key={c.k} v={g.totals[c.k]} />)}
-                <Num v={g.totals.totalPnl} bold qa="group-total" />
+                {expanded && (
+                  <EventDrill
+                    sinceDay={sinceDay} untilDay={untilDay}
+                    filter={filter} mode="net" expected={g.totals.totalPnl}
+                  />
+                )}
               </div>
             );
           })
@@ -367,6 +424,77 @@ const GroupBreakdownTable: React.FC<{ groups: GroupRow[]; dim: PnlGroupBy; loadi
     </Card>
   );
 };
+
+const EmptyBreakdown: React.FC = () => (
+  <div style={{ padding: '30px 14px', textAlign: 'center' }}>
+    <div style={{ fontSize: 13.5, fontWeight: 600, color: t.mut }}>No PnL activity in this range</div>
+    <div style={{ fontSize: 12, color: t.mut2, marginTop: 5 }}>Try a wider range above.</div>
+  </div>
+);
+
+// ── Drill-down: the agg_event_stream events that sum to the clicked row. `mode` is
+// 'net' (a group row → each event's signed net contribution) or a PnlComponent (a
+// type row → each event's contribution to that one bucket). The footer shows Σ of the
+// shown events, which equals `expected` (the row total) unless the EVENT_LIMIT cap was
+// hit — flagged as partial. data-qa hooks let the deploy gate assert Σ == expected. ──
+const EventDrill: React.FC<{ sinceDay: string; untilDay: string; filter: EventFilter; mode: 'net' | PnlComponent; expected: number }> = ({ sinceDay, untilDay, filter, mode, expected }) => {
+  const [events, setEvents] = useState<EventStreamRow[] | null>(null);
+  const [errored, setErrored] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    setEvents(null); setErrored(false);
+    dataSource.fetchEventStream(sinceDay, untilDay, filter, EVENT_LIMIT)
+      .then((r) => { if (alive) setEvents(r); })
+      .catch((e) => { console.error('[analytics] fetchEventStream failed', e); if (alive) setErrored(true); });
+    return () => { alive = false; };
+  }, [sinceDay, untilDay, JSON.stringify(filter), mode]);
+
+  const valueOf = (e: EventStreamRow): number => (mode === 'net' ? eventNet(e) : eventContribution(e, mode));
+  const shownSum = useMemo(() => (events ?? []).reduce((s, e) => s + valueOf(e), 0), [events, mode]);
+  const capped = !!events && events.length >= EVENT_LIMIT;
+
+  return (
+    <div style={{ background: '#12161a', borderBottom: '1px solid #161c21', padding: '6px 10px 12px' }}>
+      {errored ? (
+        <div style={{ padding: '12px 8px', fontSize: 12, color: '#f5c5c5' }}>Couldn't load events for this row.</div>
+      ) : events === null ? (
+        <div style={{ padding: '12px 8px', fontSize: 12, color: t.mut2 }}>Loading events…</div>
+      ) : events.length === 0 ? (
+        <div style={{ padding: '12px 8px', fontSize: 12, color: t.mut2 }}>No events in this range.</div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <div style={{ minWidth: 620 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: DGRID, gap: 8, padding: '8px 10px 6px' }}>
+              {['Date', 'Type', 'Asset', 'Account', 'Direction', mode === 'net' ? 'Net' : 'Value'].map((c, i) => (
+                <span key={i} style={{ fontSize: 9.5, letterSpacing: '.04em', color: '#6b7682', textTransform: 'uppercase', textAlign: i >= 4 ? 'right' : 'left' }}>{c}</span>
+              ))}
+            </div>
+            {events.map((e) => (
+              <div key={e.id} style={{ display: 'grid', gridTemplateColumns: DGRID, gap: 8, padding: '7px 10px', borderTop: '1px solid #1a2027', alignItems: 'center' }}>
+                <Mono style={{ fontSize: 11, color: t.mut2 }}>{e.day}</Mono>
+                <span style={{ fontSize: 11.5, fontWeight: 600 }}>{e.eventType || '—'}</span>
+                <Mono style={{ fontSize: 11.5 }}>{e.asset || '—'}</Mono>
+                <span style={{ fontSize: 11, color: t.mut2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.accountLabel || e.exch}</span>
+                <span style={{ fontSize: 10.5, color: t.mut2, textAlign: 'right' }}>{e.direction || '—'}</span>
+                <Num v={valueOf(e)} />
+              </div>
+            ))}
+            <div data-qa="drill-sum" data-expected={round2(expected)} data-actual={round2(shownSum)} data-count={events.length} data-capped={capped ? '1' : '0'}
+              style={{ display: 'grid', gridTemplateColumns: DGRID, gap: 8, padding: '9px 10px', borderTop: `1px solid ${t.border}`, alignItems: 'center' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: t.mut, gridColumn: '1 / 5' }}>
+                {events.length} event{events.length === 1 ? '' : 's'}{capped ? ` (first ${EVENT_LIMIT} — Σ is partial)` : ''}
+              </span>
+              <span style={{ fontSize: 10.5, color: t.mut2, textAlign: 'right' }}>Σ</span>
+              <Num v={shownSum} bold />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const DGRID = '0.9fr 0.9fr 0.7fr 1.1fr 0.7fr 0.9fr';
 
 const Num: React.FC<{ v: number; bold?: boolean; qa?: string }> = ({ v, bold, qa }) => (
   <Mono data-qa={qa} title={usd(v)} style={{ fontSize: bold ? 14 : 13, fontWeight: bold ? 600 : 400, textAlign: 'right', color: col(v) }}>{k(v)}</Mono>

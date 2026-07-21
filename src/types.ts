@@ -285,44 +285,6 @@ export interface Wallet {
 }
 
 // ── Per-position breakdown (#223 Analytics rebuild) ──────────────────────────
-// One row of `mat_position_breakdown`: a per-position PnL rollup (source:
-// position_pnl buckets, SAME sign convention as mat_closed_trades). Covers
-// fully-closed positions AND still-OPEN positions with realized PnL from partial
-// closes (isPartial). All ts are epoch-ms. The 7 money fields are already-
-// reconciled buckets — NO new client money math (net = the DB's net_pnl). The
-// Analytics header SUMs these same rows, so header totals == list Σ to the cent.
-export interface PositionBreakdown {
-  id: string;
-  asset: string;
-  exch: string;         // exchanges.display_name
-  wallet: string;       // account label (exchange_accounts.label)
-  walletLabel: string;  // per-user wallet label (user_wallets.label); '' if unset
-  isPartial: boolean;   // true = OPEN position with realized (partial close); false = COMPLETE
-  earliestEventMs: number; // min contributing-event ts (epoch-ms)
-  lastEventMs: number;     // close / max-event ts (epoch-ms) — the sort key (DESC)
-  netPnl: number;
-  tradePnl: number;
-  funding: number;
-  fees: number;
-  interest: number;
-  rewards: number;
-  hacks: number;
-}
-
-// Grand-total aggregate of mat_position_breakdown over a window (drives the
-// Analytics header cards). The SUMs are the already-reconciled per-position
-// buckets — net == Σ netPnl. `count` = positions folded in.
-export interface BreakdownTotals {
-  count: number;
-  netPnl: number;
-  tradePnl: number;
-  funding: number;
-  fees: number;
-  interest: number;
-  rewards: number;
-  hacks: number;
-}
-
 // ── Analytics header totals (#228) ────────────────────────────────────────────
 // The 7-card header sums the FULL LEDGER (mat_ledger) over the selected range —
 // the TRUE period P&L per category — NOT the per-position breakdown. This picks up
@@ -442,6 +404,47 @@ export type PnlComponent =
   | 'tradePnl' | 'fundingPnl' | 'feePnl' | 'interestPnl' | 'rewardPnl' | 'hackPnl';
 export type PnlGranularity = 'day' | 'week' | 'month' | 'year';
 export type PnlGroupBy = 'none' | 'asset' | 'exch' | 'account';
+
+// ── Event-stream drill-down (#256 Stage B) ────────────────────────────────────
+// One row of `agg_event_stream`: a single contributing event, carrying the 6
+// processor PnL buckets. The buckets follow the SAME sign convention as
+// PnlDailyRow — feePnl is the POSITIVE-COST magnitude, so the event's signed net
+// contribution is trade + funding − fee + interest + reward + hack (see
+// eventNet() in lib/pnlDaily.ts). SUM(net) over a scope EXACTLY equals that scope's
+// agg_pnl_daily total, which is what lets the drill-down "visibly sum to" the
+// breakdown row the user clicked.
+export interface EventStreamRow {
+  id: string;
+  eventId: string;
+  day: string;            // UTC day 'YYYY-MM-DD'
+  createdMs: number;      // event time (epoch-ms, from created_at)
+  eventType: string;      // trade / funding / fee / interest / reward / hack / …
+  direction: string;      // buy / sell / … ('' when N/A)
+  quantity: number;
+  asset: string;
+  marketType: string;     // spot / perp / pool
+  exch: string;
+  accountLabel: string;
+  exchangeAccountId: string;
+  status: string;         // owning position status (open / closed)
+  tradePnl: number;
+  fundingPnl: number;
+  feePnl: number;         // POSITIVE COST magnitude (subtracted in net)
+  interestPnl: number;
+  rewardPnl: number;
+  hackPnl: number;
+}
+
+// Server-side filter for the event-stream drill-down (#256). The caller sets the
+// clicked scope; apolloSource folds it into the agg_event_stream `where` alongside
+// the day bounds. All fields optional — a by-TYPE row sets `bucket`; a group row
+// sets asset / exch / accountId. Multiple set fields AND together.
+export interface EventFilter {
+  bucket?: PnlComponent;  // restrict to events contributing to this bucket (<col> _neq 0)
+  asset?: string;         // asset _eq
+  exch?: string;          // exch _eq
+  accountId?: string;     // exchange_account_id _eq
+}
 
 // Short windows + calendar year strings ('2023', '2024', …). Year values are
 // validated at store-init by checking they're 4-digit numeric strings.

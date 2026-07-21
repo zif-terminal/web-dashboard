@@ -7,7 +7,7 @@
 // (#196) is exactly what this file structurally prevents: every breakdown is a
 // GROUP BY over one identical row set, so a breakdown can never disagree with the
 // total (Σ of any grouping == Σ of any other grouping == the grand total).
-import type { PnlComponent, PnlDailyRow, PnlGranularity, PnlGroupBy } from '../types';
+import type { EventStreamRow, PnlComponent, PnlDailyRow, PnlGranularity, PnlGroupBy } from '../types';
 
 // Component display order — matches Jaison's spec verbatim: "trade pnl ... funding,
 // rewards, interest ... hacks, fee[s]". One chip per component; the
@@ -50,6 +50,33 @@ export function sumTotals(rows: PnlDailyRow[]): ComponentTotals {
   for (const r of rows) addInto(acc, r);
   return acc;
 }
+
+// ── event-stream drill-down helpers (#256) ───────────────────────────────────
+// The agg_event_stream columns use the SAME sign convention as agg_pnl_daily:
+// feePnl is a POSITIVE-COST magnitude the total SUBTRACTS. So an event's SIGNED
+// net contribution is trade + funding − fee + interest + reward + hack — identical
+// to totalPnl's identity — and SUM(net) over a scope equals that scope's
+// agg_pnl_daily total exactly (the "visibly sums to it" guarantee).
+export function eventNet(e: EventStreamRow): number {
+  return e.tradePnl + e.fundingPnl - e.feePnl + e.interestPnl + e.rewardPnl + e.hackPnl;
+}
+
+// One event's SIGNED contribution to a single bucket (fees negated, everything
+// else pass-through) — the value shown when a by-TYPE breakdown row is drilled.
+export function eventContribution(e: EventStreamRow, comp: PnlComponent): number {
+  return comp === 'feePnl' ? -e.feePnl : e[comp];
+}
+
+// The agg_event_stream column each PnlComponent maps to — used to build the
+// `<col> _neq 0` where clause that restricts a by-TYPE drill to contributing events.
+export const EVENT_BUCKET_COLUMN: Record<PnlComponent, string> = {
+  tradePnl: 'trade_pnl',
+  fundingPnl: 'funding_pnl',
+  feePnl: 'fee_pnl',
+  interestPnl: 'interest_pnl',
+  rewardPnl: 'reward_pnl',
+  hackPnl: 'hack_pnl',
+};
 
 // ── granularity bucketing ────────────────────────────────────────────────────
 // `day` is already a UTC date string 'YYYY-MM-DD' (the grain is the EVENT's UTC
