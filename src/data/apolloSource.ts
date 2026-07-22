@@ -24,7 +24,7 @@ import type {
   ClosedAgg, ClosedGroupAgg, ClosedWindow, PerfDim, Lifecycle, LifecycleMap,
   IncomePeriodRow, IncomeFilter, IncomeGrain, IncomeCategory,
   LedgerTotals, PositionEvent, SizeReconcileRow,
-  DriftSnapshot, DriftHolding, PnlDailyRow, EventStreamRow, EventFilter,
+  DriftSnapshot, DriftHolding, PnlDailyRow, EventStreamRow,
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 import { shortAddr } from '../lib/format';

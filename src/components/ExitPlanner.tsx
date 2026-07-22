@@ -3,7 +3,7 @@ import { useStore } from '../store/store';
 import { useMutations } from '../store/useMutations';
 import { priceBounds } from '../lib/series';
 import { pnlAt, ladderSummary, hasDisplayableLiq } from '../lib/pnl';
-import { px, kc, k, col, pricePrecision } from '../lib/format';
+import { kc, k, col, pricePrecision } from '../lib/format';
 import { t } from '../ui/theme';
 import { useIsMobile } from '../lib/useIsMobile';
 import { HlOrderActions } from './HlOrderActions';

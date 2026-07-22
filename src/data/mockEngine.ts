@@ -7,7 +7,6 @@ import type {
   IncomePeriodRow, IncomeFilter, IncomeGrain, IncomeCategory, LedgerTotals,
   DriftSnapshot, PnlDailyRow, EventStreamRow, EventFilter, PnlComponent,
 } from '../types';
-import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 import { pnlAt } from '../lib/pnl';
 import { isCashPosition } from '../lib/cash';
 import { realizedNet } from '../lib/income';
