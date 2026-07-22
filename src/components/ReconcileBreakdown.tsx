@@ -68,7 +68,7 @@ function TermRow({ label, value, hint, highlight }: { label: string; value: stri
 // stating AXIS (asset / cash-ledger / valuation) + DIRECTION (from gap sign) +
 // MAGNITUDE + the upload-to-remediate path. Class is chosen in CODE by
 // classifyGap() — NEVER auto-plug (Jaison 2026-07-10). Design §2.3.
-function CauseLine({ a, cls }: { a: Account; cls: GapClass }) {
+function CauseLine({ cls }: { a: Account; cls: GapClass }) {
   const amt = usd(cls.usd);
   let title: React.ReactNode;
   let body: string;

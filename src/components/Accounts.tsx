@@ -11,8 +11,6 @@ import { ReconcileBreakdown } from './ReconcileBreakdown';
 
 const TAGS = ['core', 'hedge', 'long-term', 'degen'];
 
-// Warm-bronze wallet chip — matches the wallet chip on the Positions cards.
-const WALLET_CHIP = { fg: '#d3a574', bd: '#4a3a26', bg: 'rgba(211,165,116,0.10)' } as const;
 
 type BadgeMeta = { label: string; color: string; bg: string; dot: string; detail: string };
 
