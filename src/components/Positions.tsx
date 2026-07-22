@@ -5,6 +5,7 @@ import { t, exchMeta } from '../ui/theme';
 import { k, kc, col, px, usd, shortAddr } from '../lib/format';
 import { exchChipStyle, WALLET_CHIP, ACCOUNT_CHIP, ColorChip, walletLabelOf, accountLabelOf } from '../lib/tags';
 import { distToLiq, hasDisplayableLiq } from '../lib/pnl';
+import { isCashPosition, cashValue } from '../lib/cash';
 import { lifecycleKey } from '../data/DataSource';
 import { ExitPlanner } from './ExitPlanner';
 import { useIsMobile } from '../lib/useIsMobile';
@@ -186,7 +187,12 @@ function accountLabel(p: Position): string {
  * subscription (`s.positions`) is untouched.
  */
 export function PositionsSection() {
-  const positions = useStore((s) => s.positions);
+  const storePositions = useStore((s) => s.positions);
+  const cash = useStore((s) => s.cash);
+  // #213 defence-in-depth: the store already partitions cash out of `positions`,
+  // but re-filter here so this section can NEVER group/aggregate/dust a cash row
+  // even if a future ingest path forgets to split (a cash `units` is a signed $).
+  const positions = useMemo(() => storePositions.filter((p) => !isCashPosition(p)), [storePositions]);
   const posGroup = useStore((s) => s.posGroup);
   const setPosGroup = useStore((s) => s.setPosGroup);
   const posSort = useStore((s) => s.posSort);
@@ -313,10 +319,52 @@ export function PositionsSection() {
         {hiddenGroups.length > 0 && (
           <HiddenGroups groups={hiddenGroups} value={hiddenGroupsValue} />
         )}
+        {/* #213: stablecoin CASH / liabilities — a distinct, display-only strip.
+            NOT tradeable positions (no side/exit/risk); their value is already in
+            equity via mat_portfolio, so nothing here is summed into any total. */}
+        <CashLiabilities rows={cash} />
       </div>
     </section>
   );
 }
+
+/**
+ * Compact "Cash & Liabilities" strip (#213). One line per stablecoin cash row:
+ * exchange · asset · (wallet) · signed USD value. Since mark == 1 the value is the
+ * signed `units` (negative for an over-draw / borrow liability), which renders red
+ * with a "· Liability" tag; a positive cash balance renders neutral. Display-only —
+ * these rows are excluded from every position aggregate/exposure/PnL total.
+ */
+const CashLiabilities: React.FC<{ rows: Position[] }> = ({ rows }) => {
+  if (rows.length === 0) return null;
+  return (
+    <div>
+      <div style={{ fontSize: 10.5, letterSpacing: '.05em', color: t.mut2, textTransform: 'uppercase', marginBottom: 8 }}>
+        Cash &amp; Liabilities
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {rows.map((c) => {
+          const value = cashValue(c);            // mark == 1 → value == units
+          const isLiab = value < 0;
+          // Signed "−$71,404.30" / "$1,234.56" (leading minus glyph, not "$-…").
+          const amount = `${isLiab ? '−' : ''}$${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+          return (
+            <Card key={c.id} style={{ padding: '10px 14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <ColorChip {...exchChipStyle(c.exch)}>{c.exch}</ColorChip>
+                {walletLabel(c) && <ColorChip {...WALLET_CHIP}>{walletLabel(c)}</ColorChip>}
+                <span style={{ flex: 1 }} />
+                <Mono style={{ fontSize: 14, fontWeight: 600, color: isLiab ? t.red : t.text }}>
+                  {c.asset} {amount}{isLiab ? ' · Liability' : ''}
+                </Mono>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
 
 type Group = {
   key: string;
@@ -519,7 +567,10 @@ function PositionRow({ p, groupNegPL }: { p: Position; groupNegPL: number }) {
             </div>
           )}
 
-          <ExitPlanner p={p} />
+          {/* #213: a cash/liability row is never a tradeable position, so it must
+              never render an exit/risk chart. It can't reach here today (cash is
+              partitioned out of the row list), but guard explicitly on a money path. */}
+          {!isCashPosition(p) && <ExitPlanner p={p} />}
         </div>
       )}
     </Card>

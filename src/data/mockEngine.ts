@@ -9,6 +9,7 @@ import type {
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 import { pnlAt } from '../lib/pnl';
+import { isCashPosition } from '../lib/cash';
 import { realizedNet } from '../lib/income';
 import {
   seedPositions, seedLevels, seedOrders, seedWallets, seedClosedTrades, seedActivity,
@@ -75,6 +76,8 @@ export class MockEngine {
 
   private tick() {
     for (const p of this.positions) {
+      // #213 cash/liability rows are pinned at mark=1 / unreal=0 — never drift them.
+      if (isCashPosition(p)) continue;
       const volBps = p.type === 'spot' ? 0.0011 : 0.0016;
       const drift = (Math.random() - 0.5) * 2 * p.mark * volBps;
       p.mark = Math.max(p.mark + drift, p.mark * 0.5);
@@ -88,18 +91,25 @@ export class MockEngine {
   }
 
   private computePortfolio(): Portfolio {
-    const gross = this.positions.reduce((s, p) => s + Math.abs(p.units * p.mark), 0);
-    const netLong = this.positions.reduce((s, p) => s + (p.side === 'LONG' ? 1 : -1) * p.units * p.mark, 0);
-    const unrealTotal = this.positions.reduce((s, p) => s + p.unreal, 0);
+    // #213: exclude cash/liability rows from every exposure/PnL aggregate — their
+    // `units` is a signed dollar amount, not a tradeable size. Mirrors the live
+    // aggregatePortfolio() guard so the mock stays money-neutral too.
+    const tradeable = this.positions.filter((p) => !isCashPosition(p));
+    const gross = tradeable.reduce((s, p) => s + Math.abs(p.units * p.mark), 0);
+    const netLong = tradeable.reduce((s, p) => s + (p.side === 'LONG' ? 1 : -1) * p.units * p.mark, 0);
+    const unrealTotal = tradeable.reduce((s, p) => s + p.unreal, 0);
     const value = 733102 + (unrealTotal - seedPositions.reduce((s, p) => s + p.unreal, 0));
-    const risks = this.positions.filter((p) => p.liq > 0 && Math.abs((p.liq - p.mark) / p.mark) < 0.12).length;
+    const risks = tradeable.filter((p) => p.liq > 0 && Math.abs((p.liq - p.mark) / p.mark) < 0.12).length;
     return { value, change24h: 71300, changePct: 10.78, netLong, gross, risks, unrealTotal };
   }
 
   private emitActivity() {
     const pool = ['FUNDING', 'FILL', 'CLOSE'];
     const act = pool[Math.floor(Math.random() * pool.length)];
-    const p = this.positions[Math.floor(Math.random() * this.positions.length)];
+    // #213: never synthesise trade activity from a cash/liability row.
+    const tradeable = this.positions.filter((p) => !isCashPosition(p));
+    if (tradeable.length === 0) return;
+    const p = tradeable[Math.floor(Math.random() * tradeable.length)];
     const pnl = act === 'CLOSE' ? Math.round((Math.random() - 0.3) * 2000) : act === 'FUNDING' ? Math.round(Math.random() * 120) : 0;
     const ev: ActivityEvent = {
       id: 'act' + Date.now(), ts: Date.now(), act,

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { partitionCash } from '../lib/cash';
 import type {
   Position, Portfolio, Wallet, OrderLevel, RestingOrder, ActivityEvent, Tab, Timeframe, PerfDim, PerfStatus, LifecycleMap,
   DriftSnapshot, PnlGranularity, PnlGroupBy,
@@ -28,7 +29,15 @@ function mergeWallets(server: Wallet[], pending: Wallet[]): Wallet[] {
 }
 
 interface ServerState {
+  // TRADEABLE positions only. #213 cash/liability rows (type === 'cash') are
+  // partitioned OUT here (into `cash` below) at ingest, so every consumer of
+  // `positions` — long/short counts, gross/net exposure, dust, risk/exit charts —
+  // is cash-free by construction and no money total can pick up a cash `units`.
   positions: Position[];
+  // #213 stablecoin CASH / liability rows (negative cash over-draws). Display-only,
+  // rendered in the "Cash & Liabilities" strip; NEVER summed into any exposure/
+  // equity/PnL total (equity already reflects the negative cash via mat_portfolio).
+  cash: Position[];
   portfolio: Portfolio | null;
   // Open-lifecycle enrichment (Stream B, zif #212): the exchange-style per-open
   // fields keyed by lifecycleKey(). The Positions detail looks up its Position's
@@ -248,6 +257,7 @@ function readLastChecked(): number {
 export const useStore = create<StoreState>((set) => ({
   // server
   positions: [],
+  cash: [],
   portfolio: null,
   lifecycle: {},
   wallets: [],
@@ -335,7 +345,15 @@ export const useStore = create<StoreState>((set) => ({
   },
   // server ingest. Stamp lastUpdate on every hot-stream push so the header can
   // detect a stalled feed.
-  _ingestPositions: (positions) => set({ positions, lastUpdate: Date.now() }),
+  // #213: split the raw mat_positions push into tradeable positions vs cash/
+  // liability rows. `positions` (tradeable only) drives ALL exposure/PnL/risk
+  // surfaces; `cash` is display-only. Splitting HERE — the single ingest
+  // chokepoint shared by the live and mock paths — guarantees no downstream
+  // consumer accidentally treats a cash `units` (a signed dollar amount) as size.
+  _ingestPositions: (rows) => {
+    const { positions, cash } = partitionCash(rows);
+    set({ positions, cash, lastUpdate: Date.now() });
+  },
   _ingestPortfolio: (portfolio) => set({ portfolio, lastUpdate: Date.now() }),
   // Lifecycle is a slow-moving enrichment map (not a hot per-tick stream), so it
   // writes straight through — no rAF batching, no lastUpdate stamp.

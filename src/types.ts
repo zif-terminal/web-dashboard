@@ -2,7 +2,11 @@
 // These mirror the shape of the GraphQL documents in src/graphql/operations.ts.
 // In real mode they come from Hasura; in mock mode the engine emits the same shapes.
 
-export type Side = 'LONG' | 'SHORT';
+// 'LIABILITY' is carried ONLY by #213 stablecoin CASH rows (type === 'cash'):
+// a negative-cash over-draw / borrow. It is NOT a tradeable direction — cash rows
+// are partitioned out of the tradeable position list (see lib/cash.ts) before any
+// LONG/SHORT logic runs, so the exposure/PnL math never sees it.
+export type Side = 'LONG' | 'SHORT' | 'LIABILITY';
 export type Exchange = 'Hyperliquid' | 'Lighter' | 'Drift' | 'Variational' | 'Binance';
 export type LadderKind = 'tp' | 'sl';
 export type Accuracy = 'synced' | 'gap' | 'mismatch' | 'pending' | 'nokey';
@@ -30,7 +34,7 @@ export interface Position {
   mark: number;       // live — updated by subscription
   liq: number;
   lev: number;
-  type: string;       // PERP / spot
+  type: string;       // PERP / spot / cash (#213 stablecoin liability, see lib/cash.ts)
   unreal: number;     // live
   realized: number;
   staked?: boolean;   // true for staked-pool bags (mat_positions.asset ended in -POOL);

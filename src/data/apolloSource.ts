@@ -28,6 +28,7 @@ import type {
 } from '../types';
 import type { OmniRawEventInsert } from '../lib/omniCsvParser';
 import { shortAddr } from '../lib/format';
+import { isCashPosition } from '../lib/cash';
 import { getToken } from './authStore';
 import { pushError } from '../lib/errorBus';
 
@@ -130,7 +131,7 @@ const lifecycleMap = (rows: any[]): LifecycleMap => {
  *  - netLong/gross = signed / abs notional from positions (units × mark)
  *  - risks        = # positions inside 10% of liquidation
  */
-const aggregatePortfolio = (rows: any[], positions: Position[]): Portfolio => {
+export const aggregatePortfolio = (rows: any[], positions: Position[]): Portfolio => {
   let value = 0, unrealTotal = 0, eq24 = 0;
   for (const r of rows) {
     value += num(r.equity);
@@ -142,6 +143,10 @@ const aggregatePortfolio = (rows: any[], positions: Position[]): Portfolio => {
 
   let netLong = 0, gross = 0, risks = 0;
   for (const p of positions) {
+    // #213: a cash/liability row (type === 'cash') is NOT tradeable — its `units`
+    // is a signed dollar amount, so summing it into gross/netLong would corrupt
+    // exposure. Skip it (its value already lives in mat_portfolio equity).
+    if (isCashPosition(p)) continue;
     const notional = p.units * p.mark;
     const signed = p.side === 'LONG' ? notional : -notional;
     netLong += signed;
