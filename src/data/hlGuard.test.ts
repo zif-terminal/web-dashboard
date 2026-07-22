@@ -19,7 +19,7 @@ const wallet = (accounts: Account[]): Wallet => ({
 const pos = (over: Partial<Position>): Position => ({
   id: 'p1', exchangeAccountId: 'acc1', asset: 'HYPE', exch: 'Hyperliquid', wallet: 'main',
   walletLabel: '', side: 'LONG', units: 10, entry: 40, mark: 42, liq: 20, lev: 3,
-  type: 'PERP', unreal: 20, realized: 0, ...over,
+  type: 'perp', unreal: 20, realized: 0, ...over,
 });
 
 describe('findAccount', () => {

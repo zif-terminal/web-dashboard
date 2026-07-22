@@ -111,5 +111,5 @@ export function guardPosition(
  * the caller so this stays a pure predicate.)
  */
 export function isOrderablePosition(position: Position): boolean {
-  return position.exch === 'Hyperliquid' && position.type === 'PERP';
+  return position.exch === 'Hyperliquid' && position.type?.toLowerCase() === 'perp';
 }
