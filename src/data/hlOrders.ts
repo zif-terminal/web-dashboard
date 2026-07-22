@@ -21,6 +21,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { ExchangeClient } from '@nktkas/hyperliquid';
+import type { Side } from '../types';
 
 /** True iff the dark-launch flag is explicitly enabled. Default OFF. */
 export function hlOrdersEnabled(): boolean {
@@ -74,8 +75,12 @@ export interface CancelParams {
  * must be on the opposite side of the open position:
  *   LONG  → sell (isBuy=false)
  *   SHORT → buy  (isBuy=true)
+ *
+ * Accepts the full `Side` union for call-site convenience; only perps ever reach
+ * HL order placement, so the #213 'LIABILITY' cash side never arrives here and is
+ * treated like a LONG-close (isBuy=false) purely to satisfy the type.
  */
-export function closingSide(positionSide: 'LONG' | 'SHORT'): boolean {
+export function closingSide(positionSide: Side): boolean {
   return positionSide === 'SHORT';
 }
 

@@ -12,6 +12,11 @@ export const seedPositions: Position[] = [
   { id: 'SOL', asset: 'SOL', exch: 'Lighter', wallet: 'Dad Trading', walletLabel: 'Dad Trading', side: 'LONG', units: 80, entry: 142, mark: 151.2, liq: 96, lev: 3, type: 'PERP', unreal: 736, realized: 40 },
   { id: 'ETH', asset: 'ETH', exch: 'Lighter', wallet: 'Dad Trading', walletLabel: 'Dad Trading', side: 'LONG', units: 4, entry: 3050, mark: 3192, liq: 2400, lev: 3, type: 'PERP', unreal: 568, realized: 30 },
   { id: 'MEGA', asset: 'MEGA', exch: 'Hyperliquid', wallet: 'Main', walletLabel: 'Hype Trading', side: 'SHORT', units: 40000, entry: 0.0612, mark: 0.0461, liq: 0.092, lev: 4, type: 'PERP', unreal: 604, realized: 12 },
+  // #213 stablecoin CASH liability (over-draw): type 'cash', side 'LIABILITY',
+  // signed negative units, entry=mark=1 so value==units, unreal=realized=0. It is
+  // partitioned OUT of the tradeable positions (lib/cash.ts) and rendered in the
+  // "Cash & Liabilities" strip — never counted in any exposure/PnL total.
+  { id: 'USDC-CASH', asset: 'USDC', exch: 'Hyperliquid', wallet: 'Main', walletLabel: 'Hype Trading', side: 'LIABILITY', units: -71404.30, entry: 1, mark: 1, liq: 0, lev: 0, type: 'cash', unreal: 0, realized: 0 },
 ];
 
 export const seedLevels: OrderLevel[] = [
