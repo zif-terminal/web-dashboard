@@ -6,6 +6,7 @@ import { pnlAt, ladderSummary, hasDisplayableLiq } from '../lib/pnl';
 import { px, kc, k, col, pricePrecision } from '../lib/format';
 import { t } from '../ui/theme';
 import { useIsMobile } from '../lib/useIsMobile';
+import { HlOrderActions } from './HlOrderActions';
 import type { Position, OrderLevel, RestingOrder } from '../types';
 
 const LABELW = 148;
@@ -183,6 +184,9 @@ export function ExitPlanner({ p }: { p: Position }) {
             <span style={{ color: t.mut }}>If all TPs fill <b style={{ color: t.green }}>{k(summary.total)}</b> · {summary.cov}% covered</span>
             <span style={{ color: t.mut }}>Stops cap at <b style={{ color: t.red }}>{k(slSummary.total)}</b> · {slSummary.cov}% covered</span>
           </div>
+          {/* #202 reduce-only on-exchange TP/SL (dark behind VITE_ENABLE_HL_ORDERS;
+              renders nothing unless the flag is on AND this is a Hyperliquid PERP) */}
+          <HlOrderActions p={p} />
         </div>
       )}
     </div>
